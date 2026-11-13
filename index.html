@@ -477,6 +477,14 @@ function fbEscuchar() {
     if (d.historial) HISTORIAL_DB = d.historial;
     if (d.ejercicios) EJERCICIOS_DB = d.ejercicios;
     if (d.notif)     NOTIF_DB  = d.notif;
+    // Claves adicionales — escribir directamente a localStorage
+    if (d.mc_hist)   { try{ localStorage.setItem('bfc_mc_hist', JSON.stringify(d.mc_hist)); }catch(e){} }
+    if (d.mc_last)   { try{ localStorage.setItem('bfc_mc_last', JSON.stringify(d.mc_last)); }catch(e){} }
+    if (d.ip_db)     { IP_DB = safeArr(d.ip_db); try{ localStorage.setItem('BFC_IP_DB', JSON.stringify(IP_DB)); }catch(e){} }
+    if (d.gps_cat)   { try{ localStorage.setItem('BFC_GPS_CAT', JSON.stringify(d.gps_cat)); }catch(e){} }
+    if (d.plantilla_disp) { _plantillaDisp = d.plantilla_disp||{}; try{ localStorage.setItem('BFC_PLANTILLA_DISP', JSON.stringify(_plantillaDisp)); }catch(e){} rerender = true; }
+    if (d.campos_extra)   { _bdCamposExtra = safeArr(d.campos_extra); try{ localStorage.setItem('BFC_BD_CAMPOS_EXTRA', JSON.stringify(_bdCamposExtra)); }catch(e){} }
+    if (d.perf_vars_cfg)  { try{ localStorage.setItem('BFC_PERF_VARS_CFG', JSON.stringify(d.perf_vars_cfg)); }catch(e){} }
     // Sincronizar también a localStorage como caché local
     fbVolcarALocalStorage();
     if (rerender) {
@@ -495,13 +503,27 @@ function fbGuardar() {
   if (!fbDB) return;
   clearTimeout(FB_SYNC_TIMEOUT);
   FB_SYNC_TIMEOUT = setTimeout(function() {
+    // Leer datos que solo viven en localStorage (no tienen variable global persistente)
+    var _fbMcHist = []; try{ var _r=localStorage.getItem('bfc_mc_hist'); if(_r) _fbMcHist=JSON.parse(_r)||[]; }catch(e){}
+    var _fbMcLast = null; try{ var _r2=localStorage.getItem('bfc_mc_last'); if(_r2) _fbMcLast=JSON.parse(_r2); }catch(e){}
+    var _fbIpDb = []; try{ var _r3=localStorage.getItem('BFC_IP_DB'); if(_r3) _fbIpDb=JSON.parse(_r3)||[]; }catch(e){}
+    var _fbGpsCat = []; try{ var _r4=localStorage.getItem('BFC_GPS_CAT'); if(_r4) _fbGpsCat=JSON.parse(_r4)||[]; }catch(e){}
+    var _fbPlantDisp = {}; try{ var _r5=localStorage.getItem('BFC_PLANTILLA_DISP'); if(_r5) _fbPlantDisp=JSON.parse(_r5)||{}; }catch(e){}
+    var _fbCamposExtra = []; try{ var _r6=localStorage.getItem('BFC_BD_CAMPOS_EXTRA'); if(_r6) _fbCamposExtra=JSON.parse(_r6)||[]; }catch(e){}
+    var _fbPerfCfg = {}; try{ var _r7=localStorage.getItem('BFC_PERF_VARS_CFG'); if(_r7) _fbPerfCfg=JSON.parse(_r7)||{}; }catch(e){}
     var payload = {
       pl: PL, carga: CARGA, bien: BIEN, neuro: NEURO, evs: EVS,
       jdb: JDB, sdb: SDB, pruebas: PRUEBAS||[], ci_db: CI_DB||[],
       historial: HISTORIAL_DB||[], ejercicios: EJERCICIOS_DB||[],
       notif: NOTIF_DB||[], disp_db: safeArr(DISP_DB),
       expedientes_db: safeArr(EXPEDIENTES_DB),
-      novedades_db: safeArr(NOVEDADES_DB), ts: Date.now()
+      novedades_db: safeArr(NOVEDADES_DB),
+      mc_hist: _fbMcHist, mc_last: _fbMcLast,
+      ip_db: _fbIpDb, gps_cat: _fbGpsCat,
+      plantilla_disp: _fbPlantDisp,
+      campos_extra: _fbCamposExtra,
+      perf_vars_cfg: _fbPerfCfg,
+      ts: Date.now()
     };
     fbDB.ref('bfc').set(payload)
       .then(function() {
@@ -533,7 +555,80 @@ function fbVolcarALocalStorage() {
     if(safeArr(DISP_DB).length>0) localStorage.setItem("BFC_DISP", JSON.stringify(DISP_DB));
     if(safeArr(NOVEDADES_DB).length>0) localStorage.setItem("BFC_NOV", JSON.stringify(NOVEDADES_DB));
     if(safeArr(EXPEDIENTES_DB).length>0) localStorage.setItem("BFC_EXPEDIENTES", JSON.stringify(EXPEDIENTES_DB));
+    if(safeArr(IP_DB).length>0) localStorage.setItem("BFC_IP_DB", JSON.stringify(IP_DB));
+    if(Object.keys(_plantillaDisp||{}).length>0) localStorage.setItem("BFC_PLANTILLA_DISP", JSON.stringify(_plantillaDisp));
+    if(safeArr(_bdCamposExtra).length>0) localStorage.setItem("BFC_BD_CAMPOS_EXTRA", JSON.stringify(_bdCamposExtra));
   } catch(e) {}
+}
+
+// Forzar sincronización inmediata (sin debounce) — sube TODO y luego descarga Firebase
+function fbForzarSync() {
+  if (!fbDB) { showToast('⚠️ Firebase no está conectado'); return; }
+  clearTimeout(FB_SYNC_TIMEOUT);
+  // Leer datos localStorage
+  var _fbMcHist=[]; try{ var _a=localStorage.getItem('bfc_mc_hist'); if(_a) _fbMcHist=JSON.parse(_a)||[]; }catch(e){}
+  var _fbMcLast=null; try{ var _b=localStorage.getItem('bfc_mc_last'); if(_b) _fbMcLast=JSON.parse(_b); }catch(e){}
+  var _fbIpDb=[]; try{ var _c=localStorage.getItem('BFC_IP_DB'); if(_c) _fbIpDb=JSON.parse(_c)||[]; }catch(e){}
+  var _fbGpsCat=[]; try{ var _d=localStorage.getItem('BFC_GPS_CAT'); if(_d) _fbGpsCat=JSON.parse(_d)||[]; }catch(e){}
+  var _fbPlantDisp={}; try{ var _e=localStorage.getItem('BFC_PLANTILLA_DISP'); if(_e) _fbPlantDisp=JSON.parse(_e)||{}; }catch(e){}
+  var _fbCamposExtra=[]; try{ var _f=localStorage.getItem('BFC_BD_CAMPOS_EXTRA'); if(_f) _fbCamposExtra=JSON.parse(_f)||[]; }catch(e){}
+  var _fbPerfCfg={}; try{ var _g=localStorage.getItem('BFC_PERF_VARS_CFG'); if(_g) _fbPerfCfg=JSON.parse(_g)||{}; }catch(e){}
+  var payload = {
+    pl: PL, carga: CARGA, bien: BIEN, neuro: NEURO, evs: EVS,
+    jdb: JDB, sdb: SDB, pruebas: PRUEBAS||[], ci_db: CI_DB||[],
+    historial: HISTORIAL_DB||[], ejercicios: EJERCICIOS_DB||[],
+    notif: NOTIF_DB||[], disp_db: safeArr(DISP_DB),
+    expedientes_db: safeArr(EXPEDIENTES_DB),
+    novedades_db: safeArr(NOVEDADES_DB),
+    mc_hist: _fbMcHist, mc_last: _fbMcLast,
+    ip_db: _fbIpDb, gps_cat: _fbGpsCat,
+    plantilla_disp: _fbPlantDisp,
+    campos_extra: _fbCamposExtra,
+    perf_vars_cfg: _fbPerfCfg,
+    ts: Date.now()
+  };
+  showToast('⏫ Subiendo todos los datos...');
+  fbDB.ref('bfc').set(payload)
+    .then(function() {
+      showToast('✅ Sincronización completa — recargando datos...');
+      var badge = document.getElementById('fb-sync-badge');
+      if (badge) { badge.textContent = '🟢 Sync'; badge.style.color='#34d399'; }
+      // Forzar re-lectura de Firebase
+      return fbDB.ref('bfc').once('value');
+    })
+    .then(function(snap) {
+      if (!snap) return;
+      var d = snap.val();
+      if (!d) return;
+      // Actualizar todas las variables y localStorage
+      if (d.pl)    PL    = d.pl;
+      if (d.carga) CARGA = d.carga;
+      if (d.bien)  BIEN  = d.bien;
+      if (d.neuro) NEURO = d.neuro;
+      if (d.evs)   EVS   = d.evs;
+      if (d.jdb)   JDB   = d.jdb;
+      if (d.sdb)   SDB   = d.sdb;
+      if (d.disp_db) DISP_DB = safeArr(d.disp_db);
+      if (d.expedientes_db) EXPEDIENTES_DB = safeArr(d.expedientes_db);
+      if (d.novedades_db) NOVEDADES_DB = safeArr(d.novedades_db);
+      if (d.historial) HISTORIAL_DB = d.historial;
+      if (d.ejercicios) EJERCICIOS_DB = d.ejercicios;
+      if (d.notif) NOTIF_DB = d.notif;
+      if (d.ip_db) { IP_DB = safeArr(d.ip_db); try{ localStorage.setItem('BFC_IP_DB', JSON.stringify(IP_DB)); }catch(e){} }
+      if (d.mc_hist) { try{ localStorage.setItem('bfc_mc_hist', JSON.stringify(d.mc_hist)); }catch(e){} }
+      if (d.mc_last) { try{ localStorage.setItem('bfc_mc_last', JSON.stringify(d.mc_last)); }catch(e){} }
+      if (d.gps_cat) { try{ localStorage.setItem('BFC_GPS_CAT', JSON.stringify(d.gps_cat)); }catch(e){} }
+      if (d.plantilla_disp) { _plantillaDisp = d.plantilla_disp||{}; try{ localStorage.setItem('BFC_PLANTILLA_DISP', JSON.stringify(_plantillaDisp)); }catch(e){} }
+      if (d.campos_extra) { _bdCamposExtra = safeArr(d.campos_extra); try{ localStorage.setItem('BFC_BD_CAMPOS_EXTRA', JSON.stringify(_bdCamposExtra)); }catch(e){} }
+      if (d.perf_vars_cfg) { try{ localStorage.setItem('BFC_PERF_VARS_CFG', JSON.stringify(d.perf_vars_cfg)); }catch(e){} }
+      fbVolcarALocalStorage();
+      showToast('🔄 Datos actualizados — recargando pantalla...');
+      setTimeout(function(){ renderApp(); }, 500);
+    })
+    .catch(function(e) {
+      console.warn('[BFC Firebase] Error en forzarSync:', e.message);
+      showToast('❌ Error: ' + e.message);
+    });
 }
 </script>
 
@@ -1087,6 +1182,7 @@ function plantillaGuardarDisp(pid, val, obs){
   try{ localStorage.setItem('BFC_PLANTILLA_DISP', JSON.stringify(_plantillaDisp)); }catch(e){}
   // NOTA: NO se escribe en DISP_DB — la Plantilla no tiene autoridad clínica.
   // Solo el área médica/rendimiento (Disponibilidad) toca DISP_DB.
+  fbGuardar(); // sincronizar disponibilidad táctica a Firebase
   renderPlantilla();
 }
 
@@ -1132,15 +1228,15 @@ function plantillaModalDisp(pid){
     html += "<div style='display:flex;gap:8px;margin-bottom:14px;'>";
     [['disponible','✅ Disponible','#22c55e'],['no_disponible','❌ No disponible','#ef4444']].forEach(function(opt){
       var sel = valActual === opt[0];
-      html += "<button onclick='document.querySelectorAll(\".pd-btn\").forEach(function(b){b.style.background=\"rgba(255,255,255,.04)\";b.style.borderColor=\"rgba(255,255,255,.1)\";b.style.color=\"#64748b\"});this.style.background=\""+opt[2]+"22\";this.style.borderColor=\""+opt[2]+"\";this.style.color=\""+opt[2]+"\";document.getElementById(\"pd-obs-row\").style.display=(\""+opt[0]+"\"===\"no_disponible\"?\"block\":\"none\");window._pdSelVal=\""+opt[0]+"\"' "
+      html += "<button onclick='document.querySelectorAll(\".pd-btn\").forEach(function(b){b.style.background=\"rgba(255,255,255,.04)\";b.style.borderColor=\"rgba(255,255,255,.1)\";b.style.color=\"#64748b\"});this.style.background=\""+opt[2]+"22\";this.style.borderColor=\""+opt[2]+"\";this.style.color=\""+opt[2]+"\";window._pdSelVal=\""+opt[0]+"\"' "
         +"class='pd-btn' style='flex:1;padding:10px 8px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;"
         +"border:2px solid "+(sel?opt[2]:'rgba(255,255,255,.1)')+";background:"+(sel?opt[2]+'22':'rgba(255,255,255,.04)')+";color:"+(sel?opt[2]:'#64748b')+";"
         +"'>"+opt[1]+"</button>";
     });
     html += "</div>";
-    html += "<div id='pd-obs-row' style='margin-bottom:14px;display:"+(valActual==='no_disponible'?'block':'none')+"'>";
-    html += "<label style='font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:5px;'>Motivo / Observación</label>";
-    html += "<input id='pd-obs-inp' class='inp' placeholder='Ej: Selección Colombia, Permiso personal, Sanción...' value='"+escHtml(obsActual)+"' style='width:100%;padding:8px 12px;background:#1e293b;border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-size:13px;box-sizing:border-box;'>";
+    html += "<div id='pd-obs-row' style='margin-bottom:14px;'>";
+    html += "<label style='font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:5px;'>Observación <span style=\'color:#475569;font-weight:500;text-transform:none;\'>· visible para todo el staff</span></label>";
+    html += "<input id='pd-obs-inp' class='inp' placeholder='Ej: Carga controlada, viene de lesión, Selección Colombia...' value='"+escHtml(obsActual)+"' style='width:100%;padding:8px 12px;background:#1e293b;border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-size:13px;box-sizing:border-box;'>";
     html += "</div>";
     html += "<div style='display:flex;gap:8px;'>";
     html += "<button onclick='(function(){ var v=window._pdSelVal||\""+valActual+"\"; var o=(document.getElementById(\"pd-obs-inp\")||{}).value||\"\"; plantillaGuardarDisp(\""+pid+"\",v,o); closeModal(); toast(\"Disponibilidad guardada\"); })()' class='btn-y' style='flex:1;border-radius:10px;padding:10px;font-size:13px;'>Guardar</button>";
@@ -1722,7 +1818,11 @@ function renderPlantilla(){
     } else if(ovT && ovT.estado==='no_disponible'){
       h += "<button onclick='plantillaModalDisp(\""+j.id+"\")' title='"+(ovT.obs?escHtml(ovT.obs):'No disponible')+"' style='display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#f87171;background:#ef444418;border:1px solid #ef444444;border-radius:99px;padding:3px 9px;cursor:pointer;'>❌ No disp."+(ovT.obs?' <span style=\"color:#94a3b8;font-weight:500;\">· '+escHtml(ovT.obs.slice(0,18))+(ovT.obs.length>18?'…':'')+'</span>':'')+"></button>";
     } else {
+      var _obsDisp = (ovT && ovT.obs) ? ovT.obs : '';
+      h += "<div style='display:flex;flex-direction:column;gap:3px;'>";
       h += "<button onclick='plantillaModalDisp(\""+j.id+"\")' style='display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#4ade80;background:#22c55e18;border:1px solid #22c55e44;border-radius:99px;padding:3px 9px;cursor:pointer;'>✅ Disponible</button>";
+      if(_obsDisp){ h += "<span style='font-size:9px;color:#fbbf24;font-weight:600;padding:0 4px;'>⚠ "+escHtml(_obsDisp)+"</span>"; }
+      h += "</div>";
     }
     h += "</td>";
     h += "</tr>";
@@ -8189,6 +8289,7 @@ function guardarEntradaManualGPS(){
     ts: Date.now()
   });
   try{ localStorage.setItem('BFC_GPS_CAT', JSON.stringify(gpsDB)); }catch(e){ toast('❌ Error al guardar'); return; }
+  fbGuardar(); // sincronizar GPS a Firebase
   closeModal();
   toast('✅ Datos GPS guardados para '+nombre);
   renderTabActividad && renderTabActividad();
@@ -11405,6 +11506,7 @@ function mcHistGuardar(record){
   }
   if(idx>=0){ hist[idx]=record; } else { hist.unshift(record); }
   try{ localStorage.setItem(BFC_MC_HIST_KEY, JSON.stringify(hist)); }catch(e){}
+  fbGuardar(); // sincronizar microciclos a Firebase
 }
 
 function mcHistEditar(hkey){
@@ -11428,6 +11530,7 @@ function _mcHistEliminarOk(hkey){
   var hist = mcHistLoad();
   hist = hist.filter(function(h){ return h._hkey!==hkey; });
   try{ localStorage.setItem(BFC_MC_HIST_KEY, JSON.stringify(hist)); }catch(e){}
+  fbGuardar(); // sincronizar microciclos a Firebase
   renderMicro();
 }
 
@@ -13096,7 +13199,7 @@ function fbMostrarConfig() {
     h += "<div style='font-size:13px;font-weight:700;color:#34d399;margin-bottom:8px;'>✅ Firebase activo</div>";
     h += "<p style='font-size:12px;color:var(--text-2);'>Los datos se sincronizan automáticamente con la base de datos en la nube cada vez que se guarda algo.</p>";
     h += "</div>";
-    h += "<button class='btn-y' style='width:100%;margin-bottom:8px;' onclick='fbGuardar();showToast(\"Sincronización manual forzada\");closeModal();'>🔄 Forzar sincronización ahora</button>";
+    h += "<button class='btn-y' style='width:100%;margin-bottom:8px;' onclick='fbForzarSync();closeModal();'>🔄 Forzar sincronización ahora</button>";
   }
   h += "<button class='btn' style='width:100%;margin-top:8px;' onclick='closeModal()'>Cerrar</button>";
   h += "</div>";
@@ -15815,6 +15918,7 @@ function ejUsarEnSesionTarea(ejId, tareaIdx){
 
 function histSave(){
   localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB));
+  fbGuardar(); // sincronizar historial sesiones a Firebase
 }
 function histLoad(){
   try{ var d = localStorage.getItem('BFC_HISTORIAL'); if(d) HISTORIAL_DB = JSON.parse(d)||[]; }catch(e){}
@@ -18479,6 +18583,7 @@ function ciParseCatapult(input){
     }
 
     try{ localStorage.setItem('BFC_GPS_CAT', JSON.stringify(gpsDB)); }catch(e){}
+    fbGuardar(); // sincronizar GPS importado a Firebase
     toast('✅ Catapult: '+importados+' registros GPS importados');
 
     // ── ALERTAS AUTOMÁTICAS DE CARGA ───────────────────────────────────
@@ -20647,7 +20752,7 @@ function bfcLimpiarChat(){
 var IP_DB_KEY = 'BFC_IP_DB';
 var IP_DB = [];
 function ipLoad(){ try{ var d=localStorage.getItem(IP_DB_KEY); if(d) IP_DB=JSON.parse(d)||[]; }catch(e){} }
-function ipSave(){ try{ localStorage.setItem(IP_DB_KEY, JSON.stringify(IP_DB)); }catch(e){} }
+function ipSave(){ try{ localStorage.setItem(IP_DB_KEY, JSON.stringify(IP_DB)); }catch(e){} fbGuardar(); }
 
 function renderInformePartido(){
   var el = document.getElementById('page-informepartido');
