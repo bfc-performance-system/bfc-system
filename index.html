@@ -5200,7 +5200,7 @@ function renderProgramacion() {
   // ── CDEF display ──
   function cdefHtml(val) {
     if (!val) return '';
-    var map = { C: ['C','d','e','f'], D: ['c','D','e','f'], E: ['c','d','E','f'], F: ['c','d','e','F'], cdef: ['c','d','e','f'] };
+    var map = { C: ['C','d','e','f'], CD: ['C','D','e','f'], D: ['C','D','e','f'], E: ['c','d','E','f'], F: ['c','d','e','F'], cdef: ['c','d','e','f'], CDEF: ['C','D','E','F'] };
     var letters = map[val] || ['c','d','e','f'];
     var colors  = { C: '#93c5fd', D: '#c4b5fd', E: '#6ee7b7', F: '#fda4af' };
     var out = '';
@@ -5254,13 +5254,22 @@ function renderProgramacion() {
     if (_hasThisWeek) { mcActivo = mce; break; }
   }
 
-  // ── Disponibilidad superficial ──
+  // ── Disponibilidad real (médica + táctica) ──
   var disp = { aptos: 0, dudas: 0, noDisp: 0 };
+  dispLoad();
   plantelAll.forEach(function(j) {
-    var d = DISP_arr.find(function(x){ return x.id === j.id; });
-    var est = d ? (d.estado || 'apto') : 'apto';
-    if (est === 'apto') disp.aptos++;
-    else if (est === 'duda') disp.dudas++;
+    var jid = j.id || j._id || '';
+    // Estado médico del día de hoy
+    var recMed = dispGetEstado(jid, todayStr);
+    var estMed = recMed ? (recMed.estado || 'disponible') : 'disponible';
+    // Override táctico (_plantillaDisp)
+    var ovTac = (typeof _plantillaDisp !== 'undefined') ? (_plantillaDisp[jid] || null) : null;
+    var estFinal = estMed;
+    if (ovTac && ovTac.estado === 'no_disponible') estFinal = 'no_disponible';
+    else if (ovTac && ovTac.estado === 'disponible') estFinal = 'disponible';
+    // Clasificar
+    if (estFinal === 'disponible') disp.aptos++;
+    else if (estFinal === 'restriccion') disp.dudas++;
     else disp.noDisp++;
   });
 
@@ -5290,8 +5299,8 @@ function renderProgramacion() {
   // ── CARDS FILA SUPERIOR ──
   h += "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;padding:20px 28px;'>";
 
-  // Card: Hoy
-  h += "<div style='background:linear-gradient(135deg,rgba(99,102,241,.18),rgba(99,102,241,.06));border:1px solid rgba(99,102,241,.35);border-radius:16px;padding:16px 18px;'>";
+  // Card: Hoy (clickeable → va a sesión)
+  h += "<div onclick=\"irA('sesion')\" style='background:linear-gradient(135deg,rgba(99,102,241,.18),rgba(99,102,241,.06));border:1px solid rgba(99,102,241,.35);border-radius:16px;padding:16px 18px;cursor:pointer;transition:border-color .2s,box-shadow .2s;' onmouseover=\"this.style.borderColor='rgba(99,102,241,.7)';this.style.boxShadow='0 0 0 3px rgba(99,102,241,.15)'\" onmouseout=\"this.style.borderColor='rgba(99,102,241,.35)';this.style.boxShadow='none'\">";
   h += "<div style='font-size:9px;font-weight:800;color:#6366f1;text-transform:uppercase;letter-spacing:.10em;margin-bottom:8px;'>Hoy</div>";
   h += "<div style='font-size:16px;font-weight:900;color:#f1f5f9;margin-bottom:4px;'>" + todayD + " de " + mesNombres[mm] + "</div>";
   if (mcDiaHoy) {
@@ -5318,6 +5327,12 @@ function renderProgramacion() {
   } else if (mcDiaHoy && (mcDiaHoy.carga||'').toLowerCase() === 'alta') {
     h += "<div style='margin-top:6px;font-size:9px;font-weight:800;color:#f97316;background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.25);border-radius:6px;padding:3px 8px;'>↑ CARGA ALTA</div>";
   }
+  // Botón acceso directo a sesión
+  var _sesLabel = sesHoy ? '📋 Ver sesión registrada →' : '➕ Registrar sesión de hoy →';
+  var _sesBg    = sesHoy ? 'rgba(16,185,129,.15)' : 'rgba(99,102,241,.12)';
+  var _sesCol   = sesHoy ? '#6ee7b7' : '#a5b4fc';
+  var _sesBord  = sesHoy ? 'rgba(16,185,129,.35)' : 'rgba(99,102,241,.3)';
+  h += "<div style='margin-top:10px;font-size:9px;font-weight:800;color:" + _sesCol + ";background:" + _sesBg + ";border:1px solid " + _sesBord + ";border-radius:7px;padding:5px 10px;text-align:center;'>" + _sesLabel + "</div>";
   h += "</div>";
 
   // Card: Próximo partido / entrenamiento
@@ -5731,7 +5746,7 @@ function _progExportarMes(vYY, vMM) {
 
     // CDEF
     if(ses && ses.cdefSel){
-      var cdefMap={C:['C','d','e','f'],D:['c','D','e','f'],E:['c','d','E','f'],F:['c','d','e','F'],cdef:['c','d','e','f']};
+      var cdefMap={C:['C','d','e','f'],CD:['C','D','e','f'],D:['C','D','e','f'],E:['c','d','E','f'],F:['c','d','e','F'],cdef:['c','d','e','f'],CDEF:['C','D','E','F']};
       var cdefCols={C:'#93c5fd',D:'#c4b5fd',E:'#6ee7b7',F:'#fda4af'};
       var letters=cdefMap[ses.cdefSel]||['c','d','e','f'];
       var keys=['C','D','E','F'];
@@ -11135,27 +11150,7 @@ function renderMicro(){
       "<button id='mct-fisico' class='btn' onclick='mcGoTabF()'>2. Apartado físico</button>" +
       "<button id='mct-tactico' class='btn' onclick='mcGoTabT()'>3. Apartado táctico</button>" +
     "</div>" +
-    // ── GUÍA RÁPIDA CAMPOS CLAVE ──
-    "<div style='background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.22);border-radius:12px;padding:10px 14px;margin-bottom:14px;'>" +
-      "<div style='display:flex;align-items:center;justify-content:space-between;cursor:pointer;' onclick='mcToggleGuia()'>" +
-        "<span style='font-size:11px;font-weight:800;color:#fbbf24;letter-spacing:.4px;'>🔑 CAMPOS ESENCIALES — completá estos primero</span>" +
-        "<span id='mc-guia-ico' style='font-size:11px;color:#fbbf24;'>▲</span>" +
-      "</div>" +
-      "<div id='mc-guia-body' style='margin-top:10px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;'>" +
-        "<div style='background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.2);border-radius:8px;padding:8px 10px;'>" +
-          "<div style='font-size:9px;font-weight:800;color:#818cf8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;'>📋 Tab 1 — Datos</div>" +
-          "<div style='font-size:10px;color:#c7d2fe;line-height:1.6;'>🔑 N° de microciclo<br>🔑 Fecha inicio y fin<br>🔑 Tipo de cada día<br>🔑 Lugar de entrenamiento</div>" +
-        "</div>" +
-        "<div style='background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.18);border-radius:8px;padding:8px 10px;'>" +
-          "<div style='font-size:9px;font-weight:800;color:#4ade80;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;'>💪 Tab 2 — Físico</div>" +
-          "<div style='font-size:10px;color:#bbf7d0;line-height:1.6;'>🔑 Carga del día (baja/media/alta)<br>🔑 Actividades principales<br>⬜ POST sesión (si aplica)</div>" +
-        "</div>" +
-        "<div style='background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.18);border-radius:8px;padding:8px 10px;'>" +
-          "<div style='font-size:9px;font-weight:800;color:#f87171;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;'>🧠 Tab 3 — Táctico</div>" +
-          "<div style='font-size:10px;color:#fecaca;line-height:1.6;'>🔑 Objetivo del día<br>🔑 Principio táctico<br>⬜ Esquema / formación (opcional)</div>" +
-        "</div>" +
-      "</div>" +
-    "</div>" +
+
     "<div id='mc-pnl-datos'></div>" +
     "<div id='mc-pnl-fisico' style='display:none;'></div>" +
     "<div id='mc-pnl-tactico' style='display:none;'></div>" +
@@ -11212,14 +11207,22 @@ function mcRDatos(){
 
   mcData.forEach(function(d,i){
     var isDesc = d.tipo==="descanso";
+    var _relVal = (d.rel && d.rel !== "DESCANSO") ? d.rel : (isDesc ? "" : "MD");
+    var _relEsManual = !isDesc && _relVal !== "" && relOpts.indexOf(_relVal) === -1;
     rows += "<div style='background:var(--bg-elevated);border-radius:10px;padding:10px;border:1px solid var(--border);'>"
       + mcDayHdr(i)
       + "<div class='fld'><label>Tipo</label><select class='inp' style='font-size:11px;' id='mc-tipo-"+i+"'>"
       + Object.keys(tiposMap).map(function(t){ return "<option value='"+t+"'>"+tiposMap[t]+"</option>"; }).join("")
       + "</select></div>"
-      + "<div class='fld'><label>MD +/-</label><select class='inp' style='font-size:11px;' id='mc-rel-"+i+"'>"
-      + relOpts.map(function(r){ return "<option value='"+r+"'>"+r+"</option>"; }).join("")
-      + "</select></div>"
+      + "<div class='fld'><label>MD +/-</label>"
+      + "<select class='inp' style='font-size:11px;' id='mc-rel-"+i+"' onchange=\"(function(el,idx){var w=document.getElementById('mc-rel-manual-wrap-'+idx);if(el.value==='__manual__'){w.style.display='block';document.getElementById('mc-rel-manual-'+idx).focus();}else{w.style.display='none';mcData[idx].rel=el.value;}})(this,"+i+")\">"
+      + relOpts.map(function(r){ return "<option value='"+r+"'"+(!_relEsManual&&_relVal===r?' selected':'')+">"+r+"</option>"; }).join("")
+      + "<option value='__manual__'"+(_relEsManual?' selected':'')+">✏️ Manual</option>"
+      + "</select>"
+      + "<div id='mc-rel-manual-wrap-"+i+"' style='margin-top:4px;display:"+(_relEsManual?'block':'none')+";'>"
+      + "<input type='text' class='inp' id='mc-rel-manual-"+i+"' style='font-size:11px;font-weight:700;' placeholder='Ej: M1, PRE...' value='"+(_relEsManual?_relVal:'')+"' oninput=\"mcData["+i+"].rel=this.value;\">"
+      + "</div>"
+      + "</div>"
       + (isDesc ? "<div style='text-align:center;font-size:11px;color:#9ca3af;padding:10px 0;'>Sin actividad</div>" :
         d.tipo==="partido" ?
           "<div style='background:rgba(255,255,255,.04);border-radius:8px;padding:8px;border:1px solid rgba(255,255,255,.1);margin-bottom:6px;'><div style='font-size:9px;font-weight:800;color:#fbbf24;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px;'>⚽ Día de partido</div>"
@@ -11267,14 +11270,14 @@ function mcRDatos(){
         mcSaveDatos();
         mcData[i].tipo = this.value;
         if(this.value==="partido") mcData[i].rel="MD";
-        if(this.value==="descanso") mcData[i].rel="DESCANSO";
+        if(this.value==="descanso") mcData[i].rel="";
         mcRDatos();
       };
     }
     var selRel = document.getElementById("mc-rel-"+i);
     if(selRel){
-      selRel.value = d.rel;
-      selRel.onchange = function(){ mcData[i].rel = this.value; };
+      selRel.value = (d.rel && d.rel !== "DESCANSO") ? d.rel : "";
+      selRel.onchange = function(){ if(this.value !== "__manual__") mcData[i].rel = this.value; };
     }
     mcSF("mc-lugar-"+i, d.lugar);
     mcSF("mc-lugent-"+i, d.lugEnt||"");
@@ -11393,22 +11396,31 @@ function mcActualizarDias(){
   // Guardar datos actuales
   mcSaveDatos();
   
-  // Extender o reducir mcData
-  var plantillaDia = function(i){
-    var relDefaults = ["+2","+1","-1","MD","+1","DESCANSO","-3","DESCANSO"];
-    var tiposDefault = ["entrenamiento","entrenamiento","entrenamiento","partido","entrenamiento","descanso","entrenamiento","descanso"];
+  var plantillaDia = function(){
     return {
-      tipo: tiposDefault[i] || "entrenamiento",
-      rel: relDefaults[i] || "+1",
+      tipo:"entrenamiento", rel:"+1",
       lugar:"",lugEnt:"",hRec:"",hLleg:"",hIng:"",hSal:"",obs:"",
       carga:"baja",activ:"",post:false,postDesc:"",
       lugTac:"",contenido:"",obsTac:"",
       rival:"",jornada:"",estadio:"",localVisita:"local",horaPartido:""
     };
   };
-  
-  while(mcData.length < nDias) mcData.push(plantillaDia(mcData.length));
-  if(mcData.length > nDias) mcData = mcData.slice(0, nDias);
+
+  // Remapear por fecha: si se inserta/quita un día al inicio, los datos no se corren
+  if(MC_FECHAS_ACTIVAS.length && MC_FECHAS_ACTIVAS.length === mcData.length){
+    var oldFechas = MC_FECHAS_ACTIVAS.slice();
+    var oldData = mcData.slice();
+    var nuevoMcData = [];
+    for(var ni=0; ni<nDias; ni++){
+      var nf = nuevosDias[ni].fecha;
+      var oIdx = oldFechas.indexOf(nf);
+      nuevoMcData.push(oIdx >= 0 ? oldData[oIdx] : plantillaDia());
+    }
+    mcData = nuevoMcData;
+  } else {
+    while(mcData.length < nDias) mcData.push(plantillaDia());
+    if(mcData.length > nDias) mcData = mcData.slice(0, nDias);
+  }
   
   // Actualizar variables globales
   MC_DIAS_ACTIVOS = nuevosDias.map(function(d){ return d.nombre; });
@@ -11441,20 +11453,27 @@ function mcRenderGridLog(){
   for(var i=0; i<nDias; i++){
     var d = mcData[i] || {tipo:"entrenamiento",rel:"",lugar:"",lugEnt:"",hRec:"",hLleg:"",hIng:"",hSal:"",obs:""};
     var isDesc = d.tipo==="descanso";
+    var isMDDay = d.tipo==="partido";
+    var _relValG = (d.rel && d.rel !== "DESCANSO") ? d.rel : (isDesc ? "" : "MD");
+    var _relEsManualG = !isDesc && _relValG !== "" && relOpts.indexOf(_relValG) === -1;
     var diaNombre = MC_DIAS_ACTIVOS[i] || (MC_DIAS_ACTIVOS[i]||MC_DIAS[i]) || "Dia "+(i+1);
     var fechaDia = MC_FECHAS_ACTIVAS[i] || "";
     var fechaLabel = fechaDia ? " <span style='font-size:9px;opacity:.5;'>(" + fechaDia.slice(8) + "/" + fechaDia.slice(5,7) + ")</span>" : "";
-    
+
     rows += "<div style='background:var(--bg-elevated);border-radius:10px;padding:10px;border:1px solid var(--border);'>"
-      + "<div style='font-size:11px;font-weight:800;color:#e2e8f0;text-align:center;text-transform:uppercase;margin-bottom:4px;padding-bottom:5px;border-bottom:1px solid rgba(255,255,255,.1);background:" + (d.tipo==="partido"?"#0f1623":"rgba(255,255,255,.04)") + ";padding:4px 6px;border-radius:6px;'>" + diaNombre + fechaLabel + "</div>"
-      + ""
+      + "<div style='font-size:11px;font-weight:800;color:#e2e8f0;text-align:center;text-transform:uppercase;margin-bottom:4px;padding-bottom:5px;border-bottom:1px solid rgba(255,255,255,.1);background:" + (isMDDay?"#0f1623":"rgba(255,255,255,.04)") + ";padding:4px 6px;border-radius:6px;'>" + diaNombre + fechaLabel + "</div>"
       + "<div class='fld'><label>Tipo</label><select class='inp' style='font-size:11px;' id='mc-tipo-"+i+"'>"
       + Object.keys(tiposMap).map(function(t){ return "<option value='"+t+"'"+(d.tipo===t?" selected":"")+">" + tiposMap[t] + "</option>"; }).join("")
       + "</select></div>"
-      + "<div class='fld'><label>MD +/-</label><select class='inp' style='font-size:11px;' id='mc-rel-"+i+"'>"
-      + relOpts.map(function(r){ return "<option value='"+r+"'"+(d.rel===r?" selected":"")+">" + r + "</option>"; }).join("")
-      + "</select></div>"
-      + (isDesc ? "<div style='text-align:center;font-size:11px;color:#9ca3af;padding:10px 0;'>Sin actividad</div>" :
+      + "<div class='fld'><label>MD +/-</label><select class='inp' style='font-size:11px;' id='mc-rel-"+i+"' onchange=\"(function(el,idx){var w=document.getElementById('mc-rel-manual-wrap-'+idx);if(el.value==='__manual__'){w.style.display='block';document.getElementById('mc-rel-manual-'+idx).focus();}else{w.style.display='none';mcData[idx].rel=el.value;}})(this,"+i+")\">"
+      + relOpts.map(function(r){ return "<option value='"+r+"'"+(!_relEsManualG&&_relValG===r?" selected":"")+">" + r + "</option>"; }).join("")
+      + "<option value='__manual__'"+(_relEsManualG?" selected":"")+">✏️ Manual</option>"
+      + "</select>"
+      + "<div id='mc-rel-manual-wrap-"+i+"' style='margin-top:4px;display:"+(_relEsManualG?"block":"none")+";'><input type='text' class='inp' id='mc-rel-manual-"+i+"' style='font-size:11px;' placeholder='ej. MD+3, MD-7...' value='"+(_relEsManualG?_relValG:"")+"' oninput=\"mcData["+i+"].rel=this.value;\"></div>"
+      + "</div>"
+      + (isDesc ? "<div style='text-align:center;font-size:11px;color:#9ca3af;padding:10px 0;'>Sin actividad</div>"
+        : isMDDay ? "<div class='fld'><label>Observaciones</label><input type='text' class='inp' style='font-size:11px;' id='mc-obs-"+i+"' value='"+(d.obs||"")+"' placeholder='ej. Presentación 2h antes'></div>"
+        :
           "<div class='fld'><label>Lugar de recorrido</label><input type='text' class='inp' style='font-size:11px;' id='mc-lugar-"+i+"' value='"+(d.lugar||"")+"' placeholder='ej. Bombona'></div>"
         + "<div style='margin:6px 0 2px;border-top:1px solid rgba(255,255,255,.08);padding-top:6px;'><div class='fld'><label style='font-size:9px;font-weight:800;color:#a5b4fc;letter-spacing:.06em;text-transform:uppercase;'>🏟 Lugar de entrenamiento</label><input type='text' class='inp' style='font-size:11px;border-color:rgba(165,180,252,.35);background:rgba(99,102,241,.06);' id='mc-lugent-"+i+"' value='"+(d.lugEnt||"")+"' placeholder='ej. Bombona - cancha 2'></div></div>"
         + "<div class='fld'><label>Inicio recorrido</label><input type='time' class='inp' style='font-size:11px;' id='mc-hrec-"+i+"' value='"+(d.hRec||"")+"'></div>"
@@ -11480,12 +11499,20 @@ function mcRenderGridLog(){
           mcSaveDatos();
           mcData[idx].tipo = this.value;
           if(this.value==="partido") mcData[idx].rel="MD";
-          if(this.value==="descanso") mcData[idx].rel="DESCANSO";
+          if(this.value==="descanso") mcData[idx].rel="";
           // Regenerar el grid y la sección de partido
           mcRDatos();
         };
         var selRel = document.getElementById("mc-rel-"+idx);
-        if(selRel) selRel.onchange = function(){ mcData[idx].rel = this.value; };
+        if(selRel) selRel.onchange = function(){
+          var w = document.getElementById("mc-rel-manual-wrap-"+idx);
+          if(this.value === "__manual__"){
+            if(w){ w.style.display="block"; var inp=document.getElementById("mc-rel-manual-"+idx); if(inp) inp.focus(); }
+          } else {
+            if(w) w.style.display="none";
+            mcData[idx].rel = this.value;
+          }
+        };
       })(j);
     }
   }
@@ -11671,7 +11698,9 @@ function mcSaveDatos(){
     if(!mcData[ii]) mcData[ii] = {};
     var d = mcData[ii];
     var t = mcGFsafe("mc-tipo-"+ii); if(t) d.tipo = t;
-    var r = mcGFsafe("mc-rel-"+ii);  if(r) d.rel  = r;
+    var r = mcGFsafe("mc-rel-"+ii);
+    if(r === "__manual__"){ var rm = mcGFsafe("mc-rel-manual-"+ii); if(rm!=null&&rm.trim()) r = rm.trim(); else r = null; }
+    if(r) d.rel = r;
     if(d.tipo==="partido"){
       var rv=mcGFsafe("mc-rival-"+ii);    if(rv!=null)d.rival=rv;
       var jn=mcGFsafe("mc-jornada-"+ii); if(jn!=null)d.jornada=jn;
@@ -11700,11 +11729,17 @@ function mcRFisico(){
   var rows = "";
 
   mcData.forEach(function(d,i){
-    var isDesc = d.tipo==="descanso";
+    var isDesc = d.tipo==="descanso", isMD = d.tipo==="partido";
     rows += "<div style='background:var(--bg-elevated);border-radius:10px;padding:10px;border:1px solid var(--border);'>"
       + mcDayHdr(i);
     if(isDesc){
       rows += "<div style='text-align:center;font-size:11px;color:#9ca3af;padding:20px 0;'>Sin actividad</div>";
+    } else if(isMD){
+      rows += "<div style='text-align:center;padding:14px 6px;'>"
+        + "<div style='font-size:20px;margin-bottom:6px;'>⚽</div>"
+        + "<div style='font-size:11px;font-weight:800;color:#fbbf24;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;'>Partido</div>"
+        + "<div style='font-size:10px;color:rgba(255,255,255,.45);'>Carga: <span style='color:#f87171;font-weight:700;'>Alta</span> (automático)</div>"
+        + "</div>";
     } else {
       rows += "<div class='fld'><label>Carga</label><select class='inp' style='font-size:11px;' id='mc-carga-"+i+"'>"
         + cargasOpts.map(function(c){ return "<option value='"+c[0]+"'>"+c[1]+"</option>"; }).join("")
@@ -11768,13 +11803,38 @@ function mcRTactico(){
 
   var rows = "";
   mcData.forEach(function(d,i){
-    var isDesc = d.tipo==="descanso";
+    var isDesc = d.tipo==="descanso", isMD = d.tipo==="partido";
     rows += "<div style='background:var(--bg-elevated);border-radius:10px;padding:10px;border:1px solid var(--border);'>"
       + mcDayHdr(i);
     if(isDesc){
       rows += "<div style='text-align:center;font-size:11px;color:#9ca3af;padding:20px 0;'>Sin actividad</div>";
+    } else if(isMD){
+      rows += "<div style='text-align:center;padding:8px 6px;'>"
+        + "<div style='font-size:18px;margin-bottom:6px;'>⚽</div>"
+        + "<div style='font-size:10px;font-weight:800;color:#fbbf24;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;'>Día de partido</div>"
+        + "</div>"
+        + "<div class='fld'><label>CDEF</label>"
+        + "<select class='inp' style='font-size:11px;font-weight:700;cursor:pointer;' id='mc-cdef-"+i+"'>"
+        + "<option value=''>— CDEF —</option>"
+        + "<option value='C'>Cdef — Comunicación</option>"
+        + "<option value='CD'>CDef — Decisión</option>"
+        + "<option value='E'>cdEf — Ejecución</option>"
+        + "<option value='F'>cdeF — Condición Física</option>"
+        + "<option value='cdef'>cdef — Recuperación</option>"
+        + "<option value='CDEF'>CDEF — MD (Partido)</option>"
+        + "</select></div>";
     } else {
-      rows += "<div class='fld'><label>Contenidos tacticos</label>"
+      rows += "<div class='fld'><label>CDEF</label>"
+        + "<select class='inp' style='font-size:11px;font-weight:700;cursor:pointer;' id='mc-cdef-"+i+"'>"
+        + "<option value=''>— CDEF —</option>"
+        + "<option value='C'>Cdef — Comunicación</option>"
+        + "<option value='CD'>CDef — Decisión</option>"
+        + "<option value='E'>cdEf — Ejecución</option>"
+        + "<option value='F'>cdeF — Condición Física</option>"
+        + "<option value='cdef'>cdef — Recuperación</option>"
+        + "<option value='CDEF'>CDEF — MD (Partido)</option>"
+        + "</select></div>"
+        + "<div class='fld'><label>Contenidos tacticos</label>"
         + "<textarea class='inp' style='min-height:90px;font-size:11px;resize:vertical;' id='mc-cont-"+i+"' placeholder='Principios defensivos&#10;Plan de juego&#10;ABP DEF-OF'></textarea></div>"
         + "<div class='fld'><label>Observacion</label><input type='text' class='inp' style='font-size:11px;' id='mc-otac-"+i+"' placeholder='ej. Video motivacional'></div>";
     }
@@ -11792,6 +11852,7 @@ function mcRTactico(){
     + "</div>";
 
   mcData.forEach(function(d,i){
+    mcSF("mc-cdef-"+i, d.cdefTac||"");
     mcSF("mc-cont-"+i, d.contenido);
     mcSF("mc-otac-"+i, d.obsTac);
   });
@@ -11804,9 +11865,10 @@ function mcSaveTactico(){
   var mcGFsafe3 = function(id){ var el=document.getElementById(id); return el ? el.value : null; };
   mcData.forEach(function(d,i){
     if(d.tipo==="descanso") return;
-    var lt=mcGFsafe3("mc-ltac-"+i);  if(lt!=null) d.lugTac    = lt;
-    var ct=mcGFsafe3("mc-cont-"+i);  if(ct!=null) d.contenido = ct;
-    var ot=mcGFsafe3("mc-otac-"+i);  if(ot!=null) d.obsTac    = ot;
+    var lt=mcGFsafe3("mc-ltac-"+i);   if(lt!=null) d.lugTac    = lt;
+    var cd=mcGFsafe3("mc-cdef-"+i);   if(cd!=null) d.cdefTac   = cd;
+    var ct=mcGFsafe3("mc-cont-"+i);   if(ct!=null) d.contenido = ct;
+    var ot=mcGFsafe3("mc-otac-"+i);   if(ot!=null) d.obsTac    = ot;
   });
 }
 
@@ -11915,15 +11977,18 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
   // Header
   h += "<div style='padding:18px 20px 14px;text-align:center;position:relative;background:"+NAV+";border-bottom:3px solid "+NAV2+";'>";
   h += "<img src='"+MC_LOGO+"' style='position:absolute;right:14px;top:12px;width:56px;height:56px;object-fit:contain;'>";
-  h += "<div style='font-size:10px;font-weight:700;color:rgba(255,255,255,.4);letter-spacing:.3em;margin-bottom:4px;text-transform:uppercase;'>BARRANQUILLA FC</div>";
   h += "<div style='font-size:28px;font-weight:900;color:#fff;font-style:italic;letter-spacing:.02em;line-height:1;'>MICROCICLO</div>";
-  if(mcNumMicro) h += "<div style='font-size:11px;font-weight:700;color:rgba(255,255,255,.6);letter-spacing:.15em;margin-top:5px;'>"+mcNumMicro.toUpperCase()+"</div>";
   h += "<div style='font-size:11px;font-weight:600;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.12em;margin-top:6px;'>INFORMACIÓN LOGÍSTICA</div>";
   h += "<div style='margin-top:8px;display:inline-block;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:99px;padding:3px 16px;font-size:10px;color:rgba(255,255,255,.5);letter-spacing:.08em;'>"+semUP+"</div>";
   h += "</div>";
   // Tabla
-  h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;min-width:650px;'>";
-  h += "<tr><th style='width:110px;padding:8px 10px;background:"+CREAM+";border-right:1px solid "+BORDER+";border-bottom:2px solid "+BORDER+";'><span style='font-size:9px;font-weight:800;color:rgba(255,255,255,.75);letter-spacing:.12em;text-transform:uppercase;'>DÍAS</span></th>";
+  var nCols = mcData.length || 7;
+  var colW = Math.max(60, Math.floor((100-13)/nCols));
+  h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;min-width:650px;table-layout:fixed;empty-cells:show;'>";
+  h += "<colgroup><col style='width:110px;'>";
+  mcData.forEach(function(){ h += "<col style='width:"+colW+"px;'>"; });
+  h += "</colgroup>";
+  h += "<tr><th style='width:110px;padding:8px 10px;background:"+CREAM+";border-right:1px solid "+BORDER+";border-bottom:2px solid "+BORDER+";'><span style='font-size:9px;font-weight:800;color:rgba(255,255,255,.75);letter-spacing:.12em;text-transform:uppercase;'>DÍA</span></th>";
   mcData.forEach(function(d,i){
     var isMD=d.tipo==="partido", isDesc=d.tipo==="descanso";
     var thBg = isMD ? NAV : CREAM;
@@ -11942,43 +12007,37 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
     var rowBg = isLugEntRow ? "#1a1f35" : (li%2===0 ? DARK : NAV2);
     var lblBg = isLugEntRow ? "#0f1b3d" : NAV;
     var lblCol = isLugEntRow ? "#a5b4fc" : TXTS;
-    var lblBorder = isLugEntRow ? "1px solid "+BORDER : "1px solid "+BORDER;
-    h += "<tr><td style='padding:6px 10px;background:"+lblBg+";font-size:9px;font-weight:"+(isLugEntRow?"800":"700")+";color:"+lblCol+";text-transform:uppercase;letter-spacing:.06em;border-right:"+lblBorder+";border-bottom:1px solid "+BORDER+";white-space:nowrap;'>"+(isLugEntRow?"🏟 ":"")+lbl+"</td>";
+    h += "<tr><td style='padding:6px 10px;background:"+lblBg+";font-size:9px;font-weight:"+(isLugEntRow?"800":"700")+";color:"+lblCol+";text-transform:uppercase;letter-spacing:.06em;border-right:1px solid "+BORDER+";border-bottom:1px solid "+BORDER+";white-space:nowrap;'>"+(isLugEntRow?"🏟 ":"")+lbl+"</td>";
     mcData.forEach(function(d,i){
       var isDesc=d.tipo==="descanso", isMD=d.tipo==="partido";
+      // Descanso: rowspan sin líneas internas
       if(isDesc){
         if(li===0){ descDone.push(i);
-          h += "<td rowspan='"+LBLS.length+"' style='padding:6px;background:"+NAV+";text-align:center;vertical-align:middle;border-right:1px solid "+BORDER+";'>";
+          h += "<td rowspan='"+LBLS.length+"' style='padding:6px;background:"+NAV+";text-align:center;vertical-align:middle;border-right:1px solid "+BORDER+";border-bottom:none;'>";
           h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.1em;line-height:2;text-align:center;'>D<br>E<br>S<br>C<br>A<br>N<br>S<br>O</div></td>";
         }
         return;
       }
+      // Partido: rowspan con copa + rival + nombre centrado, sin líneas internas
       if(isMD){
-        // Sin rowspan — celda individual por fila, con tinte azul navy
-        var mdCellBg = NAV;
-        var horaPartidoMD = fmtH(d.horaPartido||d.hIng||horaP);
-        var rivalMD = d.rival||rival;
-        var localVMD = d.localVisita==="visitante"?" (Visitante)":" (Local)";
-        var cellVal = "";
-        if(li===0){
-          // Fila 1: logo del rival o trofeo
-          cellVal = mcLogoRival
-            ? "<img src='"+mcLogoRival+"' style='width:28px;height:28px;object-fit:contain;display:block;margin:0 auto;'>"
-            : "<div style='font-size:18px;text-align:center;'>&#127942;</div>";
-        } else if(li===1){
-          // Fila 2: rival
-          cellVal = rivalMD ? "<div style='font-size:9px;font-weight:700;color:rgba(255,255,255,.8);'>"+rivalMD+"</div>" : "";
-        } else if(li===2){
-          // Fila 3: hora del partido
-          cellVal = "<div style='font-size:11px;font-weight:900;color:#fff;'>"+horaPartidoMD+"</div>";
-        } else if(li===3){
-          // Fila 4: local/visitante
-          cellVal = d.localVisita ? "<div style='font-size:8px;color:rgba(255,255,255,.45);'>"+localVMD+"</div>" : "";
-        } else if(li===7){
-          // Fila observaciones: obs del partido
-          cellVal = d.obs ? "<div style='font-size:8px;color:rgba(255,255,255,.5);font-style:italic;'>"+d.obs+"</div>" : "";
+        if(li===0){ mdDone.push(i);
+          var horaPartidoMD = fmtH(d.horaPartido||d.hIng||horaP);
+          var rivalMD = d.rival||rival||"";
+          var jornadaMD = d.jornada||jornada||"";
+          var localVMD = d.localVisita==="visitante"?"Visitante":"Local";
+          var logoHtml = mcLogoRival
+            ? "<img src='"+mcLogoRival+"' style='width:34px;height:34px;object-fit:contain;display:block;margin:0 auto 6px;'>"
+            : "<div style='font-size:26px;text-align:center;margin-bottom:6px;'>&#127942;</div>";
+          h += "<td rowspan='"+LBLS.length+"' style='padding:10px 6px;background:"+NAV+";text-align:center;vertical-align:middle;border-right:1px solid "+BORDER+";border-top:0;border-bottom:0;'>";
+          h += "<div style='display:flex;flex-direction:column;align-items:center;justify-content:center;'>";
+          h += logoHtml;
+          if(rivalMD) h += "<div style='font-size:10px;font-weight:800;color:rgba(255,255,255,.9);margin-bottom:3px;'>"+rivalMD+"</div>";
+          if(jornadaMD) h += "<div style='font-size:9px;font-weight:600;color:#fbbf24;margin-bottom:3px;'>"+jornadaMD+"</div>";
+          if(horaPartidoMD) h += "<div style='font-size:12px;font-weight:900;color:#fff;margin-bottom:3px;'>"+horaPartidoMD+"</div>";
+          h += "<div style='font-size:8px;color:rgba(255,255,255,.4);'>"+localVMD+"</div>";
+          if(d.obs) h += "<div style='font-size:8px;color:rgba(255,255,255,.4);font-style:italic;margin-top:4px;'>"+d.obs+"</div>";
+          h += "</div></td>";
         }
-        h += "<td style='padding:5px 4px;background:"+mdCellBg+";text-align:center;vertical-align:middle;border-right:1px solid "+BORDER+";border-bottom:1px solid rgba(255,255,255,.18);'>"+cellVal+"</td>";
         return;
       }
       var val="";
@@ -11999,7 +12058,8 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
     h += "</tr>";
   });
   h += "</table></div>";
-  h += "<div style='text-align:center;padding:8px;font-size:10px;color:rgba(255,255,255,.4);letter-spacing:.06em;border-top:1px solid "+BORDER+";background:"+NAV+";'>BARRANQUILLA FC</div>";
+  // Footer: limpio (la fecha ya aparece en el encabezado de la tabla)
+  h += "<div style='padding:4px;border-top:1px solid "+BORDER+";background:"+NAV+";'></div>";
   h += "</div>";
   return h;
 }
@@ -12010,7 +12070,6 @@ function mcPL2(sem2,rival,jornada,horaP,estadio){
   var h = "<div style='font-family:Arial,sans-serif;background:"+DARK+";border-radius:14px;border:1px solid rgba(255,255,255,.08);overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.4);'>";
   h += "<div style='background:"+NAV+";padding:14px 20px;text-align:center;border-bottom:3px solid "+NAV2+";position:relative;'>";
   h += "<img src='"+MC_LOGO+"' style='position:absolute;right:14px;top:50%;transform:translateY(-50%);width:46px;height:46px;object-fit:contain;'>";
-  h += "<div style='font-size:10px;font-weight:700;color:rgba(255,255,255,.4);letter-spacing:.3em;margin-bottom:4px;text-transform:uppercase;'>BARRANQUILLA FC</div>";
   h += "<div style='font-size:28px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.02em;line-height:1;'>PROGRAMACI&Oacute;N SEMANAL</div>";
   h += "<div style='font-size:12px;font-weight:600;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.08em;margin-top:4px;'>ENTRENAMIENTO COMPLEMENTARIO</div>";
 
@@ -12021,8 +12080,10 @@ function mcPL2(sem2,rival,jornada,horaP,estadio){
     var colBg = isMD ? NAV : isDesc ? NAV : NAV2;
     var dayCol = "#fff";
     var dayBg = isMD ? "rgba(255,255,255,.15)" : isDesc ? "rgba(255,255,255,.12)" : "rgba(255,255,255,.08)";
+    var relLbl = (!isDesc && d.rel && d.rel!=="") ? d.rel : (isMD ? "MD" : "");
     h += "<div style='padding:12px 8px;min-height:180px;"+br+"border-top:1px solid "+BORDER+";background:"+colBg+";'>";
-    h += "<div style='font-size:10px;font-weight:800;color:"+dayCol+";text-align:center;text-transform:uppercase;padding:3px 6px;border-radius:99px;background:"+dayBg+";margin-bottom:8px;'>"+(MC_DIAS_ACTIVOS[i]||MC_DIAS[i])+"</div>";
+    h += "<div style='font-size:10px;font-weight:800;color:"+dayCol+";text-align:center;text-transform:uppercase;padding:3px 6px;border-radius:99px;background:"+dayBg+";margin-bottom:4px;'>"+(MC_DIAS_ACTIVOS[i]||MC_DIAS[i])+"</div>";
+    if(relLbl) h += "<div style='text-align:center;font-size:9px;font-weight:900;color:"+(isMD?"#fbbf24":"rgba(165,180,252,.85)")+";letter-spacing:.08em;margin-bottom:6px;'>"+relLbl+"</div>";
     if(isDesc){
       h += "<div style='text-align:center;font-weight:800;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.1em;margin-top:16px;line-height:2;'>D<br>E<br>S<br>C<br>A<br>N<br>S<br>O</div>";
     } else if(isViaje){
@@ -12033,11 +12094,9 @@ function mcPL2(sem2,rival,jornada,horaP,estadio){
     } else if(isMD){
       h += "<div style='font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-align:center;'>"+(estadio||"")+"</div>";
       h += "<div style='text-align:center;font-size:24px;margin:6px 0;'>&#127942;</div>";
-      h += "<div style='font-size:10px;font-weight:700;text-align:center;color:rgba(255,255,255,.8);'>"+(rival||"Partido Oficial")+(jornada?"<br><span style='font-weight:400;opacity:.6;'>"+jornada+"</span>":"")+"</div>";
+      h += "<div style='font-size:10px;font-weight:700;text-align:center;color:rgba(255,255,255,.8);'>"+(rival||"Partido Oficial")+"</div>";
+      if(jornada) h += "<div style='font-size:9px;font-weight:600;color:#fbbf24;text-align:center;margin-top:2px;'>"+jornada+"</div>";
       h += "<div style='font-size:13px;font-weight:900;text-align:center;margin-top:6px;color:#fff;'>"+fmtH(d.hIng||horaP)+"</div>";
-      if(d.activ){ var a=d.activ.split("\n").filter(function(x){return x.trim();}); h+="<ul style='font-size:10px;list-style:none;padding:0;margin-top:6px;'>"; a.forEach(function(x){h+="<li style='padding:2px 0 2px 10px;position:relative;color:rgba(255,255,255,.65);'><span style='position:absolute;left:0;color:rgba(255,255,255,.4);'>&#8226;</span>"+x.trim()+"</li>";}); h+="</ul>"; }
-      if(d.post) h += "<div style='margin-top:6px;'><span style='font-size:9px;font-weight:700;border:1px solid rgba(255,255,255,.25);border-radius:4px;padding:2px 8px;color:rgba(255,255,255,.45);'>POST</span></div>";
-      if(d.post&&d.postDesc) h += "<div style='font-size:9px;color:rgba(255,255,255,.4);margin-top:4px;padding:4px 6px;background:rgba(255,255,255,.06);border-radius:4px;border-left:2px solid rgba(255,255,255,.2);'>"+d.postDesc+"</div>";
     } else {
       h += "<div style='text-align:center;margin-bottom:6px;'>"+mcBadge(d.carga)+"</div>";
       if(d.activ){ var a=d.activ.split("\n").filter(function(x){return x.trim();}); h+="<ul style='font-size:10px;list-style:none;padding:0;margin-bottom:6px;'>"; a.forEach(function(x){h+="<li style='padding:2px 0 2px 10px;position:relative;color:"+TXTD+";'><span style='position:absolute;left:0;color:"+TXTS+";'>&#8226;</span>"+x.trim()+"</li>";}); h+="</ul>"; }
@@ -12046,7 +12105,7 @@ function mcPL2(sem2,rival,jornada,horaP,estadio){
     }
     h += "</div>";
   });
-  h += "</div><div style='background:"+NAV+";padding:8px;text-align:center;font-size:10px;color:rgba(255,255,255,.4);border-top:1px solid "+BORDER+";letter-spacing:.06em;'>BARRANQUILLA FC</div></div>";
+  h += "</div><div style='background:"+NAV+";padding:8px;text-align:center;font-size:10px;color:rgba(255,255,255,.4);border-top:1px solid "+BORDER+";letter-spacing:.06em;'>"+sem2+"</div></div>";
   return h;
 }
 
@@ -12056,7 +12115,6 @@ function mcPL3(sem2,rival,jornada,horaP,estadio){
   var h = "<div style='font-family:Arial,sans-serif;background:"+DARK+";border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.08);box-shadow:0 4px 24px rgba(0,0,0,.4);'>";
   h += "<div style='background:"+NAV+";padding:14px 20px;text-align:center;border-bottom:3px solid "+NAV2+";position:relative;'>";
   h += "<img src='"+MC_LOGO+"' style='position:absolute;right:14px;top:50%;transform:translateY(-50%);width:46px;height:46px;object-fit:contain;'>";
-  h += "<div style='font-size:10px;font-weight:700;color:rgba(255,255,255,.4);letter-spacing:.3em;margin-bottom:4px;text-transform:uppercase;'>BARRANQUILLA FC</div>";
   h += "<div style='font-size:28px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.02em;line-height:1;'>PROGRAMACI&Oacute;N SEMANAL</div>";
   h += "<div style='font-size:12px;font-weight:600;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.08em;margin-top:4px;'>PLANIFICACIÓN TÁCTICA</div>";
 
@@ -12066,8 +12124,10 @@ function mcPL3(sem2,rival,jornada,horaP,estadio){
     var br = i<(mcData.length-1) ? "border-right:1px solid "+BORDER+";" : "";
     var colBg = isMD ? NAV : isDesc ? NAV : NAV2;
     var dayBg = isMD ? "rgba(255,255,255,.15)" : isDesc ? "rgba(255,255,255,.12)" : "rgba(255,255,255,.08)";
+    var relLbl3 = (!isDesc && d.rel && d.rel!=="") ? d.rel : (isMD ? "MD" : "");
     h += "<div style='padding:12px 8px;min-height:180px;"+br+"border-top:1px solid "+BORDER+";background:"+colBg+";'>";
-    h += "<div style='font-size:10px;font-weight:800;color:#fff;text-align:center;text-transform:uppercase;padding:3px 6px;border-radius:6px;background:"+dayBg+";margin-bottom:8px;'>"+(MC_DIAS_ACTIVOS[i]||MC_DIAS[i])+"</div>";
+    h += "<div style='font-size:10px;font-weight:800;color:#fff;text-align:center;text-transform:uppercase;padding:3px 6px;border-radius:6px;background:"+dayBg+";margin-bottom:4px;'>"+(MC_DIAS_ACTIVOS[i]||MC_DIAS[i])+"</div>";
+    if(relLbl3) h += "<div style='text-align:center;font-size:9px;font-weight:900;color:"+(isMD?"#fbbf24":"rgba(165,180,252,.85)")+";letter-spacing:.08em;margin-bottom:6px;'>"+relLbl3+"</div>";
     if(isDesc){
       h += "<div style='text-align:center;font-weight:800;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.1em;margin-top:16px;line-height:2;'>D<br>E<br>S<br>C<br>A<br>N<br>S<br>O</div>";
     } else if(isViaje){
@@ -12077,16 +12137,16 @@ function mcPL3(sem2,rival,jornada,horaP,estadio){
     } else if(isMD){
       h += "<div style='font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-align:center;'>"+(estadio||"")+"</div>";
       h += "<div style='text-align:center;font-size:24px;margin:6px 0;'>&#127942;</div>";
-      h += "<div style='font-size:10px;font-weight:700;text-align:center;color:rgba(255,255,255,.8);'>"+(rival||"Partido Oficial")+(jornada?"<br><span style='font-weight:400;opacity:.6;'>"+jornada+"</span>":"")+"</div>";
+      h += "<div style='font-size:10px;font-weight:700;text-align:center;color:rgba(255,255,255,.8);'>"+(rival||"Partido Oficial")+"</div>";
+      if(jornada) h += "<div style='font-size:9px;font-weight:600;color:#fbbf24;text-align:center;margin-top:2px;'>"+jornada+"</div>";
       h += "<div style='font-size:13px;font-weight:900;text-align:center;margin-top:6px;color:#fff;'>"+fmtH(d.hIng||horaP)+"</div>";
-      if(d.contenido){ var c=d.contenido.split("\n").filter(function(x){return x.trim();}); h+="<ul style='font-size:10px;color:rgba(255,255,255,.65);list-style:none;padding:0;margin-top:6px;'>"; c.forEach(function(x){h+="<li style='padding:2px 0 2px 10px;position:relative;'><span style='position:absolute;left:0;color:rgba(255,255,255,.35);'>&#8226;</span>"+x.trim()+"</li>";}); h+="</ul>"; }
     } else {
       if(d.contenido){ var c=d.contenido.split("\n").filter(function(x){return x.trim();}); h+="<ul style='font-size:10px;color:"+TXTD+";list-style:none;padding:0;margin-bottom:6px;'>"; c.forEach(function(x){h+="<li style='padding:2px 0 2px 10px;position:relative;'><span style='position:absolute;left:0;color:"+TXTS+";'>&#8226;</span>"+x.trim()+"</li>";}); h+="</ul>"; }
       if(d.obsTac) h += "<div style='font-size:9px;color:"+TXTS+";margin-top:6px;font-style:italic;border-left:2px solid rgba(255,255,255,.15);padding-left:6px;'>"+d.obsTac+"</div>";
     }
     h += "</div>";
   });
-  h += "</div><div style='background:"+NAV+";padding:8px;text-align:center;font-size:10px;color:rgba(255,255,255,.4);border-top:1px solid "+BORDER+";letter-spacing:.06em;'>BARRANQUILLA FC</div></div>";
+  h += "</div><div style='background:"+NAV+";padding:8px;text-align:center;font-size:10px;color:rgba(255,255,255,.4);border-top:1px solid "+BORDER+";letter-spacing:.06em;'>"+sem2+"</div></div>";
   return h;
 }
 
@@ -14203,7 +14263,12 @@ function sesSave(){
   sesData.numJugadores = gEl("ses-njug")||sesData.numJugadores;
   sesData.tiempo = gEl("ses-tiempo")||sesData.tiempo;
   var codEl = document.getElementById("ses-codigo");
-  sesData.codigo = codEl ? codEl.value : (sesData.codigo||"");
+  var codRaw = codEl ? codEl.value : (sesData.codigo||"");
+  if(codRaw === "__manual__"){
+    var codManEl = document.getElementById("ses-codigo-manual");
+    codRaw = codManEl ? (codManEl.value||"").trim() : "";
+  }
+  sesData.codigo = codRaw;
   // Objetivos (simplificados)
   sesData["ses-tac"] = gEl("ses-tac")||""; sesData["ses-tec"] = gEl("ses-tec")||"";
   sesData["ses-fis"] = gEl("ses-fis")||""; sesData["ses-psi"] = gEl("ses-psi")||"";
@@ -14359,7 +14424,16 @@ function sesAplicarPlantilla(campos){
   sesSave();
   // Mapeo de claves a ids de inputs / campos de sesData
   var mapa = {
-    'codigo':    function(v){ var el=document.getElementById('ses-codigo'); if(el){el.value=v; sesData.codigo=v;} },
+    'codigo':    function(v){
+      var codigoOptsR = ["","MD","MD-1","MD-2","MD-3","MD-4","MD-5","MD-6","MD+1","MD+2"];
+      var el=document.getElementById('ses-codigo');
+      var mw=document.getElementById('ses-codigo-manual-wrap');
+      var mi=document.getElementById('ses-codigo-manual');
+      if(!el) return;
+      if(codigoOptsR.indexOf(v)>=0){ el.value=v; if(mw) mw.style.display='none'; }
+      else if(v){ el.value='__manual__'; if(mw) mw.style.display='block'; if(mi) mi.value=v; }
+      sesData.codigo=v;
+    },
     'cdefSel':   function(v){ var el=document.getElementById('ses-cdef-sel'); if(el){el.value=v; sesData.cdefSel=v;} },
     'tiempo':    function(v){ var el=document.getElementById('ses-tiempo'); if(el){el.value=v; sesData.tiempo=v;} },
     'ses-tac':   function(v){ var el=document.getElementById('ses-tac'); if(el){el.value=v; sesData['ses-tac']=v;} },
@@ -14684,23 +14758,31 @@ function renderSesion(){
   h += "<div class='fld'><label>N° Jugadores</label><input type='number' id='ses-njug' class='inp' value='"+(sesData.numJugadores||"")+"'></div>";
   // Tiempo total
   h += "<div class='fld'><label>Tiempo total</label><input type='text' id='ses-tiempo' class='inp' value='"+(sesData.tiempo||"")+"'></div>";
-  // Código MD
+  // Código MD (selector + campo manual)
   var codigoOpts = ["","MD","MD-1","MD-2","MD-3","MD-4","MD-5","MD-6","MD+1","MD+2"];
+  var _codVal = sesData.codigo || "";
+  var _codEsManual = _codVal !== "" && codigoOpts.indexOf(_codVal) === -1;
   h += "<div class='fld'><label>Código</label>";
-  h += "<select id='ses-codigo' class='inp' style='font-size:11px;font-weight:700;cursor:pointer;'>";
+  h += "<select id='ses-codigo' class='inp' style='font-size:11px;font-weight:700;cursor:pointer;' onchange=\"(function(el){var mw=document.getElementById('ses-codigo-manual-wrap');if(el.value==='__manual__'){mw.style.display='block';document.getElementById('ses-codigo-manual').focus();}else{mw.style.display='none';}})(this)\">";
   codigoOpts.forEach(function(o){
-    var sel = (sesData.codigo||"")=== o ? " selected" : "";
+    var sel = (!_codEsManual && _codVal === o) ? " selected" : "";
     h += "<option value='"+o+"'"+sel+">"+(o||"— Código —")+"</option>";
   });
-  h += "</select></div>";
+  h += "<option value='__manual__'" + (_codEsManual?" selected":"") + ">✏️ Escribir manualmente</option>";
+  h += "</select>";
+  h += "<div id='ses-codigo-manual-wrap' style='margin-top:4px;display:" + (_codEsManual?"block":"none") + ";'>";
+  h += "<input type='text' id='ses-codigo-manual' class='inp' style='font-size:11px;font-weight:700;' placeholder='Ej: M1, PRE-1, TM...' value='" + (_codEsManual ? escHtml(_codVal) : "") + "'>";
+  h += "</div>";
+  h += "</div>";
   // CDEF
   var cdefOpts = [
     ["","— CDEF —"],
-    ["C","CDEF — Comunicación"],
-    ["D","cDEF — Decisión"],
-    ["E","cdEF — Ejecución"],
-    ["F","cdeF — Físico"],
-    ["cdef","cdef — Recuperación"]
+    ["C","Cdef — Comunicación"],
+    ["CD","CDef — Decisión"],
+    ["E","cdEf — Ejecución"],
+    ["F","cdeF — Condición Física"],
+    ["cdef","cdef — Recuperación"],
+    ["CDEF","CDEF — MD (Partido)"]
   ];
   h += "<div class='fld'><label>CDEF</label>";
   h += "<select id='ses-cdef-sel' class='inp' style='font-size:11px;font-weight:700;cursor:pointer;'>";
@@ -15063,7 +15145,7 @@ function sesVerPreview(){
 
     // ── OBJETIVOS + CDEF (5ª columna en la misma tabla) ──
     (function(){
-      var cdefLabels = {C:"CDEF Comunicación",D:"cDEF Decisión",E:"cdEF Ejecución",F:"cdeF Físico","cdef":"cdef Recuperación"};
+      var cdefLabels = {C:"Cdef Comunicación",CD:"CDef Decisión",E:"cdEf Ejecución",F:"cdeF Condición Física","cdef":"cdef Recuperación","CDEF":"CDEF MD Partido"};
       var cdefVal = sesData.cdefSel ? (cdefLabels[sesData.cdefSel]||sesData.cdefSel) : "—";
       return "<table style='width:100%;margin-bottom:6px;border:1px solid #ccc;border-collapse:collapse;'>"+
       "<thead><tr>"+
