@@ -466,7 +466,12 @@ function fbEscuchar() {
     if (d.bien  && JSON.stringify(d.bien)  !== JSON.stringify(BIEN))  { BIEN  = d.bien;  rerender = true; }
     if (d.neuro && JSON.stringify(d.neuro) !== JSON.stringify(NEURO)) { NEURO = d.neuro; rerender = true; }
     if (d.evs   && JSON.stringify(d.evs)   !== JSON.stringify(EVS))   { EVS   = d.evs;   rerender = true; }
-    if (d.jdb   && JSON.stringify(d.jdb)   !== JSON.stringify(JDB))   { JDB   = d.jdb;   rerender = true; }
+    if (d.jdb   && JSON.stringify(d.jdb)   !== JSON.stringify(JDB))   {
+      // Restaurar fotos locales que Firebase no guarda (evita perder fotos al sincronizar)
+      var _localJDB=[]; try{ var _ljs=localStorage.getItem('bfc_jdb'); if(_ljs) _localJDB=JSON.parse(_ljs)||[]; }catch(e){}
+      JDB = safeArr(d.jdb).map(function(fJ){ var lc=_localJDB.find(function(x){ return x.id===fJ.id; }); if(lc&&lc.foto) fJ.foto=lc.foto; return fJ; });
+      rerender = true;
+    }
     if (d.sdb   && JSON.stringify(d.sdb)   !== JSON.stringify(SDB))   { SDB   = d.sdb;   rerender = true; }
     if (d.disp_db && JSON.stringify(d.disp_db) !== JSON.stringify(DISP_DB)) { DISP_DB = safeArr(d.disp_db); try{ localStorage.setItem('BFC_DISP', JSON.stringify(DISP_DB)); }catch(e){} }
     if (d.expedientes_db) { EXPEDIENTES_DB = safeArr(d.expedientes_db); try{ localStorage.setItem('BFC_EXPEDIENTES', JSON.stringify(EXPEDIENTES_DB)); }catch(e){} }
@@ -511,9 +516,11 @@ function fbGuardar() {
     var _fbPlantDisp = {}; try{ var _r5=localStorage.getItem('BFC_PLANTILLA_DISP'); if(_r5) _fbPlantDisp=JSON.parse(_r5)||{}; }catch(e){}
     var _fbCamposExtra = []; try{ var _r6=localStorage.getItem('BFC_BD_CAMPOS_EXTRA'); if(_r6) _fbCamposExtra=JSON.parse(_r6)||[]; }catch(e){}
     var _fbPerfCfg = {}; try{ var _r7=localStorage.getItem('BFC_PERF_VARS_CFG'); if(_r7) _fbPerfCfg=JSON.parse(_r7)||{}; }catch(e){}
+    // Strip foto (base64) de JDB antes de enviar a Firebase para evitar exceder el límite de 10MB
+    var jdbSinFotos = (JDB||[]).map(function(j){ var c=Object.assign({},j); delete c.foto; return c; });
     var payload = {
       pl: PL, carga: CARGA, bien: BIEN, neuro: NEURO, evs: EVS,
-      jdb: JDB, sdb: SDB, pruebas: PRUEBAS||[], ci_db: CI_DB||[],
+      jdb: jdbSinFotos, sdb: SDB, pruebas: PRUEBAS||[], ci_db: CI_DB||[],
       historial: HISTORIAL_DB||[], ejercicios: EJERCICIOS_DB||[],
       notif: NOTIF_DB||[], disp_db: safeArr(DISP_DB),
       expedientes_db: safeArr(EXPEDIENTES_DB),
@@ -573,9 +580,11 @@ function fbForzarSync() {
   var _fbPlantDisp={}; try{ var _e=localStorage.getItem('BFC_PLANTILLA_DISP'); if(_e) _fbPlantDisp=JSON.parse(_e)||{}; }catch(e){}
   var _fbCamposExtra=[]; try{ var _f=localStorage.getItem('BFC_BD_CAMPOS_EXTRA'); if(_f) _fbCamposExtra=JSON.parse(_f)||[]; }catch(e){}
   var _fbPerfCfg={}; try{ var _g=localStorage.getItem('BFC_PERF_VARS_CFG'); if(_g) _fbPerfCfg=JSON.parse(_g)||{}; }catch(e){}
+  // Strip foto (base64) de JDB para no exceder el límite de Firebase
+  var jdbSinFotosForzar = (JDB||[]).map(function(j){ var c=Object.assign({},j); delete c.foto; return c; });
   var payload = {
     pl: PL, carga: CARGA, bien: BIEN, neuro: NEURO, evs: EVS,
-    jdb: JDB, sdb: SDB, pruebas: PRUEBAS||[], ci_db: CI_DB||[],
+    jdb: jdbSinFotosForzar, sdb: SDB, pruebas: PRUEBAS||[], ci_db: CI_DB||[],
     historial: HISTORIAL_DB||[], ejercicios: EJERCICIOS_DB||[],
     notif: NOTIF_DB||[], disp_db: safeArr(DISP_DB),
     expedientes_db: safeArr(EXPEDIENTES_DB),
@@ -606,7 +615,15 @@ function fbForzarSync() {
       if (d.bien)  BIEN  = d.bien;
       if (d.neuro) NEURO = d.neuro;
       if (d.evs)   EVS   = d.evs;
-      if (d.jdb)   JDB   = d.jdb;
+      if (d.jdb) {
+        // Restaurar fotos desde localStorage (Firebase no las guarda por tamaño)
+        var localJDB = []; try{ var _lj=localStorage.getItem('bfc_jdb'); if(_lj) localJDB=JSON.parse(_lj)||[]; }catch(e){}
+        JDB = safeArr(d.jdb).map(function(fbJ){
+          var local = localJDB.find(function(l){ return l.id===fbJ.id; });
+          if(local && local.foto) fbJ.foto = local.foto;
+          return fbJ;
+        });
+      }
       if (d.sdb)   SDB   = d.sdb;
       if (d.disp_db) DISP_DB = safeArr(d.disp_db);
       if (d.expedientes_db) EXPEDIENTES_DB = safeArr(d.expedientes_db);
@@ -1293,7 +1310,7 @@ function plantillaLinea(pos){
 
 var _LINEA_LABELS = {
   POR:'Portero', LD:'Lat. Der.', LI:'Lat. Izq.', CD:'Central Der.', CI:'Central Izq.',
-  MCD:'Volante Def.', VD:'Vol. Interior Der.', VI:'Vol. Interior Izq.', MCO:'Enganche',
+  MCD:'Medio Centro', VD:'Vol. Interior Der.', VI:'Vol. Interior Izq.', MCO:'Media Punta',
   ED:'Extremo Der.', EI:'Extremo Izq.', DC:'Delantero Centro', OTRO:'Otro'
 };
 
@@ -1848,7 +1865,7 @@ function plantillaAgregarManual(){
   var html = "<div style='padding:24px;max-width:400px;'>";
   html += "<div style='font-size:16px;font-weight:900;color:#fff;margin-bottom:16px;'>➕ Agregar jugador a sesión</div>";
   html += "<div style='font-size:11px;color:#64748b;margin-bottom:16px;'>Para sub-20, jugadores a prueba u otros que no están en el plantel registrado.</div>";
-  var posOpts = ['Portero','Lateral Derecho','Lateral Izquierdo','Central Derecho','Central Izquierdo','Volante Defensivo','Volante Interior Derecho','Volante Interior Izquierdo','Enganche','Extremo Derecho','Extremo Izquierdo','Delantero Centro'];
+  var posOpts = ['Portero','Lateral Derecho','Lateral Izquierdo','Central Derecho','Central Izquierdo','Medio Centro','Volante Interior Derecho','Volante Interior Izquierdo','Media Punta','Extremo Derecho','Extremo Izquierdo','Delantero Centro'];
   html += "<div class='fld' style='margin-bottom:10px;'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Nombre *</label><input id='pm-n' class='inp' placeholder='Carlos Amaya' style='width:100%;padding:8px 12px;background:#1e293b;border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-size:13px;'></div>";
   html += "<div class='fld' style='margin-bottom:10px;'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Número</label><input id='pm-num' type='number' class='inp' placeholder='99' min='1' max='99' style='width:100%;padding:8px 12px;background:#1e293b;border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-size:13px;'></div>";
   html += "<div class='fld' style='margin-bottom:10px;'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Posición</label><select id='pm-p' class='inp' style='width:100%;padding:8px 12px;background:#1e293b;border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-size:13px;'>";
@@ -2114,8 +2131,8 @@ function plantillaEditarJugador(jid){
 
   var posOpts = [
     'Portero','Lateral Derecho','Lateral Izquierdo','Central Derecho','Central Izquierdo',
-    'Volante Defensivo','Volante Interior Derecho','Volante Interior Izquierdo',
-    'Enganche','Extremo Derecho','Extremo Izquierdo','Delantero Centro'
+    'Medio Centro','Volante Interior Derecho','Volante Interior Izquierdo',
+    'Media Punta','Extremo Derecho','Extremo Izquierdo','Delantero Centro'
   ];
 
   var html = "<div style='padding:24px;max-width:500px;'>";
@@ -3125,10 +3142,10 @@ function convocatoriaGenerar(){
               ['Portero','Portero'],
               ['Lateral Derecho','Lateral Derecho'],['Lateral Izquierdo','Lateral Izquierdo'],
               ['Central Derecho','Central Derecho'],['Central Izquierdo','Central Izquierdo'],
-              ['Volante Defensivo','Volante Defensivo'],
+              ['Medio Centro','Medio Centro'],
               ['Volante Interior Derecho','Volante Interior Derecho'],
               ['Volante Interior Izquierdo','Volante Interior Izquierdo'],
-              ['Enganche','Enganche'],
+              ['Media Punta','Media Punta'],
               ['Extremo Derecho','Extremo Derecho'],['Extremo Izquierdo','Extremo Izquierdo'],
               ['Delantero Centro','Delantero Centro']
             ].map(function(o){
@@ -6642,7 +6659,7 @@ function renderPlantel() {
 function modalAgregarJugador() {
   var html = "<div class=\"modal-title\">Agregar jugador</div>";
   html += "<div class=\"g3\"><div class=\"fld\"><label>Nombre *</label><input id=\"ap-n\" class=\"inp\" placeholder=\"Carlos Amaya\"></div>";
-  html += "<div class=\"fld\"><label>Posicion</label><select id=\"ap-p\" class=\"inp\"><option value=\"\">-- Seleccionar posición --</option><option>Portero</option><option>Lateral Derecho</option><option>Lateral Izquierdo</option><option>Central Derecho</option><option>Central Izquierdo</option><option>Volante Defensivo</option><option>Volante Interior Derecho</option><option>Volante Interior Izquierdo</option><option>Enganche</option><option>Extremo Derecho</option><option>Extremo Izquierdo</option><option>Delantero Centro</option></select></div>";
+  html += "<div class=\"fld\"><label>Posicion</label><select id=\"ap-p\" class=\"inp\"><option value=\"\">-- Seleccionar posición --</option><option>Portero</option><option>Lateral Derecho</option><option>Lateral Izquierdo</option><option>Central Derecho</option><option>Central Izquierdo</option><option>Medio Centro</option><option>Volante Interior Derecho</option><option>Volante Interior Izquierdo</option><option>Media Punta</option><option>Extremo Derecho</option><option>Extremo Izquierdo</option><option>Delantero Centro</option></select></div>";
   html += "<div class=\"fld\"><label>Numero</label><input type=\"number\" id=\"ap-num\" class=\"inp\" placeholder=\"9\" min=\"1\" max=\"99\"></div>";
   html += "<div class=\"fld\"><label>CMJ baseline (cm)</label><input type=\"number\" id=\"ap-cmj\" class=\"inp\" placeholder=\"40\" step=\"0.1\"></div>";
   html += "<div class=\"fld\"><label>Dist. partido (m)</label><input type=\"number\" id=\"ap-dist\" class=\"inp\" placeholder=\"9800\"></div>";
@@ -11115,8 +11132,8 @@ function renderMicro(){
     "</div>" +
     "<div style='display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;align-items:center;'>" +
       "<button id='mct-datos' class='btn' onclick='mcGoTabD()'>1. Datos generales</button>" +
-      "<button id='mct-fisico' class='btn' onclick='mcGoTabF()'>2. Parte física</button>" +
-      "<button id='mct-tactico' class='btn' onclick='mcGoTabT()'>3. Parte táctica</button>" +
+      "<button id='mct-fisico' class='btn' onclick='mcGoTabF()'>2. Apartado físico</button>" +
+      "<button id='mct-tactico' class='btn' onclick='mcGoTabT()'>3. Apartado táctico</button>" +
     "</div>" +
     // ── GUÍA RÁPIDA CAMPOS CLAVE ──
     "<div style='background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.22);border-radius:12px;padding:10px 14px;margin-bottom:14px;'>" +
@@ -11204,14 +11221,19 @@ function mcRDatos(){
       + relOpts.map(function(r){ return "<option value='"+r+"'>"+r+"</option>"; }).join("")
       + "</select></div>"
       + (isDesc ? "<div style='text-align:center;font-size:11px;color:#9ca3af;padding:10px 0;'>Sin actividad</div>" :
-        "<div class='fld'><label>Lugar de recorrido</label><input type='text' class='inp' style='font-size:11px;' id='mc-lugar-"+i+"' placeholder='ej. Bombona'></div>"
-        + (d.tipo==="partido" ? "<div class='fld'><label style='font-weight:700;'>Hora del partido</label><input type='time' class='inp' style='font-size:11px;' id='mc-horapart-"+i+"' value='17:00'></div>" : "")
-        + "<div style='margin:6px 0 2px;border-top:1px solid rgba(255,255,255,.08);padding-top:6px;'><div class='fld'><label style='font-size:9px;font-weight:800;color:#a5b4fc;letter-spacing:.06em;text-transform:uppercase;'>🏟 Lugar de entrenamiento</label><input type='text' class='inp' style='font-size:11px;border-color:rgba(165,180,252,.35);background:rgba(99,102,241,.06);' id='mc-lugent-"+i+"' placeholder='ej. Bombona - cancha 2'></div></div>"
-        + "<div class='fld'><label>Inicio recorrido</label><input type='time' class='inp' style='font-size:11px;' id='mc-hrec-"+i+"'></div>"
-        + "<div class='fld'><label>Llegada</label><input type='time' class='inp' style='font-size:11px;' id='mc-hleg-"+i+"'></div>"
-        + "<div class='fld'><label>Ingesta</label><input type='time' class='inp' style='font-size:11px;' id='mc-hing-"+i+"'></div>"
-        + "<div class='fld'><label>Salida</label><input type='time' class='inp' style='font-size:11px;' id='mc-hsal-"+i+"'></div>"
-        + "<div class='fld'><label>Observaciones</label><input type='text' class='inp' style='font-size:11px;' id='mc-obs-"+i+"' placeholder='ej. Crioterapia'></div>"
+        d.tipo==="partido" ?
+          "<div style='background:rgba(255,255,255,.04);border-radius:8px;padding:8px;border:1px solid rgba(255,255,255,.1);margin-bottom:6px;'><div style='font-size:9px;font-weight:800;color:#fbbf24;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px;'>⚽ Día de partido</div>"
+          + "<div class='fld'><label style='font-weight:700;'>Hora del partido</label><input type='time' class='inp' style='font-size:11px;' id='mc-horapart-"+i+"' value='17:00'></div>"
+          + "</div>"
+          + "<div class='fld'><label>Observaciones</label><input type='text' class='inp' style='font-size:11px;' id='mc-obs-"+i+"' placeholder='ej. Presentación 2h antes'></div>"
+        :
+          "<div class='fld'><label>Lugar de recorrido</label><input type='text' class='inp' style='font-size:11px;' id='mc-lugar-"+i+"' placeholder='ej. Bombona'></div>"
+          + "<div style='margin:6px 0 2px;border-top:1px solid rgba(255,255,255,.08);padding-top:6px;'><div class='fld'><label style='font-size:9px;font-weight:800;color:#a5b4fc;letter-spacing:.06em;text-transform:uppercase;'>🏟 Lugar de entrenamiento</label><input type='text' class='inp' style='font-size:11px;border-color:rgba(165,180,252,.35);background:rgba(99,102,241,.06);' id='mc-lugent-"+i+"' placeholder='ej. Bombona - cancha 2'></div></div>"
+          + "<div class='fld'><label>Inicio recorrido</label><input type='time' class='inp' style='font-size:11px;' id='mc-hrec-"+i+"'></div>"
+          + "<div class='fld'><label>Llegada</label><input type='time' class='inp' style='font-size:11px;' id='mc-hleg-"+i+"'></div>"
+          + "<div class='fld'><label>Ingesta</label><input type='time' class='inp' style='font-size:11px;' id='mc-hing-"+i+"'></div>"
+          + "<div class='fld'><label>Salida</label><input type='time' class='inp' style='font-size:11px;' id='mc-hsal-"+i+"'></div>"
+          + "<div class='fld'><label>Observaciones</label><input type='text' class='inp' style='font-size:11px;' id='mc-obs-"+i+"' placeholder='ej. Crioterapia'></div>"
       )
       + "</div>";
   });
@@ -11232,7 +11254,7 @@ function mcRDatos(){
     + "<div id='mc-grid-log' style='display:grid;grid-template-columns:repeat("+(MC_DIAS_ACTIVOS.length||7)+",1fr);gap:8px;'></div>"
     + "</div>"
     + "<div style='display:flex;gap:8px;margin-top:10px;'>"
-    + "<button class='btn-y' id='mc-btn-sig1'>Siguiente: Parte fisica</button>"
+    + "<button class='btn-y' id='mc-btn-sig1'>Siguiente: Apartado físico</button>"
     + "</div>";
 
   // Restaurar valores
@@ -11495,16 +11517,28 @@ function mcHistLoad(){
 
 function mcHistGuardar(record){
   var hist = mcHistLoad();
-  var key = String(record.numero||'')+'_'+String((record.fechas||[])[0]||'')+'_'+(record.savedAt||Date.now());
-  record._hkey = key;
-  // Upsert: si ya existe un registro con el mismo numero y primera fecha, reemplazarlo
-  var ukey = String(record.numero||'')+'_'+String((record.fechas||[])[0]||'');
   var idx = -1;
-  for(var i=0;i<hist.length;i++){
-    var hUkey = String(hist[i].numero||'')+'_'+String((hist[i].fechas||[])[0]||'');
-    if(hUkey===ukey){ idx=i; break; }
+  // Prioridad 1: si estamos editando un registro existente, buscarlo por su _hkey original
+  var editHkey = window._mcEditHkey || null;
+  if(editHkey){
+    for(var i=0;i<hist.length;i++){
+      if(hist[i]._hkey===editHkey){ idx=i; break; }
+    }
   }
+  // Prioridad 2: buscar por numero+fechaInicio (evita duplicados al crear nuevo con mismas fechas)
+  if(idx<0){
+    var ukey = String(record.numero||'')+'_'+String((record.fechas||[])[0]||'');
+    for(var j=0;j<hist.length;j++){
+      var hUkey = String(hist[j].numero||'')+'_'+String((hist[j].fechas||[])[0]||'');
+      if(hUkey===ukey){ idx=j; break; }
+    }
+  }
+  // Generar _hkey: conservar el original si es edición, o crear uno nuevo
+  var key = editHkey || (String(record.numero||'')+'_'+String((record.fechas||[])[0]||'')+'_'+(record.savedAt||Date.now()));
+  record._hkey = key;
   if(idx>=0){ hist[idx]=record; } else { hist.unshift(record); }
+  // Limpiar el hkey de edición después de guardar
+  window._mcEditHkey = null;
   try{ localStorage.setItem(BFC_MC_HIST_KEY, JSON.stringify(hist)); }catch(e){}
   fbGuardar(); // sincronizar microciclos a Firebase
 }
@@ -11518,6 +11552,8 @@ function mcHistEditar(hkey){
   MC_FECHAS_ACTIVAS = (rec.fechas||[]).slice();
   MC_DIAS_ACTIVOS   = (rec.dias||[]).slice();
   mcData = JSON.parse(JSON.stringify(rec.data||[]));
+  // Guardar el _hkey original para que al guardar se haga upsert por hkey (no duplicar si cambia la fecha)
+  window._mcEditHkey = hkey;
   window._mcPagTab = 'editor';
   renderMicro();
   if(typeof toast==='function') toast('✏️ Microciclo '+mcNumMicro+' cargado para editar');
@@ -11628,26 +11664,30 @@ function mcGuardarAlSistema(){
 window.mcGuardarAlSistema = mcGuardarAlSistema;
 
 function mcSaveDatos(){
+  // mcGFsafe: solo guarda si el elemento existe en el DOM (evita borrar datos al cambiar de tab)
+  var mcGFsafe = function(id){ var el=document.getElementById(id); return el ? el.value : null; };
   var nDias2 = MC_DIAS_ACTIVOS.length || mcData.length;
-  for(var ii=0; ii<nDias2; ii++){ (function(i, d){
-    d.tipo   = mcGF("mc-tipo-"+i)   || d.tipo;
-    d.rel    = mcGF("mc-rel-"+i)    || d.rel;
+  for(var ii=0; ii<nDias2; ii++){
+    if(!mcData[ii]) mcData[ii] = {};
+    var d = mcData[ii];
+    var t = mcGFsafe("mc-tipo-"+ii); if(t) d.tipo = t;
+    var r = mcGFsafe("mc-rel-"+ii);  if(r) d.rel  = r;
     if(d.tipo==="partido"){
-      var rv=mcGF("mc-rival-"+i);    if(rv)d.rival=rv;
-      var jn=mcGF("mc-jornada-"+i); if(jn)d.jornada=jn;
-      var es=mcGF("mc-estadio-"+i); if(es)d.estadio=es;
-      var lv=mcGF("mc-localv-"+i);  if(lv)d.localVisita=lv;
-      var hp=mcGF("mc-horapart-"+i);if(hp){d.horaPartido=hp;d.hIng=hp;}
+      var rv=mcGFsafe("mc-rival-"+ii);    if(rv!=null)d.rival=rv;
+      var jn=mcGFsafe("mc-jornada-"+ii); if(jn!=null)d.jornada=jn;
+      var es=mcGFsafe("mc-estadio-"+ii); if(es!=null)d.estadio=es;
+      var lv=mcGFsafe("mc-localv-"+ii);  if(lv)d.localVisita=lv;
+      var hp=mcGFsafe("mc-horapart-"+ii);if(hp){d.horaPartido=hp;d.hIng=hp;}
     }
-    d.lugar  = mcGF("mc-lugar-"+i);
-    d.lugEnt = mcGF("mc-lugent-"+i);
-    d.hRec   = mcGF("mc-hrec-"+i);
-    d.hLleg  = mcGF("mc-hleg-"+i);
-    d.hIng   = mcGF("mc-hing-"+i);
-    d.hSal   = mcGF("mc-hsal-"+i);
-    d.obs    = mcGF("mc-obs-"+i);
-  })(ii, mcData[ii] || {}); }
-  mcNumMicro = mcGF("mc-numero") || mcNumMicro;
+    var lu=mcGFsafe("mc-lugar-"+ii);   if(lu!=null) d.lugar  = lu;
+    var le=mcGFsafe("mc-lugent-"+ii);  if(le!=null) d.lugEnt = le;
+    var hr=mcGFsafe("mc-hrec-"+ii);    if(hr!=null) d.hRec   = hr;
+    var hl=mcGFsafe("mc-hleg-"+ii);    if(hl!=null) d.hLleg  = hl;
+    var hi=mcGFsafe("mc-hing-"+ii);    if(hi!=null) d.hIng   = hi;
+    var hs=mcGFsafe("mc-hsal-"+ii);    if(hs!=null) d.hSal   = hs;
+    var ob=mcGFsafe("mc-obs-"+ii);     if(ob!=null) d.obs    = ob;
+  }
+  var nm=mcGFsafe("mc-numero"); if(nm) mcNumMicro=nm;
 }
 
 // ---- FISICO ----
@@ -11690,7 +11730,7 @@ function mcRFisico(){
     + "</div>"
     + "<div style='display:flex;gap:8px;margin-top:10px;'>"
     + "<button class='btn' id='mc-f-back'>Volver</button>"
-    + "<button class='btn-y' id='mc-f-sig'>Siguiente: Parte tactica</button>"
+    + "<button class='btn-y' id='mc-f-sig'>Siguiente: Apartado táctico</button>"
     + "</div>";
 
   mcData.forEach(function(d,i){
@@ -11710,12 +11750,13 @@ function mcRFisico(){
 }
 
 function mcSaveFisico(){
+  var mcGFsafe2 = function(id){ var el=document.getElementById(id); return el ? el.value : null; };
   mcData.forEach(function(d,i){
     if(d.tipo==="descanso") return;
-    d.carga    = mcGF("mc-carga-"+i)||d.carga;
-    d.activ    = mcGF("mc-activ-"+i);
-    d.post     = mcGF("mc-post-"+i)==="si";
-    d.postDesc = mcGF("mc-pd-"+i);
+    var ca=mcGFsafe2("mc-carga-"+i); if(ca) d.carga = ca;
+    var ac=mcGFsafe2("mc-activ-"+i); if(ac!=null) d.activ = ac;
+    var ps=mcGFsafe2("mc-post-"+i);  if(ps!=null) d.post  = (ps==="si");
+    var pd=mcGFsafe2("mc-pd-"+i);    if(pd!=null) d.postDesc = pd;
   });
 }
 
@@ -11760,11 +11801,12 @@ function mcRTactico(){
 }
 
 function mcSaveTactico(){
+  var mcGFsafe3 = function(id){ var el=document.getElementById(id); return el ? el.value : null; };
   mcData.forEach(function(d,i){
     if(d.tipo==="descanso") return;
-    d.lugTac    = mcGF("mc-ltac-"+i);
-    d.contenido = mcGF("mc-cont-"+i);
-    d.obsTac    = mcGF("mc-otac-"+i);
+    var lt=mcGFsafe3("mc-ltac-"+i);  if(lt!=null) d.lugTac    = lt;
+    var ct=mcGFsafe3("mc-cont-"+i);  if(ct!=null) d.contenido = ct;
+    var ot=mcGFsafe3("mc-otac-"+i);  if(ot!=null) d.obsTac    = ot;
   });
 }
 
@@ -11876,11 +11918,12 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
   h += "<div style='font-size:10px;font-weight:700;color:rgba(255,255,255,.4);letter-spacing:.3em;margin-bottom:4px;text-transform:uppercase;'>BARRANQUILLA FC</div>";
   h += "<div style='font-size:28px;font-weight:900;color:#fff;font-style:italic;letter-spacing:.02em;line-height:1;'>MICROCICLO</div>";
   if(mcNumMicro) h += "<div style='font-size:11px;font-weight:700;color:rgba(255,255,255,.6);letter-spacing:.15em;margin-top:5px;'>"+mcNumMicro.toUpperCase()+"</div>";
+  h += "<div style='font-size:11px;font-weight:600;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.12em;margin-top:6px;'>INFORMACIÓN LOGÍSTICA</div>";
   h += "<div style='margin-top:8px;display:inline-block;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:99px;padding:3px 16px;font-size:10px;color:rgba(255,255,255,.5);letter-spacing:.08em;'>"+semUP+"</div>";
   h += "</div>";
   // Tabla
   h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;min-width:650px;'>";
-  h += "<tr><th style='width:110px;padding:8px 10px;background:"+CREAM+";border-right:1px solid "+BORDER+";border-bottom:2px solid "+BORDER+";'></th>";
+  h += "<tr><th style='width:110px;padding:8px 10px;background:"+CREAM+";border-right:1px solid "+BORDER+";border-bottom:2px solid "+BORDER+";'><span style='font-size:9px;font-weight:800;color:rgba(255,255,255,.75);letter-spacing:.12em;text-transform:uppercase;'>DÍAS</span></th>";
   mcData.forEach(function(d,i){
     var isMD=d.tipo==="partido", isDesc=d.tipo==="descanso";
     var thBg = isMD ? NAV : CREAM;
@@ -11906,22 +11949,36 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
       if(isDesc){
         if(li===0){ descDone.push(i);
           h += "<td rowspan='"+LBLS.length+"' style='padding:6px;background:"+NAV+";text-align:center;vertical-align:middle;border-right:1px solid "+BORDER+";'>";
-          h += "<div style='font-size:11px;font-weight:800;color:rgba(255,255,255,.35);letter-spacing:.15em;writing-mode:vertical-lr;transform:rotate(180deg);margin:0 auto;'>DESCANSO</div></td>";
+          h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.1em;line-height:2;text-align:center;'>D<br>E<br>S<br>C<br>A<br>N<br>S<br>O</div></td>";
         }
         return;
       }
       if(isMD){
-        if(li===0){ mdDone.push(i);
-          var horaPartido=fmtH(d.horaPartido||d.hIng||horaP);
-          var logoHTML=mcLogoRival?"<img src='"+mcLogoRival+"' style='width:40px;height:40px;object-fit:contain;display:block;margin:0 auto 6px;'>":"<div style='font-size:22px;text-align:center;margin-bottom:4px;'>&#127942;</div>";
-          h += "<td rowspan='"+LBLS.length+"' style='padding:8px 4px;background:"+NAV+";text-align:center;vertical-align:middle;border-right:1px solid "+BORDER+";'>";
-          h += logoHTML;
-          h += "<div style='font-size:14px;font-weight:900;color:#fff;letter-spacing:.03em;'>"+horaPartido+"</div>";
-          var rivalD=d.rival||rival; var localV=d.localVisita==="visitante"?" (Visitante)":" (Local)";
-          if(rivalD) h += "<div style='font-size:9px;color:rgba(255,255,255,.5);margin-top:4px;font-weight:600;'>"+rivalD+"</div>";
-          if(d.localVisita) h += "<div style='font-size:8px;color:rgba(255,255,255,.3);margin-top:2px;'>"+localV+"</div>";
-          h += "</td>";
+        // Sin rowspan — celda individual por fila, con tinte azul navy
+        var mdCellBg = NAV;
+        var horaPartidoMD = fmtH(d.horaPartido||d.hIng||horaP);
+        var rivalMD = d.rival||rival;
+        var localVMD = d.localVisita==="visitante"?" (Visitante)":" (Local)";
+        var cellVal = "";
+        if(li===0){
+          // Fila 1: logo del rival o trofeo
+          cellVal = mcLogoRival
+            ? "<img src='"+mcLogoRival+"' style='width:28px;height:28px;object-fit:contain;display:block;margin:0 auto;'>"
+            : "<div style='font-size:18px;text-align:center;'>&#127942;</div>";
+        } else if(li===1){
+          // Fila 2: rival
+          cellVal = rivalMD ? "<div style='font-size:9px;font-weight:700;color:rgba(255,255,255,.8);'>"+rivalMD+"</div>" : "";
+        } else if(li===2){
+          // Fila 3: hora del partido
+          cellVal = "<div style='font-size:11px;font-weight:900;color:#fff;'>"+horaPartidoMD+"</div>";
+        } else if(li===3){
+          // Fila 4: local/visitante
+          cellVal = d.localVisita ? "<div style='font-size:8px;color:rgba(255,255,255,.45);'>"+localVMD+"</div>" : "";
+        } else if(li===7){
+          // Fila observaciones: obs del partido
+          cellVal = d.obs ? "<div style='font-size:8px;color:rgba(255,255,255,.5);font-style:italic;'>"+d.obs+"</div>" : "";
         }
+        h += "<td style='padding:5px 4px;background:"+mdCellBg+";text-align:center;vertical-align:middle;border-right:1px solid "+BORDER+";border-bottom:1px solid rgba(255,255,255,.18);'>"+cellVal+"</td>";
         return;
       }
       var val="";
@@ -11942,7 +11999,7 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
     h += "</tr>";
   });
   h += "</table></div>";
-  h += "<div style='text-align:center;padding:8px;font-size:10px;color:rgba(255,255,255,.4);letter-spacing:.06em;border-top:1px solid "+BORDER+";background:"+NAV+";'>&ldquo;UNE Y MULTIPLICAR&Aacute;S&rdquo; &middot; BARRANQUILLA FC</div>";
+  h += "<div style='text-align:center;padding:8px;font-size:10px;color:rgba(255,255,255,.4);letter-spacing:.06em;border-top:1px solid "+BORDER+";background:"+NAV+";'>BARRANQUILLA FC</div>";
   h += "</div>";
   return h;
 }
@@ -11956,7 +12013,7 @@ function mcPL2(sem2,rival,jornada,horaP,estadio){
   h += "<div style='font-size:10px;font-weight:700;color:rgba(255,255,255,.4);letter-spacing:.3em;margin-bottom:4px;text-transform:uppercase;'>BARRANQUILLA FC</div>";
   h += "<div style='font-size:28px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.02em;line-height:1;'>PROGRAMACI&Oacute;N SEMANAL</div>";
   h += "<div style='font-size:12px;font-weight:600;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.08em;margin-top:4px;'>ENTRENAMIENTO COMPLEMENTARIO</div>";
-  h += "<div style='font-size:10px;color:rgba(255,255,255,.25);font-style:italic;margin-top:2px;'>&iexcl;UNE Y MULTIPLICAR&Aacute;S!</div>";
+
   h += "</div><div style='display:grid;grid-template-columns:repeat("+(mcData.length||7)+",1fr);background:"+DARK+";'>";
   mcData.forEach(function(d,i){
     var isMD=d.tipo==="partido", isDesc=d.tipo==="descanso", isViaje=d.tipo==="viaje";
@@ -11989,7 +12046,7 @@ function mcPL2(sem2,rival,jornada,horaP,estadio){
     }
     h += "</div>";
   });
-  h += "</div><div style='background:"+NAV+";padding:8px;text-align:center;font-size:10px;color:rgba(255,255,255,.4);border-top:1px solid "+BORDER+";letter-spacing:.06em;'>"+sem2+" &middot; BARRANQUILLA FC</div></div>";
+  h += "</div><div style='background:"+NAV+";padding:8px;text-align:center;font-size:10px;color:rgba(255,255,255,.4);border-top:1px solid "+BORDER+";letter-spacing:.06em;'>BARRANQUILLA FC</div></div>";
   return h;
 }
 
@@ -11998,11 +12055,11 @@ function mcPL3(sem2,rival,jornada,horaP,estadio){
   var NAV="#0f1623", NAV2="#162035", BORDER="rgba(255,255,255,.1)", TXTD="#e2e8f0", TXTS="rgba(255,255,255,.55)", DARK="#131c28";
   var h = "<div style='font-family:Arial,sans-serif;background:"+DARK+";border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.08);box-shadow:0 4px 24px rgba(0,0,0,.4);'>";
   h += "<div style='background:"+NAV+";padding:14px 20px;text-align:center;border-bottom:3px solid "+NAV2+";position:relative;'>";
-  h += "<img src='"+MC_LOGO+"' style='position:absolute;left:14px;top:50%;transform:translateY(-50%);width:46px;height:46px;object-fit:contain;'>";
+  h += "<img src='"+MC_LOGO+"' style='position:absolute;right:14px;top:50%;transform:translateY(-50%);width:46px;height:46px;object-fit:contain;'>";
   h += "<div style='font-size:10px;font-weight:700;color:rgba(255,255,255,.4);letter-spacing:.3em;margin-bottom:4px;text-transform:uppercase;'>BARRANQUILLA FC</div>";
   h += "<div style='font-size:28px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.02em;line-height:1;'>PROGRAMACI&Oacute;N SEMANAL</div>";
-  h += "<div style='font-size:12px;font-weight:600;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.08em;margin-top:4px;'>PLANIFICACI&Oacute;N T&Aacute;CTICA</div>";
-  h += "<div style='font-size:10px;color:rgba(255,255,255,.22);font-style:italic;margin-top:2px;'>&iexcl;UNE Y MULTIPLICAR&Aacute;S!</div>";
+  h += "<div style='font-size:12px;font-weight:600;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.08em;margin-top:4px;'>PLANIFICACIÓN TÁCTICA</div>";
+
   h += "</div><div style='display:grid;grid-template-columns:repeat("+(mcData.length||7)+",1fr);background:"+DARK+";'>";
   mcData.forEach(function(d,i){
     var isMD=d.tipo==="partido", isDesc=d.tipo==="descanso", isViaje=d.tipo==="viaje";
@@ -12029,7 +12086,7 @@ function mcPL3(sem2,rival,jornada,horaP,estadio){
     }
     h += "</div>";
   });
-  h += "</div><div style='background:"+NAV+";padding:8px;text-align:center;font-size:10px;color:rgba(255,255,255,.4);border-top:1px solid "+BORDER+";letter-spacing:.06em;'>"+sem2+" &middot; BARRANQUILLA FC</div></div>";
+  h += "</div><div style='background:"+NAV+";padding:8px;text-align:center;font-size:10px;color:rgba(255,255,255,.4);border-top:1px solid "+BORDER+";letter-spacing:.06em;'>BARRANQUILLA FC</div></div>";
   return h;
 }
 
@@ -12269,7 +12326,7 @@ function rBDJ(){
     h+="<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;'>";
     list.forEach(function(j){
       var nombre=j.nombre+(j.apellido?' '+j.apellido:'');
-      var posColor={'Portero':'#f59e0b','Defensa Central':'#3b82f6','Lateral Derecho':'#3b82f6','Lateral Izquierdo':'#3b82f6','Volante Defensivo':'#8b5cf6','Volante Central':'#8b5cf6','Volante Ofensivo':'#8b5cf6','Extremo Derecho':'#10b981','Extremo Izquierdo':'#10b981','Delantero Centro':'#ef4444'};
+      var posColor={'Portero':'#f59e0b','Defensa Central':'#3b82f6','Lateral Derecho':'#3b82f6','Lateral Izquierdo':'#3b82f6','Medio Centro':'#8b5cf6','Volante Central':'#8b5cf6','Volante Ofensivo':'#8b5cf6','Extremo Derecho':'#10b981','Extremo Izquierdo':'#10b981','Delantero Centro':'#ef4444'};
       var pc=posColor[j.pos]||'var(--accent)';
       var fotoHtml=j.foto
         ? "<div style='width:72px;height:72px;border-radius:50%;border:2px solid "+pc+";overflow:hidden;flex-shrink:0;box-shadow:0 0 16px "+pc+"40;'><img src='"+j.foto+"' style='width:100%;height:100%;object-fit:cover;'></div>"
@@ -12452,7 +12509,7 @@ function rBDJ(){
 function verJDB(id){
   var j=safeArr(JDB).find(function(x){return x.id===id;});if(!j)return;
   window._efFotoBase64=null;
-  var posOpts=['Portero','Lateral Derecho','Lateral Izquierdo','Central Derecho','Central Izquierdo','Volante Defensivo','Volante Interior Derecho','Volante Interior Izquierdo','Enganche','Extremo Derecho','Extremo Izquierdo','Delantero Centro'];
+  var posOpts=['Portero','Lateral Derecho','Lateral Izquierdo','Central Derecho','Central Izquierdo','Medio Centro','Volante Interior Derecho','Volante Interior Izquierdo','Media Punta','Extremo Derecho','Extremo Izquierdo','Delantero Centro'];
   function fld2(label,id,val,type){
     type=type||'text';
     return "<div style='margin-bottom:11px;'><label style='display:block;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;'>"+label+"</label>"+
@@ -12590,6 +12647,7 @@ function bdGuardarJugador(id){
   });
   if(window._efFotoBase64){ JDB[idx].foto=window._efFotoBase64; window._efFotoBase64=null; }
   try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){}
+  fbGuardar(); // sincronizar jugador actualizado a Firebase
   closeModal();
   rBDJ();
   if(typeof renderPlantilla==='function') try{ renderPlantilla(); }catch(e){}
@@ -12605,6 +12663,7 @@ function _bdGuardarConDorsal(){
   if(idx===-1) return;
   JDB[idx].num=pend.n; JDB[idx].numero=pend.n; JDB[idx].dorsal=pend.n;
   try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){}
+  fbGuardar(); // sincronizar dorsal actualizado a Firebase
   rBDJ();
   if(typeof renderPlantilla==='function') try{ renderPlantilla(); }catch(e){}
   if(typeof toast==='function') toast('✅ Dorsal #'+pend.n+' asignado');
@@ -12767,6 +12826,7 @@ function bdGuardarStaff(id){
   SDB[idx].telAcud  = g('telAcud');
   if(window._efFotoBase64){ SDB[idx].foto=window._efFotoBase64; window._efFotoBase64=null; }
   try{ localStorage.setItem('bfc_sdb', JSON.stringify(SDB)); }catch(e){}
+  fbGuardar(); // sincronizar staff actualizado a Firebase
   closeModal();
   rBDS();
   if(typeof toast==='function') toast('✅ Staff actualizado');
@@ -12817,7 +12877,7 @@ function rBDAJ(){
     "<div class='fld'><label>Telefono</label><input type='tel' id='jtel' class='inp' placeholder='3001234567'></div>"+
     "<div class='fld'><label>Direccion</label><input id='jdir' class='inp'></div></div>"+
     "<div class='sec'>Deportivo</div><div class='g4'>"+
-    "<div class='fld'><label>Posicion</label><select id='jpos' class='inp'><option value=''>-- Seleccionar posición --</option><option>Portero</option><option>Lateral Derecho</option><option>Lateral Izquierdo</option><option>Central Derecho</option><option>Central Izquierdo</option><option>Volante Defensivo</option><option>Volante Interior Derecho</option><option>Volante Interior Izquierdo</option><option>Enganche</option><option>Extremo Derecho</option><option>Extremo Izquierdo</option><option>Delantero Centro</option></select></div>"+
+    "<div class='fld'><label>Posicion</label><select id='jpos' class='inp'><option value=''>-- Seleccionar posición --</option><option>Portero</option><option>Lateral Derecho</option><option>Lateral Izquierdo</option><option>Central Derecho</option><option>Central Izquierdo</option><option>Medio Centro</option><option>Volante Interior Derecho</option><option>Volante Interior Izquierdo</option><option>Media Punta</option><option>Extremo Derecho</option><option>Extremo Izquierdo</option><option>Delantero Centro</option></select></div>"+
     "<div class='fld'><label>Camiseta</label><input type='number' id='jnum' class='inp' placeholder='9' min='1' max='99'></div>"+
     "<div class='fld'><label>Pierna</label><select id='jpie' class='inp'><option>Derecha</option><option>Izquierda</option><option>Ambas</option></select></div>"+
     "<div class='fld'><label>Estatura (cm)</label><input type='number' id='jest' class='inp' placeholder='178'></div>"+
@@ -13231,7 +13291,18 @@ function mcGoTabF(){ mcGoTab("fisico"); }
 function mcGoTabT(){ mcGoTab("tactico"); }
 function mcGoTabPrev(){ mcRPreview(); }
 function mcGoHistorial(){ window._mcPagTab="historial"; renderMicro(); }
-function mcNuevoMicrociclo(){ window._mcPagTab="editor"; renderMicro(); }
+function mcNuevoMicrociclo(){
+  // Resetear datos para nuevo microciclo limpio (mcData=null fuerza mcInitData() a usar plantilla)
+  window._mcEditHkey = null;
+  mcNumMicro = '';
+  MC_FECHAS_ACTIVAS = [];
+  MC_DIAS_ACTIVOS = [];
+  mcData = null;
+  mcFechaFin = '';
+  mcLogoRival = null;
+  window._mcPagTab="editor";
+  renderMicro();
+}
 
 // ── Historial de microciclos como página independiente ──
 function renderHistorialMc(){
@@ -13364,11 +13435,16 @@ function verFichaCompleta(jid) {
   var neuroData = safeArr(NEURO).filter(function(n){ return n.pid===jid; })
     .sort(function(a,b){ return (b.fecha||'').localeCompare(a.fecha||''); }).slice(0,3);
 
-  var dispArr = [];
-  try { dispArr = safeArr(JSON.parse(localStorage.getItem('bfc_disponibilidad')||'[]')); } catch(e){}
-  var dispJ = dispArr.find(function(d){ return d.pid===jid; }) || {};
-  var dispEstado = dispJ.estado || 'Disponible';
-  var dispColor = dispEstado==='Disponible'?'#34d399':dispEstado==='Duda'?'#fbbf24':'#f87171';
+  // Leer disponibilidad desde DISP_DB (médica) y _plantillaDisp (táctica)
+  dispLoad();
+  var _dispRec = dispGetEstado(jid, TODAY);
+  var _dispKey = (_dispRec && _dispRec.estado) ? _dispRec.estado : 'disponible';
+  var _ovTac = (typeof _plantillaDisp !== 'undefined') ? (_plantillaDisp[jid]||null) : null;
+  if(_ovTac && _ovTac.estado==='no_disponible') _dispKey = 'no_disponible';
+  else if(_ovTac && _ovTac.estado==='disponible') _dispKey = 'disponible';
+  var _dispLabels = {disponible:'Disponible',no_disponible:'No disponible',restriccion:'Con restricción',recuperacion:'Recuperación activa',rehabilitacion:'Rehabilitación',readaptacion:'Readaptación',baja:'Baja'};
+  var dispEstado = _dispLabels[_dispKey] || 'Disponible';
+  var dispColor = (_dispKey==='disponible')?'#34d399':(_dispKey==='restriccion')?'#fbbf24':(_dispKey==='no_disponible')?'#f87171':'#a78bfa';
 
   var acwr = '';
   if (gpsData.length >= 2) {
@@ -14141,6 +14217,7 @@ function sesSave(){
     t.objetivo = gEl("ses-to-"+i)||"";
     t.descripcion = gEl("ses-td-"+i)||"";
     t.tiempo = gEl("ses-tm-"+i)||"";
+    t.videoLink = gEl("ses-tvid-"+i)||t.videoLink||"";
   });
   // Fase final + observaciones
   sesData.faseFinal = gEl("ses-ff")||"";
@@ -14329,9 +14406,8 @@ function sesAbrirHistorial(){
     var obsTac  = ses['ses-tac'] || '';
     var preview = obsTac ? obsTac.substring(0,60)+(obsTac.length>60?'…':'') : (tac||'Sin observaciones');
 
-    h += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:11px 14px;cursor:pointer;transition:background .15s;' ";
-    h += "onmouseover='this.style.background=\"rgba(99,102,241,.12)\"' onmouseout='this.style.background=\"rgba(255,255,255,.04)\"' ";
-    h += "onclick='sesCargarDesdeSesion("+idx+")'>";
+    h += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:11px 14px;transition:background .15s;' ";
+    h += "onmouseover='this.style.background=\"rgba(99,102,241,.08)\"' onmouseout='this.style.background=\"rgba(255,255,255,.04)\"'>";
     h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;'>";
     h += "<span style='font-size:12px;font-weight:800;color:#e2e8f0;'>"+escHtml(String(codigo))+"</span>";
     h += "<span style='font-size:10px;color:#64748b;'>"+fecha+"</span>";
@@ -14341,7 +14417,11 @@ function sesAbrirHistorial(){
     if(tiempo && tiempo!=='—') h += "<span style='font-size:9px;background:rgba(34,197,94,.12);color:#86efac;border-radius:5px;padding:2px 7px;font-weight:700;'>⏱ "+escHtml(String(tiempo))+"</span>";
     if(njug && njug!=='—') h += "<span style='font-size:9px;background:rgba(255,255,255,.07);color:#94a3b8;border-radius:5px;padding:2px 7px;'>👥 "+njug+"</span>";
     h += "</div>";
-    if(preview) h += "<div style='font-size:10px;color:#475569;'>"+escHtml(preview)+"</div>";
+    if(preview) h += "<div style='font-size:10px;color:#475569;margin-bottom:8px;'>"+escHtml(preview)+"</div>";
+    h += "<div style='display:flex;gap:6px;'>";
+    h += "<button onclick='sesCargarDesdeSesion("+idx+")' style='flex:1;padding:6px 10px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.4);border-radius:7px;color:#a5b4fc;font-size:10px;font-weight:700;cursor:pointer;'>📂 Cargar sesión</button>";
+    h += "<button onclick='sesUsarComoPlantilla("+idx+")' style='flex:1;padding:6px 10px;background:rgba(245,200,0,.12);border:1px solid rgba(245,200,0,.35);border-radius:7px;color:#fcd34d;font-size:10px;font-weight:700;cursor:pointer;'>📋 Usar como plantilla</button>";
+    h += "</div>";
     h += "</div>";
   });
 
@@ -14379,6 +14459,43 @@ function sesCargarDesdeSesion(idx){
   toast('✅ Sesión cargada — modificá lo que necesites y guardá como nueva');
 }
 window.sesCargarDesdeSesion = sesCargarDesdeSesion;
+
+// Usar sesión de historial como plantilla: copia contenido (tareas, objetivos, material, roles)
+// pero limpia fecha, sesionNum y jugadoresActivos para que sea una sesión nueva
+function sesUsarComoPlantilla(idx){
+  var src2 = (window._sesHistRef || [])[idx];
+  if(!src2){ toast('⚠️ Error al cargar plantilla'); return; }
+  closeModal();
+  sesSave();
+  // Copiar solo el contenido (tareas, objetivos, fases, etc.) — no fechas ni número
+  if(src2.tareas) sesData.tareas = JSON.parse(JSON.stringify(src2.tareas));
+  sesData.codigo     = src2.codigo     || '';
+  sesData.cdefSel    = src2.cdefSel    || src2.morfociclo || '';
+  sesData.tiempo     = src2.tiempo     || '';
+  sesData.morfociclo = src2.morfociclo || src2.cdefSel || '';
+  sesData['ses-tac'] = src2['ses-tac'] || '';
+  sesData['ses-tec'] = src2['ses-tec'] || '';
+  sesData['ses-fis'] = src2['ses-fis'] || '';
+  sesData['ses-psi'] = src2['ses-psi'] || '';
+  sesData.faseFinal     = src2.faseFinal    || '';
+  sesData.observaciones = src2.observaciones|| '';
+  if(src2.rolDT)  sesData.rolDT  = src2.rolDT;
+  if(src2.rolAT1) sesData.rolAT1 = src2.rolAT1;
+  if(src2.rolAT2) sesData.rolAT2 = src2.rolAT2;
+  if(src2.rolPF)  sesData.rolPF  = src2.rolPF;
+  if(src2.rolVA)  sesData.rolVA  = src2.rolVA;
+  if(src2.materialItems) sesData.materialItems = JSON.parse(JSON.stringify(src2.materialItems));
+  // Fecha = hoy, número vacío (nuevo)
+  sesData.fecha     = TODAY;
+  sesData.sesionNum = '';
+  // Reiniciar jugadores con el plantel actual (no copiar de la sesión anterior)
+  var plantelBase = JDB.length>0 ? JDB : PL;
+  sesData.jugadoresActivos = plantelBase.map(function(p){return p.id;});
+  sesData.jugadoresExtra   = [];
+  renderSesion();
+  toast('📋 Plantilla cargada — ajustá el número de sesión y guardá');
+}
+window.sesUsarComoPlantilla = sesUsarComoPlantilla;
 
 function sesRemoveTarea(i){
   sesSave();
@@ -14449,63 +14566,102 @@ function renderSesion(){
   }
   if(!sesData.jugadoresExtra) sesData.jugadoresExtra = [];
 
-  var gg = sesGetGrupos();
+  // ── Clasificar jugadores según disponibilidad ──
+  var hoyStr = TODAY;
+  var plantelBase = JDB.length>0 ? JDB : PL;
+  // Disponibles: en jugadoresActivos Y disponible según DISP_DB/_plantillaDisp
+  // No disponibles / lesionados: en jugadoresActivos pero DISP_DB / _plantillaDisp los marca
+  var dispArr = []; var noDispArr = [];
+  plantelBase.forEach(function(p){
+    var estaActivo = sesData.jugadoresActivos.indexOf(p.id) >= 0;
+    if(!estaActivo) return; // quitado manualmente — se muestra en "Ausentes"
+    var dispEst = dispGetEstado(p.id, hoyStr);
+    var ovTac = _plantillaDisp[p.id]||null;
+    // Normalizar override táctico viejo formato
+    if(typeof ovTac === 'string'){
+      ovTac = (ovTac==='ok') ? {estado:'disponible'} : (ovTac==='auto' ? null : {estado:'no_disponible'});
+    }
+    var estFinal = (ovTac && ovTac.estado) ? ovTac.estado : (dispEst ? dispEst.estado : 'disponible');
+    if(estFinal==='disponible'){
+      dispArr.push(p);
+    } else {
+      noDispArr.push({jugador:p, estFinal:estFinal, dispEst:dispEst});
+    }
+  });
+  var extras = sesData.jugadoresExtra||[];
+  var totalActivos = dispArr.length + noDispArr.length + extras.length;
   var quitados = sesGetQuitados();
-  var totalActivos = (sesData.jugadoresActivos||[]).length + (sesData.jugadoresExtra||[]).length;
 
   h += "<div class='card' style='padding:0;overflow:hidden;'>";
-  h += "<div style='background:#1a1a1a;padding:0 10px;height:34px;display:flex;align-items:center;justify-content:space-between;'>";
+  h += "<div style='background:#0f1623;padding:0 10px;height:34px;display:flex;align-items:center;justify-content:space-between;'>";
   h += "<span style='font-size:10px;font-weight:700;color:#fff;'>PLANTEL ("+totalActivos+")</span>";
   h += "<div style='display:flex;gap:4px;'>";
-  h += "<button onclick='sesAgregarExtra()' style='font-size:9px;padding:2px 7px;border-radius:4px;border:none;background:#0f1623;color:#fff;cursor:pointer;font-weight:700;'>+ Extra</button>";
+  h += "<button onclick='sesAgregarExtra()' style='font-size:9px;padding:2px 7px;border-radius:4px;border:none;background:rgba(255,255,255,.12);color:#fff;cursor:pointer;font-weight:700;'>+ Extra</button>";
   if(quitados.length) h += "<button onclick='sesRestaurarTodos()' style='font-size:9px;padding:2px 7px;border-radius:4px;border:none;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;'>Restaurar</button>";
   h += "</div></div>";
-  h += "<table style='width:100%;border-collapse:collapse;font-size:11px;'>";
+
+  // ── DISPONIBLES ──
+  h += "<div style='padding:4px 8px 2px 8px;background:rgba(34,197,94,.08);border-bottom:1px solid rgba(34,197,94,.18);'>";
+  h += "<span style='font-size:8px;font-weight:800;color:#22c55e;letter-spacing:.08em;text-transform:uppercase;'>✅ Disponibles ("+dispArr.length+")</span>";
+  h += "</div>";
+  h += "<table style='width:100%;border-collapse:collapse;font-size:11px;'><tbody>";
   var jugNum = 0;
-  h += "<thead><tr style='background:#1a1a1a;'>";
-  h += "<th style='padding:4px 5px;color:rgba(255,255,255,.5);font-size:9px;font-weight:600;width:20px;text-align:center;'>#</th>";
-  h += "<th style='padding:4px 5px;color:rgba(255,255,255,.5);font-size:9px;font-weight:600;'>JUGADOR</th>";
-  h += "<th style='padding:4px 5px;color:rgba(255,255,255,.5);font-size:9px;font-weight:600;'>NOTA</th>";
-  h += "<th style='padding:4px 5px;color:rgba(255,255,255,.5);font-size:9px;font-weight:600;width:18px;text-align:center;'>✕</th>";
-  h += "</tr></thead><tbody>";
-  // Ordenar: porteros primero, extras al final
-  var ordenFinal = gg.orden.slice().sort(function(a,b){ return posIdx(a)-posIdx(b); });
-  ordenFinal.forEach(function(pos){
-    var col = "#1a1a1a";
-    h += "<tr><td colspan='4' style='padding:4px 8px;font-size:8px;font-weight:800;color:#fff;background:"+col+";text-transform:uppercase;letter-spacing:.06em;text-align:center;'>"+pos+"</td></tr>";
-    gg.grupos[pos].forEach(function(p,i){
-      var nm = (p.apellido||p.nombre||"").toUpperCase();
-      var bg = i%2===0?"#fff":"#f8fafc";
-      var esExtra = p.esExtra;
-      if(!esExtra) jugNum++;
-      var nota = p.notaSesion||"";
-      h += "<tr style='background:"+bg+";border-bottom:1px solid #f0f0f0;'>";
-      // Col #: número correlativo para activos, + para extras
-      h += "<td style='padding:3px 5px;font-size:9px;font-weight:800;color:"+(esExtra?"#7c3aed":"#1a1a1a")+";text-align:center;'>"+(esExtra?"<span style='color:#7c3aed;'>+</span>":jugNum)+"</td>";
-      // Col JUGADOR
-      h += "<td style='padding:3px 5px;font-size:10px;font-weight:600;color:"+(esExtra?"#7c3aed":"#111")+";'>"+nm+(esExtra?"<span style='font-size:8px;color:#9ca3af;font-style:italic;'> prueba</span>":"")+"</td>";
-      // Col NOTA: input editable
-      h += "<td style='padding:2px 4px;'>";
-      h += "<input type='text' value='"+nota+"'";
-      h += " data-pid='"+p.id+"' onchange='sesGuardarNota(this)'";
-      h += " style='width:100%;font-size:9px;border:none;border-bottom:1px solid #ddd;background:transparent;padding:2px;color:var(--text-2);outline:none;text-align:center;'";
-      h += " placeholder='nota...'>";
-      h += "</td>";
-      h += "<td style='padding:2px 4px;text-align:center;'>";
-      if(esExtra){
-        h += "<button onclick='trigSQE(this)' data-pid='"+p.id+"' style='font-size:11px;background:none;border:none;color:#ef4444;cursor:pointer;'>✕</button>";
-      } else {
-        h += "<button onclick='trigSQJ(this)' data-pid='"+p.id+"' style='font-size:11px;background:none;border:none;color:#ef4444;cursor:pointer;' title='Quitar de esta sesión'>✕</button>";
-      }
-      h += "</td></tr>";
-    });
+  dispArr.sort(function(a,b){ return posIdx(a.pos||a.posicion||'OTROS') - posIdx(b.pos||b.posicion||'OTROS'); });
+  dispArr.forEach(function(p,i){
+    jugNum++;
+    var ap = (p.apellido || p.nombre || '').toUpperCase().split(' ')[0];
+    var bg = i%2===0 ? '#fff' : '#f8fafc';
+    var nota = p.notaSesion||'';
+    h += "<tr style='background:"+bg+";border-bottom:1px solid #f0f0f0;'>";
+    h += "<td style='padding:3px 5px;font-size:9px;font-weight:800;color:#1a1a1a;text-align:center;width:20px;'>"+jugNum+"</td>";
+    h += "<td style='padding:3px 5px;font-size:10px;font-weight:600;color:#111;'>"+ap+"</td>";
+    h += "<td style='padding:2px 4px;'><input type='text' value='"+nota+"' data-pid='"+p.id+"' onchange='sesGuardarNota(this)' style='width:100%;font-size:9px;border:none;border-bottom:1px solid #ddd;background:transparent;padding:2px;color:var(--text-2);outline:none;text-align:center;' placeholder='nota...'></td>";
+    h += "<td style='padding:2px 4px;text-align:center;width:18px;'><button onclick='trigSQJ(this)' data-pid='"+p.id+"' style='font-size:11px;background:none;border:none;color:#ef4444;cursor:pointer;' title='Quitar de esta sesión'>✕</button></td>";
+    h += "</tr>";
   });
-  if(quitados.length){
-    h += "<tr><td colspan='3' style='padding:5px 8px;font-size:8px;font-weight:700;color:#9ca3af;background:var(--bg-elevated);border-top:2px dashed #e5e7eb;'>";
-    h += "AUSENTES ("+quitados.length+"): ";
-    h += "<span style='font-weight:400;'>"+quitados.map(function(p){return (p.apellido||p.nombre||"").toUpperCase().split(" ")[0];}).join(", ")+"</span></td></tr>";
-  }
+  // Extras al final de disponibles
+  extras.forEach(function(p){
+    var ap = (p.apellido || p.nombre || '').toUpperCase().split(' ')[0];
+    var bg = "#fff";
+    var nota = p.notaSesion||'';
+    h += "<tr style='background:"+bg+";border-bottom:1px solid #f0f0f0;'>";
+    h += "<td style='padding:3px 5px;font-size:9px;font-weight:800;color:#7c3aed;text-align:center;width:20px;'>+</td>";
+    h += "<td style='padding:3px 5px;font-size:10px;font-weight:600;color:#7c3aed;'>"+ap+"<span style='font-size:8px;color:#9ca3af;font-style:italic;'> prueba</span></td>";
+    h += "<td style='padding:2px 4px;'><input type='text' value='"+nota+"' data-pid='"+p.id+"' onchange='sesGuardarNota(this)' style='width:100%;font-size:9px;border:none;border-bottom:1px solid #ddd;background:transparent;padding:2px;color:var(--text-2);outline:none;text-align:center;' placeholder='nota...'></td>";
+    h += "<td style='padding:2px 4px;text-align:center;width:18px;'><button onclick='trigSQE(this)' data-pid='"+p.id+"' style='font-size:11px;background:none;border:none;color:#ef4444;cursor:pointer;'>✕</button></td>";
+    h += "</tr>";
+  });
   h += "</tbody></table>";
+
+  // ── NO DISPONIBLES / LESIONADOS ──
+  if(noDispArr.length){
+    var DISP_EST_ICONS = {rehabilitacion:'🏥',baja:'🔴',readaptacion:'🔁',recuperacion:'🟠',restriccion:'🟡',no_disponible:'❌'};
+    h += "<div style='padding:4px 8px 2px 8px;background:rgba(239,68,68,.08);border-top:2px solid rgba(239,68,68,.2);border-bottom:1px solid rgba(239,68,68,.18);'>";
+    h += "<span style='font-size:8px;font-weight:800;color:#f87171;letter-spacing:.08em;text-transform:uppercase;'>❌ No disponibles / Lesionados ("+noDispArr.length+")</span>";
+    h += "</div>";
+    h += "<table style='width:100%;border-collapse:collapse;font-size:11px;'><tbody>";
+    noDispArr.forEach(function(item,i){
+      var p = item.jugador;
+      var ap = (p.apellido || p.nombre || '').toUpperCase().split(' ')[0];
+      var bg = i%2===0 ? '#fff5f5' : '#fff';
+      var icon = DISP_EST_ICONS[item.estFinal] || '❌';
+      h += "<tr style='background:"+bg+";border-bottom:1px solid #fecaca;opacity:.75;'>";
+      h += "<td style='padding:3px 5px;font-size:11px;text-align:center;width:20px;'>"+icon+"</td>";
+      h += "<td style='padding:3px 5px;font-size:10px;font-weight:600;color:#dc2626;'>"+ap+"</td>";
+      h += "<td style='padding:3px 5px;font-size:8px;color:#9ca3af;text-align:center;' colspan='2'>"+item.estFinal+"</td>";
+      h += "</tr>";
+    });
+    h += "</tbody></table>";
+  }
+
+  // ── Ausentes manuales ──
+  if(quitados.length){
+    h += "<div style='padding:5px 8px;font-size:8px;font-weight:700;color:#9ca3af;background:var(--bg-elevated);border-top:2px dashed #e5e7eb;'>";
+    h += "Ausentes manual ("+quitados.length+"): ";
+    h += "<span style='font-weight:400;'>"+quitados.map(function(p){return (p.apellido||p.nombre||"").toUpperCase().split(" ")[0];}).join(", ")+"</span>";
+    h += "</div>";
+  }
+
   h += "<div style='padding:6px 8px;border-top:1px solid #e5e7eb;'>";
   h += "<button onclick='sesAgregarExtra()' style='width:100%;font-size:10px;padding:5px;border-radius:var(--r-sm);border:2px dashed #d1d5db;background:var(--bg-elevated);color:#7c3aed;cursor:pointer;font-weight:600;'>+ Jugador extra (prueba / menores)</button>";
   h += "</div></div>";
@@ -14593,6 +14749,18 @@ function renderSesion(){
     h += "<button onclick='abrirBibliotecaModalEnTarea("+i+")' title='Importar desde biblioteca' style='background:rgba(99,102,241,.18);color:#a5b4fc;border:1px solid rgba(99,102,241,.4);border-radius:3px;font-size:10px;padding:2px 8px;cursor:pointer;flex-shrink:0;'>📥 Biblioteca</button>";
     h += "<button onclick='sesGuardarEnBiblioteca("+i+")' title='Guardar en biblioteca' style='background:rgba(255,255,255,.1);color:#f5c800;border:1px solid rgba(245,200,0,.3);border-radius:3px;font-size:10px;padding:2px 8px;cursor:pointer;flex-shrink:0;'>📚</button>";
     if(sesData.tareas.length>1) h += "<button class='btn-del' onclick='sesRemoveTarea("+i+")' style='font-size:10px;padding:2px 8px;flex-shrink:0;'>✕</button>";
+    h += "</div>";
+
+    // ── Video link por tarea ──
+    h += "<div style='display:flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(99,102,241,.07);border-bottom:1px solid rgba(99,102,241,.15);'>";
+    h += "<span style='font-size:9px;color:rgba(255,255,255,.4);font-weight:600;white-space:nowrap;letter-spacing:.06em;'>🎬 VIDEO</span>";
+    h += "<input type='text' id='ses-tvid-"+i+"' class='inp'";
+    h += " value='"+(t.videoLink||"")+"'";
+    h += " placeholder='Link del ejercicio (YouTube, Drive...)' ";
+    h += " style='flex:1;font-size:10px;background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,.15);border-radius:0;padding:2px 4px;color:#a5b4fc;'>";
+    if(t.videoLink){
+      h += "<button onclick=\'sesAbrirVideoTarea("+i+")\'  style=\'font-size:9px;padding:2px 8px;background:rgba(99,102,241,.25);border:1px solid rgba(99,102,241,.4);border-radius:4px;color:#a5b4fc;cursor:pointer;white-space:nowrap;\'>▶ Ver</button>";
+    }
     h += "</div>";
 
     // ── Cuerpo: grid 3 columnas (igual que planilla impresa) ──
@@ -15047,6 +15215,15 @@ function sesDescargarImagen(){
   iframe.contentWindow.focus();
   iframe.contentWindow.print();
 }
+
+function sesAbrirVideoTarea(i){
+  sesSave();
+  var url = (sesData.tareas[i]||{}).videoLink || '';
+  if(!url){ alert('No hay link de video para esta tarea.'); return; }
+  if(!url.startsWith('http')) url = 'https://'+url;
+  window.open(url, '_blank');
+}
+window.sesAbrirVideoTarea = sesAbrirVideoTarea;
 
 function sesAbrirVideo(){
   var url = (document.getElementById('ses-video-link')||{value:''}).value || sesData.videoLink || '';
@@ -15923,6 +16100,14 @@ function histSave(){
 function histLoad(){
   try{ var d = localStorage.getItem('BFC_HISTORIAL'); if(d) HISTORIAL_DB = JSON.parse(d)||[]; }catch(e){}
 }
+function sesGuardarManual(){
+  sesSave();
+  guardarEnHistorial();
+  fbGuardar();
+  toast('💾 Sesión guardada en historial');
+}
+window.sesGuardarManual = sesGuardarManual;
+
 function guardarEnHistorial(){
   // Notificación automática
   notifAuto("sesion", "Sesión "+( sesData.sesionNum||"")+" guardada en historial. Fecha: "+(sesData.fecha||new Date().toLocaleDateString("es-CO"))+" · Tareas: "+(sesData.tareas||[]).length, null, null);
@@ -21622,6 +21807,125 @@ window.infTabDashboard=infTabDashboard;
 document.addEventListener('DOMContentLoaded', function(){
   if(typeof renderProgramacion === 'function') renderProgramacion();
 });
+</script>
+
+<script>
+// ── Botón IA draggable ────────────────────────────────────────────
+(function(){
+  var STORAGE_KEY = 'bfc_chat_btn_pos';
+  var BTN_ID = 'bfc-chat-btn';
+  var WIN_ID = 'bfc-chat-window';
+
+  function applyBtnPos(btn, win, pos){
+    // Limpiar bottom/right, usar top/left para posición arrastrada
+    btn.style.bottom = '';
+    btn.style.right  = '';
+    btn.style.top    = pos.top  + 'px';
+    btn.style.left   = pos.left + 'px';
+    // Ajustar ventana chat relativa al botón
+    if(win){
+      win.style.bottom = '';
+      win.style.right  = '';
+      win.style.top    = Math.max(0, pos.top - 590) + 'px';
+      win.style.left   = Math.max(0, pos.left - 320) + 'px';
+    }
+  }
+
+  function loadSavedPos(){
+    try{ var s=localStorage.getItem(STORAGE_KEY); if(s) return JSON.parse(s); }catch(e){}
+    return null;
+  }
+
+  function savePos(pos){
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(pos)); }catch(e){}
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    var btn = document.getElementById(BTN_ID);
+    var win = document.getElementById(WIN_ID);
+    if(!btn) return;
+
+    // Restaurar posición guardada
+    var saved = loadSavedPos();
+    if(saved){
+      applyBtnPos(btn, win, saved);
+    }
+
+    var dragging = false;
+    var moved    = false;
+    var startX, startY, origLeft, origTop;
+
+    btn.addEventListener('mousedown', function(e){
+      if(e.button !== 0) return;
+      dragging = true;
+      moved    = false;
+      var rect = btn.getBoundingClientRect();
+      startX   = e.clientX;
+      startY   = e.clientY;
+      origLeft = rect.left;
+      origTop  = rect.top;
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', function(e){
+      if(!dragging) return;
+      var dx = e.clientX - startX;
+      var dy = e.clientY - startY;
+      if(Math.abs(dx)>4 || Math.abs(dy)>4) moved = true;
+      if(!moved) return;
+      var newLeft = Math.max(0, Math.min(window.innerWidth  - 62, origLeft + dx));
+      var newTop  = Math.max(0, Math.min(window.innerHeight - 62, origTop  + dy));
+      var pos = {left: newLeft, top: newTop};
+      applyBtnPos(btn, win, pos);
+    });
+
+    document.addEventListener('mouseup', function(e){
+      if(!dragging) return;
+      dragging = false;
+      if(moved){
+        var rect = btn.getBoundingClientRect();
+        savePos({left: rect.left, top: rect.top});
+        // Evitar que el mouseup dispare el click de bfcToggleChat
+        btn.addEventListener('click', function blockClick(ev){
+          ev.stopImmediatePropagation();
+          btn.removeEventListener('click', blockClick, true);
+        }, true);
+      }
+    });
+
+    // Touch support (móvil)
+    btn.addEventListener('touchstart', function(e){
+      var t = e.touches[0];
+      dragging = true; moved = false;
+      var rect = btn.getBoundingClientRect();
+      startX = t.clientX; startY = t.clientY;
+      origLeft = rect.left; origTop = rect.top;
+    }, {passive:true});
+
+    document.addEventListener('touchmove', function(e){
+      if(!dragging) return;
+      var t = e.touches[0];
+      var dx = t.clientX - startX;
+      var dy = t.clientY - startY;
+      if(Math.abs(dx)>4 || Math.abs(dy)>4) moved = true;
+      if(!moved) return;
+      var newLeft = Math.max(0, Math.min(window.innerWidth  - 62, origLeft + dx));
+      var newTop  = Math.max(0, Math.min(window.innerHeight - 62, origTop  + dy));
+      var pos = {left: newLeft, top: newTop};
+      applyBtnPos(btn, win, pos);
+      e.preventDefault();
+    }, {passive:false});
+
+    document.addEventListener('touchend', function(){
+      if(!dragging) return;
+      dragging = false;
+      if(moved){
+        var rect = btn.getBoundingClientRect();
+        savePos({left: rect.left, top: rect.top});
+      }
+    });
+  });
+})();
 </script>
 
 </body>
