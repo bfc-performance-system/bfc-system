@@ -313,8 +313,10 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
   <div style="display:flex;align-items:center;gap:10px;">
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
-    <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;">☁️ Firebase</div>
-    <div id="_bfc-save-ind" onclick="bfcBackupModal()" title="Exportar / Importar datos" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Respaldo</div>
+    <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
+    <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
+    <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
+    <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
     <div id="_bfc-alerta-carga" onclick="navAlertaClick()" title="Alertas de carga — ver dashboard" style="display:none;font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.35);cursor:pointer;font-weight:700;animation:_bfcPulse 2s infinite;">🚨 <span id="_bfc-alerta-txt">0 alertas</span></div>
   </div>
 </div>
@@ -440,6 +442,16 @@ var firebaseConfig = {
 var fbDB = null;
 var FB_SYNC_TIMEOUT = null;
 var FB_PENDING_SAVE = false;
+var FB_ONLINE = false;          // estado de conexión en tiempo real
+var BFC_SESSION_ID = 'u_' + Math.random().toString(36).slice(2,8) + '_' + Date.now(); // ID único de esta sesión
+var BFC_AUDIT_MAX = 60;         // máximo de entradas en el log de auditoría
+var BFC_BACKUP_INTERVAL = null; // referencia al setInterval de backup automático
+var BFC_BACKUP_MINS = 15;       // cada cuántos minutos hacer backup automático
+
+// ── Nombre/alias de usuario (persiste en localStorage por dispositivo) ─────
+var BFC_USER_NAME = (function(){
+  try{ var n = localStorage.getItem('bfc_user_name'); return n||'Usuario'; }catch(e){ return 'Usuario'; }
+})();
 
 function fbInit() {
   if (!FIREBASE_ENABLED) return;
@@ -447,11 +459,316 @@ function fbInit() {
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     fbDB = firebase.database();
     fbEscuchar();
+    fbMonitorConexion();     // 🔌 Monitor de conexión en tiempo real
+    fbPresenciaInit();       // 👥 Presencia multi-usuario
+    fbBackupAutoInit();      // 💾 Backup automático periódico
     console.log("[BFC Firebase] Conectado a Realtime Database");
   } catch(e) {
     console.warn("[BFC Firebase] Error al inicializar:", e.message);
     fbDB = null;
   }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 🔌 MONITOR DE CONEXIÓN — banner offline/online en tiempo real
+// ════════════════════════════════════════════════════════════════════════════
+function fbMonitorConexion() {
+  if (!fbDB) return;
+  fbDB.ref('.info/connected').on('value', function(snap) {
+    FB_ONLINE = snap.val() === true;
+    _fbActualizarBannerConexion();
+  });
+}
+
+function _fbActualizarBannerConexion() {
+  var badge = document.getElementById('fb-sync-badge');
+  var banner = document.getElementById('bfc-offline-banner');
+
+  // Badge en la barra superior
+  if (badge) {
+    if (FB_ONLINE) {
+      badge.textContent = '🟢 Sync';
+      badge.style.color = '#34d399';
+      badge.style.background = 'rgba(52,211,153,.1)';
+      badge.style.borderColor = 'rgba(52,211,153,.3)';
+    } else {
+      badge.textContent = '🔴 Sin conexión';
+      badge.style.color = '#f87171';
+      badge.style.background = 'rgba(239,68,68,.12)';
+      badge.style.borderColor = 'rgba(239,68,68,.3)';
+    }
+  }
+
+  // Banner flotante cuando está offline
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'bfc-offline-banner';
+    banner.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 22px;border-radius:12px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:8px;box-shadow:0 8px 32px rgba(0,0,0,.4);transition:opacity .4s,transform .4s;pointer-events:none;';
+    document.body.appendChild(banner);
+  }
+  if (!FB_ONLINE) {
+    banner.innerHTML = '🔴 Sin conexión — los cambios se guardan localmente y se sincronizarán al reconectar';
+    banner.style.cssText += ';background:rgba(239,68,68,.92);color:#fff;border:1px solid rgba(239,68,68,.5);opacity:1;transform:translateX(-50%) translateY(0);';
+    banner.style.display = 'flex';
+  } else {
+    // Mostrar "Reconectado" brevemente
+    banner.innerHTML = '🟢 Conexión restaurada — datos sincronizados';
+    banner.style.cssText += ';background:rgba(52,211,153,.92);color:#fff;border:1px solid rgba(52,211,153,.5);opacity:1;transform:translateX(-50%) translateY(0);';
+    banner.style.display = 'flex';
+    setTimeout(function() {
+      if (banner) { banner.style.opacity = '0'; banner.style.transform = 'translateX(-50%) translateY(10px)'; }
+      setTimeout(function() { if (banner) banner.style.display = 'none'; }, 400);
+    }, 2500);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 👥 PRESENCIA MULTI-USUARIO — quién está conectado y en qué página
+// ════════════════════════════════════════════════════════════════════════════
+function fbPresenciaInit() {
+  if (!fbDB) return;
+  // Al desconectarse, eliminar presencia automáticamente
+  var presRef = fbDB.ref('bfc_presencia/' + BFC_SESSION_ID);
+  presRef.onDisconnect().remove();
+
+  // Registrar presencia inicial
+  fbPresenciaActualizar('inicio');
+
+  // Escuchar cambios de presencia de TODOS los usuarios
+  fbDB.ref('bfc_presencia').on('value', function(snap) {
+    var datos = snap.val() || {};
+    _fbRenderPresencia(datos);
+  });
+}
+
+function fbPresenciaActualizar(pagina) {
+  if (!fbDB || !FB_ONLINE) return;
+  try {
+    fbDB.ref('bfc_presencia/' + BFC_SESSION_ID).set({
+      nombre: BFC_USER_NAME,
+      pagina: pagina || 'inicio',
+      ts: Date.now()
+    });
+  } catch(e) {}
+}
+
+function _fbRenderPresencia(datos) {
+  var el = document.getElementById('bfc-presencia-bar');
+  if (!el) return;
+
+  var ahora = Date.now();
+  var activos = Object.keys(datos).filter(function(k) {
+    // considerar activo si actualizó en los últimos 3 minutos
+    return datos[k] && (ahora - (datos[k].ts||0)) < 180000;
+  });
+
+  if (activos.length <= 1) {
+    el.style.display = 'none';
+    return;
+  }
+
+  var html = '<span style="font-size:10px;color:var(--text-3);font-weight:600;margin-right:6px;">👥 En línea:</span>';
+  activos.forEach(function(k) {
+    var u = datos[k];
+    var esYo = k === BFC_SESSION_ID;
+    var nombre = u.nombre || 'Usuario';
+    var ini = nombre.charAt(0).toUpperCase();
+    var color = esYo ? '#6366f1' : '#10b981';
+    var paginaLabel = u.pagina || '';
+    html += '<span title="' + nombre + (paginaLabel?' — '+paginaLabel:'') + '" style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:' + color + ';color:#fff;font-size:10px;font-weight:800;margin-right:3px;border:2px solid rgba(255,255,255,.15);">' + ini + '</span>';
+  });
+
+  el.innerHTML = html;
+  el.style.display = 'flex';
+  el.style.alignItems = 'center';
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 📋 AUDITORÍA DE CAMBIOS — log de quién guardó qué y cuándo
+// ════════════════════════════════════════════════════════════════════════════
+function fbAuditLog(modulo, accion) {
+  if (!fbDB || !FB_ONLINE) return;
+  try {
+    var entry = {
+      usuario: BFC_USER_NAME,
+      sessionId: BFC_SESSION_ID,
+      modulo: modulo || 'sistema',
+      accion: accion || 'guardado',
+      ts: Date.now(),
+      fecha: new Date().toLocaleString('es-CO', {timeZone:'America/Bogota'})
+    };
+    // Usar push() para agregar sin sobreescribir
+    fbDB.ref('bfc_audit').push(entry)
+      .catch(function(e) { console.warn('[BFC Audit]', e.message); });
+    // Limpiar entradas viejas localmente (el log en Firebase se purga cada 7 días automáticamente)
+  } catch(e) {}
+}
+
+function fbAuditMostrar() {
+  if (!fbDB) { showToast('⚠️ Firebase no conectado'); return; }
+  fbDB.ref('bfc_audit').orderByChild('ts').limitToLast(50).once('value', function(snap) {
+    var datos = snap.val() || {};
+    var entradas = Object.values(datos).sort(function(a,b){ return b.ts - a.ts; });
+
+    var html = '<div style="padding:20px 24px;max-width:520px;width:90vw;max-height:80vh;overflow-y:auto;">';
+    html += '<div style="font-size:14px;font-weight:900;color:#f1f5f9;margin-bottom:4px;">📋 Historial de cambios</div>';
+    html += '<div style="font-size:11px;color:#64748b;margin-bottom:16px;">Últimas 50 acciones del equipo en el sistema</div>';
+
+    if (!entradas.length) {
+      html += '<div style="color:#64748b;font-size:12px;text-align:center;padding:20px;">Sin registros aún</div>';
+    } else {
+      html += '<div style="display:flex;flex-direction:column;gap:6px;">';
+      entradas.forEach(function(e) {
+        var esYo = e.sessionId === BFC_SESSION_ID;
+        var color = esYo ? '#6366f1' : '#10b981';
+        var ini = (e.usuario||'?').charAt(0).toUpperCase();
+        html += '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);">';
+        html += '<div style="width:28px;height:28px;border-radius:50%;background:'+color+';color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0;">'+ini+'</div>';
+        html += '<div style="flex:1;min-width:0;">';
+        html += '<div style="font-size:11px;font-weight:700;color:#e2e8f0;">'+(e.usuario||'Usuario')+'<span style="color:#64748b;font-weight:500;"> · </span><span style="color:#94a3b8;">'+escHtml(e.modulo||'')+'</span></div>';
+        html += '<div style="font-size:10px;color:#64748b;margin-top:1px;">'+escHtml(e.accion||'')+'</div>';
+        html += '</div>';
+        html += '<div style="font-size:9px;color:#475569;text-align:right;flex-shrink:0;">'+escHtml(e.fecha||'')+'</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    html += '<div style="margin-top:16px;text-align:center;"><button onclick="closeModal()" style="background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.35);color:#a5b4fc;border-radius:9px;padding:9px 24px;font-size:12px;cursor:pointer;font-weight:700;">Cerrar</button></div>';
+    html += '</div>';
+    showModal(html);
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 💾 BACKUP AUTOMÁTICO — snapshot en localStorage cada BFC_BACKUP_MINS min
+// ════════════════════════════════════════════════════════════════════════════
+function fbBackupAutoInit() {
+  if (BFC_BACKUP_INTERVAL) clearInterval(BFC_BACKUP_INTERVAL);
+  BFC_BACKUP_INTERVAL = setInterval(function() {
+    _fbHacerBackup('auto');
+  }, BFC_BACKUP_MINS * 60 * 1000);
+  // También hacer uno inmediato al iniciar
+  setTimeout(function() { _fbHacerBackup('inicio'); }, 5000);
+}
+
+function _fbHacerBackup(origen) {
+  try {
+    var snapshot = {
+      ts: Date.now(),
+      fecha: new Date().toLocaleString('es-CO', {timeZone:'America/Bogota'}),
+      origen: origen || 'manual',
+      pl: PL, carga: CARGA, bien: BIEN, neuro: NEURO,
+      pruebas: PRUEBAS, evs: EVS, jdb: JDB, sdb: SDB,
+      ci_db: CI_DB, historial: HISTORIAL_DB,
+      ejercicios: EJERCICIOS_DB, notif: NOTIF_DB,
+      disp_db: DISP_DB, expedientes_db: EXPEDIENTES_DB,
+      novedades_db: NOVEDADES_DB, pp_db: PP_DB,
+      lesiones_db: LESIONES_DB
+    };
+    var key = 'BFC_BACKUP_' + (origen === 'auto' ? 'AUTO' : 'MANUAL');
+    localStorage.setItem(key, JSON.stringify(snapshot));
+    // Mantener también los últimos 3 backups rotatorios
+    var rotKey = 'BFC_BACKUP_ROT_' + (Date.now() % 3);
+    localStorage.setItem(rotKey, JSON.stringify(snapshot));
+    if (origen !== 'inicio') console.log('[BFC Backup] Snapshot guardado —', new Date().toLocaleTimeString('es-CO'));
+  } catch(e) {
+    console.warn('[BFC Backup] Error al hacer snapshot:', e.message);
+  }
+}
+
+function fbBackupManual() {
+  _fbHacerBackup('manual');
+  showToast('💾 Backup manual guardado en este dispositivo');
+}
+
+function fbVerBackups() {
+  var backups = [];
+  ['BFC_BACKUP_AUTO','BFC_BACKUP_MANUAL','BFC_BACKUP_ROT_0','BFC_BACKUP_ROT_1','BFC_BACKUP_ROT_2'].forEach(function(k){
+    try {
+      var d = localStorage.getItem(k);
+      if (d) {
+        var o = JSON.parse(d);
+        if (o && o.ts) backups.push({key:k, ts:o.ts, fecha:o.fecha, origen:o.origen});
+      }
+    } catch(e) {}
+  });
+  backups.sort(function(a,b){ return b.ts - a.ts; });
+
+  var html = '<div style="padding:20px 24px;max-width:420px;">';
+  html += '<div style="font-size:14px;font-weight:900;color:#f1f5f9;margin-bottom:4px;">💾 Backups locales</div>';
+  html += '<div style="font-size:11px;color:#64748b;margin-bottom:16px;">Snapshots guardados en este navegador. Se mantienen los últimos 3 automáticos más el último manual.</div>';
+  if (!backups.length) {
+    html += '<div style="color:#64748b;font-size:12px;">Sin backups aún. Se generará uno en '+ BFC_BACKUP_MINS +' minutos.</div>';
+  } else {
+    html += '<div style="display:flex;flex-direction:column;gap:6px;">';
+    backups.forEach(function(b) {
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);">';
+      html += '<div><div style="font-size:11px;font-weight:700;color:#e2e8f0;">' + escHtml(b.fecha||'') + '</div>';
+      html += '<div style="font-size:10px;color:#64748b;margin-top:1px;">Origen: ' + escHtml(b.origen||'') + '</div></div>';
+      html += '<button onclick="fbRestaurarBackup(\''+b.key+'\');closeModal();" style="background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.35);color:#a5b4fc;border-radius:7px;padding:5px 12px;font-size:10px;cursor:pointer;font-weight:700;">Restaurar</button>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  html += '<div style="margin-top:16px;display:flex;gap:8px;justify-content:center;">';
+  html += '<button onclick="fbBackupManual();closeModal();" style="background:rgba(52,211,153,.18);border:1px solid rgba(52,211,153,.35);color:#6ee7b7;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:700;">💾 Hacer backup ahora</button>';
+  html += '<button onclick="closeModal()" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:700;">Cerrar</button>';
+  html += '</div></div>';
+  showModal(html);
+}
+
+function fbRestaurarBackup(key) {
+  try {
+    var d = localStorage.getItem(key);
+    if (!d) { showToast('⚠️ Backup no encontrado'); return; }
+    var o = JSON.parse(d);
+    if (!o) { showToast('⚠️ Backup inválido'); return; }
+    // Restaurar variables
+    if (o.pl)            PL = safeArr(o.pl);
+    if (o.carga)         CARGA = safeArr(o.carga);
+    if (o.bien)          BIEN = safeArr(o.bien);
+    if (o.neuro)         NEURO = safeArr(o.neuro);
+    if (o.pruebas)       PRUEBAS = safeArr(o.pruebas);
+    if (o.evs)           EVS = safeArr(o.evs);
+    if (o.jdb)           JDB = safeArr(o.jdb);
+    if (o.sdb)           SDB = safeArr(o.sdb);
+    if (o.ci_db)         CI_DB = safeArr(o.ci_db);
+    if (o.historial)     HISTORIAL_DB = safeArr(o.historial);
+    if (o.ejercicios)    EJERCICIOS_DB = safeArr(o.ejercicios);
+    if (o.notif)         NOTIF_DB = safeArr(o.notif);
+    if (o.disp_db)       DISP_DB = safeArr(o.disp_db);
+    if (o.expedientes_db) EXPEDIENTES_DB = safeArr(o.expedientes_db);
+    if (o.novedades_db)  NOVEDADES_DB = safeArr(o.novedades_db);
+    if (o.pp_db)         PP_DB = safeArr(o.pp_db);
+    if (o.lesiones_db)   LESIONES_DB = safeArr(o.lesiones_db);
+    // Subir a Firebase
+    fbGuardar();
+    fbVolcarALocalStorage();
+    showToast('✅ Backup restaurado — datos del ' + (o.fecha||'backup'));
+    setTimeout(function() {
+      try { var pg = document.querySelector('.page.on'); var pgId = pg && pg.id ? pg.id.replace('page-','') : null; if(pgId) irA(pgId); } catch(e){}
+    }, 500);
+  } catch(e) {
+    showToast('❌ Error al restaurar: ' + e.message);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 📊 ESTIMADOR DE TAMAÑO PAYLOAD — warning si se acerca al límite de 10MB
+// ════════════════════════════════════════════════════════════════════════════
+function _fbEstimarTamanoPayload(payload) {
+  try {
+    var str = JSON.stringify(payload);
+    var bytes = new Blob([str]).size;
+    var mb = bytes / (1024 * 1024);
+    if (mb > 7) {
+      console.warn('[BFC Firebase] ⚠️ Payload grande: ' + mb.toFixed(2) + ' MB (límite 10MB)');
+      if (mb > 9) {
+        showToast('⚠️ Datos muy grandes (' + mb.toFixed(1) + ' MB). Considera limpiar historial antiguo.');
+      }
+    }
+    return mb;
+  } catch(e) { return 0; }
 }
 
 // Escuchar cambios en tiempo real desde Firebase → actualizar variables locales
@@ -473,28 +790,62 @@ function fbEscuchar() {
       rerender = true;
     }
     if (d.sdb   && JSON.stringify(d.sdb)   !== JSON.stringify(SDB))   { SDB   = d.sdb;   rerender = true; }
-    if (d.disp_db && JSON.stringify(d.disp_db) !== JSON.stringify(DISP_DB)) { DISP_DB = safeArr(d.disp_db); try{ localStorage.setItem('BFC_DISP', JSON.stringify(DISP_DB)); }catch(e){} }
-    if (d.expedientes_db) { EXPEDIENTES_DB = safeArr(d.expedientes_db); try{ localStorage.setItem('BFC_EXPEDIENTES', JSON.stringify(EXPEDIENTES_DB)); }catch(e){} }
-    if (d.novedades_db) { NOVEDADES_DB = safeArr(d.novedades_db); try{ localStorage.setItem('BFC_NOV', JSON.stringify(NOVEDADES_DB)); }catch(e){} }
-    if (d.bien_extra && JSON.stringify(d.bien_extra) !== JSON.stringify(BIEN_EXTRA)) { BIEN_EXTRA = d.bien_extra; }
-    if (d.pruebas)   PRUEBAS   = d.pruebas;
-    if (d.ci_db)     CI_DB     = d.ci_db;
-    if (d.historial) HISTORIAL_DB = d.historial;
-    if (d.ejercicios) EJERCICIOS_DB = d.ejercicios;
-    if (d.notif)     NOTIF_DB  = d.notif;
+    if (d.disp_db && JSON.stringify(d.disp_db) !== JSON.stringify(DISP_DB)) { DISP_DB = safeArr(d.disp_db); try{ localStorage.setItem('BFC_DISP', JSON.stringify(DISP_DB)); }catch(e){} rerender = true; }
+    if (d.expedientes_db && JSON.stringify(d.expedientes_db) !== JSON.stringify(EXPEDIENTES_DB)) { EXPEDIENTES_DB = safeArr(d.expedientes_db); try{ localStorage.setItem('BFC_EXPEDIENTES', JSON.stringify(EXPEDIENTES_DB)); }catch(e){} rerender = true; }
+    if (d.novedades_db && JSON.stringify(d.novedades_db) !== JSON.stringify(NOVEDADES_DB)) { NOVEDADES_DB = safeArr(d.novedades_db); try{ localStorage.setItem('BFC_NOV', JSON.stringify(NOVEDADES_DB)); }catch(e){} rerender = true; }
+    if (d.bien_extra && JSON.stringify(d.bien_extra) !== JSON.stringify(BIEN_EXTRA)) { BIEN_EXTRA = d.bien_extra; rerender = true; }
+    if (d.pruebas && JSON.stringify(d.pruebas) !== JSON.stringify(PRUEBAS))     { PRUEBAS   = d.pruebas;   rerender = true; }
+    if (d.ci_db   && JSON.stringify(d.ci_db)   !== JSON.stringify(CI_DB))       { CI_DB     = d.ci_db;     try{ localStorage.setItem('BFC_CI', JSON.stringify(CI_DB)); }catch(e){} rerender = true; }
+    if (d.historial && JSON.stringify(d.historial) !== JSON.stringify(HISTORIAL_DB)) { HISTORIAL_DB = d.historial; try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){} rerender = true; }
+    if (d.ejercicios && JSON.stringify(d.ejercicios) !== JSON.stringify(EJERCICIOS_DB)) { EJERCICIOS_DB = d.ejercicios; try{ localStorage.setItem('BFC_EJERCICIOS', JSON.stringify(EJERCICIOS_DB)); }catch(e){} rerender = true; }
+    if (d.notif && JSON.stringify(d.notif) !== JSON.stringify(NOTIF_DB))        { NOTIF_DB  = d.notif;     try{ localStorage.setItem('BFC_NOTIF', JSON.stringify(NOTIF_DB)); }catch(e){} rerender = true; notifActualizarBadge(); }
     // Claves adicionales — escribir directamente a localStorage
-    if (d.mc_hist)   { try{ localStorage.setItem('bfc_mc_hist', JSON.stringify(d.mc_hist)); }catch(e){} }
+    if (d.mc_hist)   { try{ localStorage.setItem('bfc_mc_hist', JSON.stringify(d.mc_hist)); }catch(e){} rerender = true; }
     if (d.mc_last)   { try{ localStorage.setItem('bfc_mc_last', JSON.stringify(d.mc_last)); }catch(e){} }
     if (d.ip_db)     { IP_DB = safeArr(d.ip_db); try{ localStorage.setItem('BFC_IP_DB', JSON.stringify(IP_DB)); }catch(e){} }
-    if (d.gps_cat)   { try{ localStorage.setItem('BFC_GPS_CAT', JSON.stringify(d.gps_cat)); }catch(e){} }
+    if (d.gps_cat)   { try{ localStorage.setItem('BFC_GPS_CAT', JSON.stringify(d.gps_cat)); }catch(e){} rerender = true; }
     if (d.plantilla_disp) { _plantillaDisp = d.plantilla_disp||{}; try{ localStorage.setItem('BFC_PLANTILLA_DISP', JSON.stringify(_plantillaDisp)); }catch(e){} rerender = true; }
-    if (d.campos_extra)   { _bdCamposExtra = safeArr(d.campos_extra); try{ localStorage.setItem('BFC_BD_CAMPOS_EXTRA', JSON.stringify(_bdCamposExtra)); }catch(e){} }
+    if (d.campos_extra)   { _bdCamposExtra = safeArr(d.campos_extra); try{ localStorage.setItem('BFC_BD_CAMPOS_EXTRA', JSON.stringify(_bdCamposExtra)); }catch(e){} rerender = true; }
     if (d.perf_vars_cfg)  { try{ localStorage.setItem('BFC_PERF_VARS_CFG', JSON.stringify(d.perf_vars_cfg)); }catch(e){} }
+    if (d.pp_db) { PP_DB = safeArr(d.pp_db); try{ localStorage.setItem('BFC_POSTPARTIDO_DB', JSON.stringify(PP_DB)); }catch(e){} rerender = true; }
+    if (d.lesiones_db) { LESIONES_DB = safeArr(d.lesiones_db); try{ localStorage.setItem('bfc_lesiones', JSON.stringify(LESIONES_DB)); }catch(e){} rerender = true; }
     // Sincronizar también a localStorage como caché local
     fbVolcarALocalStorage();
     if (rerender) {
       var badge = document.getElementById('fb-sync-badge');
       if (badge) { badge.textContent = '🟢 Sync'; badge.style.color='#34d399'; }
+      // Re-renderizar la página activa para que todos los usuarios vean los cambios al instante
+      try {
+        var _pgOn = document.querySelector('.page.on');
+        var _pgId = _pgOn && _pgOn.id ? _pgOn.id.replace('page-','') : null;
+        var _fbRenders = {
+          plantilla: typeof renderPlantilla==='function'&&renderPlantilla,
+          programacion: typeof renderProgramacion==='function'&&renderProgramacion,
+          dashboard: typeof renderDashboard==='function'&&renderDashboard,
+          microciclo: typeof renderMicro==='function'&&renderMicro,
+          'historial-mc': typeof renderHistorialMc==='function'&&renderHistorialMc,
+          sesion: typeof renderSesion==='function'&&renderSesion,
+          jornada: typeof renderJornada==='function'&&renderJornada,
+          basedatos: typeof renderBD==='function'&&renderBD,
+          biblioteca: typeof renderHistorial==='function'&&renderHistorial,
+          calendario: typeof renderCalendario==='function'&&renderCalendario,
+          plantel: typeof renderPlantel==='function'&&renderPlantel,
+          carga: typeof renderCarga==='function'&&renderCarga,
+          bienestar: typeof renderBienestar==='function'&&renderBienestar,
+          neuro: typeof renderNeuro==='function'&&renderNeuro,
+          reportes: typeof renderReportes==='function'&&renderReportes,
+          informes: typeof renderInformes==='function'&&renderInformes,
+          informepartido: typeof renderInformePartido==='function'&&renderInformePartido,
+          historial: typeof renderHistorial==='function'&&renderHistorial,
+          notificaciones: typeof renderNotificaciones==='function'&&renderNotificaciones,
+          cargainterna: typeof renderCargaInterna==='function'&&renderCargaInterna,
+          controlcargas: typeof renderControlCargas==='function'&&renderControlCargas,
+          disponibilidad: typeof renderDisponibilidad==='function'&&renderDisponibilidad
+        };
+        if (_pgId && _fbRenders[_pgId]) {
+          setTimeout(function(){ try{ _fbRenders[_pgId](); }catch(e){} }, 150);
+        }
+      } catch(e) {}
     }
   }, function(err) {
     console.warn("[BFC Firebase] Error escuchando:", err.message);
@@ -525,17 +876,22 @@ function fbGuardar() {
       notif: NOTIF_DB||[], disp_db: safeArr(DISP_DB),
       expedientes_db: safeArr(EXPEDIENTES_DB),
       novedades_db: safeArr(NOVEDADES_DB),
+      bien_extra: BIEN_EXTRA||[],
       mc_hist: _fbMcHist, mc_last: _fbMcLast,
       ip_db: _fbIpDb, gps_cat: _fbGpsCat,
       plantilla_disp: _fbPlantDisp,
       campos_extra: _fbCamposExtra,
       perf_vars_cfg: _fbPerfCfg,
+      pp_db: (function(){ var r=[]; try{ var s=localStorage.getItem('BFC_POSTPARTIDO_DB'); if(s) r=JSON.parse(s)||[]; }catch(e){} return r; })(),
+      lesiones_db: safeArr(LESIONES_DB),
       ts: Date.now()
     };
+    // Estimar tamaño antes de enviar
+    _fbEstimarTamanoPayload(payload);
     fbDB.ref('bfc').set(payload)
       .then(function() {
         var badge = document.getElementById('fb-sync-badge');
-        if (badge) { badge.textContent = '🟢 Sync'; badge.style.color='#34d399'; }
+        if (badge) { badge.textContent = '🟢 Sync'; badge.style.color='#34d399'; badge.style.background='rgba(52,211,153,.1)'; badge.style.borderColor='rgba(52,211,153,.3)'; }
       })
       .catch(function(e) {
         console.warn("[BFC Firebase] Error guardando:", e.message);
@@ -565,6 +921,8 @@ function fbVolcarALocalStorage() {
     if(safeArr(IP_DB).length>0) localStorage.setItem("BFC_IP_DB", JSON.stringify(IP_DB));
     if(Object.keys(_plantillaDisp||{}).length>0) localStorage.setItem("BFC_PLANTILLA_DISP", JSON.stringify(_plantillaDisp));
     if(safeArr(_bdCamposExtra).length>0) localStorage.setItem("BFC_BD_CAMPOS_EXTRA", JSON.stringify(_bdCamposExtra));
+    if(safeArr(PP_DB).length>0) localStorage.setItem("BFC_POSTPARTIDO_DB", JSON.stringify(PP_DB));
+    if(safeArr(LESIONES_DB).length>0) localStorage.setItem("bfc_lesiones", JSON.stringify(LESIONES_DB));
   } catch(e) {}
 }
 
@@ -589,6 +947,7 @@ function fbForzarSync() {
     notif: NOTIF_DB||[], disp_db: safeArr(DISP_DB),
     expedientes_db: safeArr(EXPEDIENTES_DB),
     novedades_db: safeArr(NOVEDADES_DB),
+    bien_extra: BIEN_EXTRA||[],
     mc_hist: _fbMcHist, mc_last: _fbMcLast,
     ip_db: _fbIpDb, gps_cat: _fbGpsCat,
     plantilla_disp: _fbPlantDisp,
@@ -625,12 +984,15 @@ function fbForzarSync() {
         });
       }
       if (d.sdb)   SDB   = d.sdb;
+      if (d.pruebas) PRUEBAS = d.pruebas;
+      if (d.ci_db)  { CI_DB = d.ci_db; try{ localStorage.setItem('BFC_CI', JSON.stringify(CI_DB)); }catch(e){} }
+      if (d.bien_extra) BIEN_EXTRA = d.bien_extra;
       if (d.disp_db) DISP_DB = safeArr(d.disp_db);
-      if (d.expedientes_db) EXPEDIENTES_DB = safeArr(d.expedientes_db);
-      if (d.novedades_db) NOVEDADES_DB = safeArr(d.novedades_db);
-      if (d.historial) HISTORIAL_DB = d.historial;
-      if (d.ejercicios) EJERCICIOS_DB = d.ejercicios;
-      if (d.notif) NOTIF_DB = d.notif;
+      if (d.expedientes_db) { EXPEDIENTES_DB = safeArr(d.expedientes_db); try{ localStorage.setItem('BFC_EXPEDIENTES', JSON.stringify(EXPEDIENTES_DB)); }catch(e){} }
+      if (d.novedades_db) { NOVEDADES_DB = safeArr(d.novedades_db); try{ localStorage.setItem('BFC_NOV', JSON.stringify(NOVEDADES_DB)); }catch(e){} }
+      if (d.historial) { HISTORIAL_DB = d.historial; try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){} }
+      if (d.ejercicios) { EJERCICIOS_DB = d.ejercicios; try{ localStorage.setItem('BFC_EJERCICIOS', JSON.stringify(EJERCICIOS_DB)); }catch(e){} }
+      if (d.notif) { NOTIF_DB = d.notif; try{ localStorage.setItem('BFC_NOTIF', JSON.stringify(NOTIF_DB)); }catch(e){} notifActualizarBadge(); }
       if (d.ip_db) { IP_DB = safeArr(d.ip_db); try{ localStorage.setItem('BFC_IP_DB', JSON.stringify(IP_DB)); }catch(e){} }
       if (d.mc_hist) { try{ localStorage.setItem('bfc_mc_hist', JSON.stringify(d.mc_hist)); }catch(e){} }
       if (d.mc_last) { try{ localStorage.setItem('bfc_mc_last', JSON.stringify(d.mc_last)); }catch(e){} }
@@ -638,9 +1000,18 @@ function fbForzarSync() {
       if (d.plantilla_disp) { _plantillaDisp = d.plantilla_disp||{}; try{ localStorage.setItem('BFC_PLANTILLA_DISP', JSON.stringify(_plantillaDisp)); }catch(e){} }
       if (d.campos_extra) { _bdCamposExtra = safeArr(d.campos_extra); try{ localStorage.setItem('BFC_BD_CAMPOS_EXTRA', JSON.stringify(_bdCamposExtra)); }catch(e){} }
       if (d.perf_vars_cfg) { try{ localStorage.setItem('BFC_PERF_VARS_CFG', JSON.stringify(d.perf_vars_cfg)); }catch(e){} }
+      if (d.pp_db) { PP_DB = safeArr(d.pp_db); try{ localStorage.setItem('BFC_POSTPARTIDO_DB', JSON.stringify(PP_DB)); }catch(e){} }
+      if (d.lesiones_db) { LESIONES_DB = safeArr(d.lesiones_db); try{ localStorage.setItem('bfc_lesiones', JSON.stringify(LESIONES_DB)); }catch(e){} }
       fbVolcarALocalStorage();
       showToast('🔄 Datos actualizados — recargando pantalla...');
-      setTimeout(function(){ renderApp(); }, 500);
+      // Re-renderizar la página activa tras la sincronización forzada
+      setTimeout(function(){
+        try {
+          var _pgOn = document.querySelector('.page.on');
+          var _pgId = _pgOn && _pgOn.id ? _pgOn.id.replace('page-','') : null;
+          if (_pgId) irA(_pgId); // irA ya incluye el render de cada página
+        } catch(e) {}
+      }, 500);
     })
     .catch(function(e) {
       console.warn('[BFC Firebase] Error en forzarSync:', e.message);
@@ -660,11 +1031,11 @@ var EJERCICIOS_DB = [];
 var HISTORIAL_DB = [];
 var NOTIF_DB = []; // Centro de notificaciones
 var CI_DB = [];    // Carga Interna (RPE × Tiempo)
-var SHEETS_URL = "https://docs.google.com/spreadsheets/d/1ZWR-cVzpSuJUC9J-NmkqHHNJR_16cQizVdkbt_3fakM/gviz/tq?tqx=out:csv&sheet=Sheet1&t=";
+var PP_DB = [];    // Post Partido (informes de partido)
+var LESIONES_DB = []; // Historial de lesiones por jugador
 var TODAY = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
 var MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 var DIAS_S = ["Dom","Lun","Mar","Mie","Jue","Vie","Sab"];
-var sheetsOK = false;
 
 function cargar() {
   try { PL    = safeArr(JSON.parse(localStorage.getItem("bfc_pl")    || "[]")); } catch(e) { PL=[]; }
@@ -678,6 +1049,7 @@ function cargar() {
   // Si el JDB guardado tiene pocos jugadores (demo viejo o datos corruptos), limpiarlo para que se cargue el demo de 33
   if (JDB.length > 0 && JDB.length < 1) { JDB = []; try{ localStorage.removeItem("bfc_jdb"); }catch(e){} }
   try { SDB = JSON.parse(localStorage.getItem("bfc_sdb") || "[]"); if(!Array.isArray(SDB)) SDB=[]; } catch(e) { SDB = []; }
+  try { LESIONES_DB = safeArr(JSON.parse(localStorage.getItem("bfc_lesiones") || "[]")); } catch(e) { LESIONES_DB=[]; }
 
   if (!PL) PL = [
     {id:"p1",nombre:"Carlos Amaya",pos:"Delantero",num:9,foto:null,cmjBase:42,perfil:{distancia:9800,hsr:950}},
@@ -768,7 +1140,7 @@ function guardar() {
   var btn = document.getElementById('_bfc-save-ind');
   if(btn){ btn.textContent='✓ Guardado'; btn.style.color='#34d399'; clearTimeout(btn._t); btn._t=setTimeout(function(){ btn.textContent='💾 Respaldo'; btn.style.color='#fbbf24'; },2000); }
   // Sincronizar a Firebase si está habilitado
-  if (FIREBASE_ENABLED && fbDB) fbGuardar();
+  if (FIREBASE_ENABLED && fbDB) { fbGuardar(); fbAuditLog('sistema','Guardado general'); }
 }
 
 function fD(y,m,d) { return new Date(y,m,d).toISOString().slice(0,10); }
@@ -816,6 +1188,48 @@ function estadoJugador(pid) {
   return calcEstado3P(pid).global;
 }
 
+// ── TENDENCIA: días consecutivos en warn/danger por pilar ────────────
+// Retorna nro de días seguidos (hacia atrás desde hoy) en que el pilar
+// estuvo en alerta. 0 = ok/grey hoy. Se usa en alertas de semáforo.
+function _ciEstadoDia(pid, fechaStr, perfDist){
+  var c = safeArr(CARGA).filter(function(x){ return x.pid===pid && x.fecha===fechaStr; }).slice(-1)[0];
+  if(!c) return 'grey';
+  var pct = c.distancia ? Math.round(c.distancia/perfDist*100) : null;
+  if(pct===null) return 'grey';
+  return pct>110 ? 'danger' : pct<60 ? 'warn' : 'ok';
+}
+function _bienEstadoDia(pid, fechaStr){
+  var w = safeArr(BIEN).filter(function(x){ return x.pid===pid && x.fecha===fechaStr; }).slice(-1)[0];
+  if(!w) return 'grey';
+  var s = scoreW(w);
+  return semW(s);
+}
+function calcTendencia3P(pid, maxDias){
+  maxDias = maxDias || 7;
+  var plantelAll = JDB.length>0 ? JDB : PL;
+  var p = plantelAll.find(function(x){return x.id===pid;}) || {};
+  var perfDist = (p.perfil&&p.perfil.distancia) ? p.perfil.distancia : 9800;
+  var diasB=0, diasC=0;
+  for(var i=0; i<maxDias; i++){
+    var d = new Date(TODAY); d.setDate(d.getDate()-i);
+    var fStr = d.toISOString().slice(0,10);
+    var estB = _bienEstadoDia(pid, fStr);
+    var estC = _ciEstadoDia(pid, fStr, perfDist);
+    if(i===0){
+      // Inicializar: si hoy ya está ok/grey, tendencia=0
+      if(estB==='ok'||estB==='grey') diasB=-1; // -1 significa "parar de contar"
+      if(estC==='ok'||estC==='grey') diasC=-1;
+    }
+    if(diasB>=0 && (estB==='warn'||estB==='danger')) diasB++;
+    else if(diasB>=0) diasB=-1;
+    if(diasC>=0 && (estC==='warn'||estC==='danger')) diasC++;
+    else if(diasC>=0) diasC=-1;
+    if(diasB===-1 && diasC===-1) break;
+  }
+  return { bienestar: Math.max(0,diasB), carga: Math.max(0,diasC) };
+}
+// ─────────────────────────────────────────────────────────────────────
+
 function calcEstado3P(pid){
   var plantelAll = JDB.length>0 ? JDB : PL;
   var p = plantelAll.find(function(x){return x.id===pid;}) || {};
@@ -854,10 +1268,13 @@ function calcEstado3P(pid){
   else if(estados.indexOf("warn")>=0) global="warn";
   else if(estados.indexOf("ok")>=0) global="ok";
 
+  // TENDENCIA: días consecutivos en alerta (bienestar + carga)
+  var tendencia = calcTendencia3P(pid, 7);
+
   return {
     global:global,
-    bienestar:{estado:pB, score:scoreB, raw:w},
-    carga:{estado:pC, raw:c},
+    bienestar:{estado:pB, score:scoreB, raw:w, diasAlerta:tendencia.bienestar},
+    carga:{estado:pC, raw:c, diasAlerta:tendencia.carga},
     neuro:{estado:pN, raw:cmjPruebas, base:cmjBase}
   };
 }
@@ -1059,7 +1476,7 @@ function irA(id) {
   document.querySelectorAll(".sb-link[data-page=\""+id+"\"]").forEach(function(lnk){ lnk.classList.add("on"); });
   var pg = document.getElementById("page-"+id);
   if (pg) pg.classList.add("on");
-  ejLoad(); histLoad(); notifLoad(); notifActualizarBadge();
+  ejLoad(); histLoad(); notifLoad(); notifActualizarBadge(); ppLoad();
   var renders = {
     // ── Nuevos módulos ──
     plantilla:    renderPlantilla,
@@ -1095,6 +1512,7 @@ function irA(id) {
   };
   if (renders[id]) renders[id]();
   document.getElementById("main").scrollTop = 0;
+  fbPresenciaActualizar(id);
 }
 
 // Alias para compatibilidad con código legacy
@@ -2035,6 +2453,36 @@ function plantillaMostrarJugador(jid){
   }
   html += "</div>";
 
+  // ── HISTORIAL DE LESIONES ──
+  var _lesJug = safeArr(LESIONES_DB).filter(function(l){ return l.pid===jid; })
+    .sort(function(a,b){ return (b.fechaInicio||'').localeCompare(a.fechaInicio||''); });
+  html += "<details style='background:rgba(239,68,68,.04);border:1px solid rgba(239,68,68,.2);border-radius:14px;margin-bottom:14px;overflow:hidden;'>";
+  html += "<summary style='padding:13px 16px;font-size:12px;font-weight:800;color:#f87171;cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;user-select:none;'>";
+  html += "<span style='display:flex;align-items:center;gap:8px;'><span style='font-size:16px;'>🩹</span> Historial de lesiones "+(_lesJug.length?"<span style='background:rgba(239,68,68,.2);color:#f87171;font-size:9px;padding:1px 7px;border-radius:6px;'>"+_lesJug.length+"</span>":"")+"</span>";
+  html += "<button onclick='event.preventDefault();event.stopPropagation();lesionNuevaModal(\""+jid+"\")' style='background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#f87171;border-radius:7px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;'>+ Registrar</button>";
+  html += "</summary>";
+  html += "<div style='padding:4px 14px 14px;'>";
+  if(!_lesJug.length){
+    html += "<div style='text-align:center;color:#475569;font-size:11px;padding:12px 0;'>Sin lesiones registradas</div>";
+  } else {
+    _lesJug.forEach(function(l){
+      var _alta = l.fechaFin ? " — Alta: "+l.fechaFin : " — En proceso";
+      var _dias = l.diasFuera ? l.diasFuera+" días fuera" : "";
+      var _activa = !l.fechaFin;
+      html += "<div style='display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);'>";
+      html += "<span style='font-size:16px;'>"+(_activa?'🔴':'⚪')+"</span>";
+      html += "<div style='flex:1;'>";
+      html += "<div style='font-size:11px;font-weight:800;color:"+(_activa?'#f87171':'#94a3b8')+";'>"+(l.tipo||'Lesión')+" — "+(l.zona||'Sin zona')+"</div>";
+      html += "<div style='font-size:10px;color:#475569;margin-top:2px;'>"+l.fechaInicio+_alta+(_dias?' · '+_dias:'')+"</div>";
+      if(l.notas) html += "<div style='font-size:10px;color:#64748b;font-style:italic;margin-top:2px;'>"+escHtml(l.notas)+"</div>";
+      html += "</div>";
+      html += "<button onclick='lesionEliminar(\""+l.id+"\",\""+jid+"\")' title='Eliminar' style='background:none;border:none;color:#ef4444;font-size:13px;cursor:pointer;padding:2px;'>✕</button>";
+      html += "</div>";
+    });
+  }
+  html += "</div></details>";
+  // ────────────────────────────────────────────────────────────────────
+
   // ── Acciones ──
   html += "<div style='display:flex;gap:8px;'>";
   html += "<button onclick='plantillaEditarJugador(\""+jid+"\")' style='flex:1;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:12px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;'>✏️ Editar</button>";
@@ -2043,6 +2491,73 @@ function plantillaMostrarJugador(jid){
   html += "</div>";
   showModal(html);
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// GESTIÓN DE LESIONES (LESIONES_DB)
+// Estructura de registro: { id, pid, fechaInicio, fechaFin, tipo, zona, diasFuera, notas, creadoEn }
+// ══════════════════════════════════════════════════════════════════════
+function lesionSave(){ try{ localStorage.setItem('bfc_lesiones', JSON.stringify(LESIONES_DB)); }catch(e){} fbGuardar(); fbAuditLog('lesiones','Historial lesiones actualizado'); }
+
+function lesionNuevaModal(pid){
+  var plantelAll = safeArr(JDB).length>0 ? safeArr(JDB) : safeArr(PL);
+  var j = plantelAll.find(function(x){ return x.id===pid; });
+  if(!j) return;
+  var nombre = ((j.nombre||j.name||'')+' '+(j.apellido||j.lastname||'')).trim();
+  var html = "<div style='padding:20px 24px;max-width:380px;'>";
+  html += "<div style='font-size:14px;font-weight:900;color:#f1f5f9;margin-bottom:16px;'>🩹 Registrar lesión — "+escHtml(nombre)+"</div>";
+  var tipos = ['Muscular','Ligamentosa','Ósea','Contusión','Sobrecarga','Tendinitis','Fatiga','Otra'];
+  var zonas = ['Muslo','Isquiotibiales','Cuádriceps','Gemelo','Tobillo','Rodilla','Cadera','Hombro','Espalda','Otra'];
+  html += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;'>";
+  html += "<div><label style='font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;display:block;margin-bottom:4px;'>Fecha inicio*</label><input type='date' id='les-fi' value='"+TODAY+"' style='width:100%;padding:8px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:#1e293b;color:#f1f5f9;font-size:12px;box-sizing:border-box;'></div>";
+  html += "<div><label style='font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;display:block;margin-bottom:4px;'>Fecha alta</label><input type='date' id='les-ff' style='width:100%;padding:8px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:#1e293b;color:#f1f5f9;font-size:12px;box-sizing:border-box;'></div>";
+  html += "</div>";
+  html += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;'>";
+  html += "<div><label style='font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;display:block;margin-bottom:4px;'>Tipo</label><select id='les-tipo' style='width:100%;padding:8px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:#1e293b;color:#f1f5f9;font-size:12px;box-sizing:border-box;'>"+tipos.map(function(t){ return "<option>"+t+"</option>"; }).join('')+"</select></div>";
+  html += "<div><label style='font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;display:block;margin-bottom:4px;'>Zona</label><select id='les-zona' style='width:100%;padding:8px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:#1e293b;color:#f1f5f9;font-size:12px;box-sizing:border-box;'>"+zonas.map(function(z){ return "<option>"+z+"</option>"; }).join('')+"</select></div>";
+  html += "</div>";
+  html += "<div style='margin-bottom:12px;'><label style='font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;display:block;margin-bottom:4px;'>Días fuera estimados</label><input type='number' id='les-dias' min='0' max='365' placeholder='0' style='width:100%;padding:8px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:#1e293b;color:#f1f5f9;font-size:12px;box-sizing:border-box;'></div>";
+  html += "<div style='margin-bottom:16px;'><label style='font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;display:block;margin-bottom:4px;'>Notas</label><textarea id='les-notas' rows='2' placeholder='Mecanismo, diagnóstico, observaciones...' style='width:100%;padding:8px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:#1e293b;color:#f1f5f9;font-size:12px;box-sizing:border-box;resize:vertical;'></textarea></div>";
+  html += "<div style='display:flex;gap:8px;'>";
+  html += "<button onclick='lesionGuardar(\""+pid+"\")' style='flex:1;padding:10px;background:#ef4444;color:#fff;border:none;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;'>💾 Guardar</button>";
+  html += "<button onclick='closeModal();setTimeout(function(){plantillaMostrarJugador(\""+pid+"\")},50)' style='flex:1;padding:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;font-size:12px;cursor:pointer;'>Cancelar</button>";
+  html += "</div></div>";
+  showModal(html);
+}
+window.lesionNuevaModal = lesionNuevaModal;
+
+function lesionGuardar(pid){
+  var fi = (document.getElementById('les-fi')||{}).value||TODAY;
+  var ff = (document.getElementById('les-ff')||{}).value||'';
+  var tipo = (document.getElementById('les-tipo')||{}).value||'Muscular';
+  var zona = (document.getElementById('les-zona')||{}).value||'Otra';
+  var dias = parseInt((document.getElementById('les-dias')||{}).value)||0;
+  var notas = (document.getElementById('les-notas')||{}).value||'';
+  LESIONES_DB.push({
+    id: 'les_'+Date.now(),
+    pid: pid,
+    fechaInicio: fi,
+    fechaFin: ff||null,
+    tipo: tipo,
+    zona: zona,
+    diasFuera: dias||null,
+    notas: notas,
+    creadoEn: new Date().toLocaleString('es-CO')
+  });
+  lesionSave();
+  toast('🩹 Lesión registrada');
+  closeModal();
+  setTimeout(function(){ plantillaMostrarJugador(pid); }, 80);
+}
+window.lesionGuardar = lesionGuardar;
+
+function lesionEliminar(lid, pid){
+  LESIONES_DB = safeArr(LESIONES_DB).filter(function(l){ return l.id!==lid; });
+  lesionSave();
+  toast('🗑️ Registro eliminado');
+  setTimeout(function(){ plantillaMostrarJugador(pid); }, 80);
+}
+window.lesionEliminar = lesionEliminar;
+// ══════════════════════════════════════════════════════════════════════
 
 // ── Modal detalle médico para lesionados (acceso desde Plantilla/Cancha) ──
 function plantillaVerLesion(jid){
@@ -2266,7 +2781,7 @@ var _convSubtitulo = '';
 var _bdCamposExtra = (function(){
   try{ var d=localStorage.getItem('BFC_BD_CAMPOS_EXTRA'); return d?JSON.parse(d):[]; }catch(e){ return []; }
 })();
-function _bdGuardarCamposExtra(){ try{ localStorage.setItem('BFC_BD_CAMPOS_EXTRA',JSON.stringify(_bdCamposExtra)); }catch(e){} }
+function _bdGuardarCamposExtra(){ try{ localStorage.setItem('BFC_BD_CAMPOS_EXTRA',JSON.stringify(_bdCamposExtra)); }catch(e){} fbGuardar(); }
 
 // ── Definición global de campos disponibles para columnas automáticas ──
 function _cvGetDBFields(){
@@ -5296,6 +5811,36 @@ function renderProgramacion() {
   h += "<div style='font-size:12px;color:#475569;font-weight:600;'>Vista general para el staff técnico · " + mesNombres[mm] + " " + yy + "</div>";
   h += "</div>";
 
+  // ── BANDA DE PENDIENTES DEL DÍA ──
+  var _bienHoyProg = safeArr(BIEN).filter(function(b){ return b.fecha === todayStr; }).length;
+  var _sesHoyProg  = (function(){ try{ var h2=JSON.parse(localStorage.getItem('BFC_HISTORIAL')||'[]'); return h2&&h2.length&&(h2[0].fecha||h2[0].fechaSes)===todayStr?h2[0]:null; }catch(e){return null;} })();
+  var _proxPart    = safeArr(EVS).filter(function(e){ return (e.tipo||'').toLowerCase()==='partido' && e.fecha >= todayStr; }).sort(function(a,b){ return a.fecha.localeCompare(b.fecha); })[0] || null;
+  var _diasPart    = null;
+  if(_proxPart){ var _d1=new Date(todayStr),_d2=new Date(_proxPart.fecha); _diasPart=Math.round((_d2-_d1)/86400000); }
+  var _horaNow = new Date().getHours();
+  var _saludo  = _horaNow<12?'Buenos días':_horaNow<18?'Buenas tardes':'Buenas noches';
+  var _pendProg = [];
+  if(_bienHoyProg < plantelAll.length) _pendProg.push({ icon:'🌅', txt:'Wellness: '+_bienHoyProg+'/'+plantelAll.length+' jugadores registrados', accion:"irA('kiosko')" });
+  if(!_sesHoyProg) _pendProg.push({ icon:'📋', txt:'Sesión de hoy sin registrar todavía', accion:"irA('sesion')" });
+  if(_proxPart && _diasPart !== null && _diasPart <= 5) _pendProg.push({ icon:'⚽', txt:'Partido en '+(_diasPart===0?'HOY':_diasPart===1?'1 día':_diasPart+' días')+' vs '+(_proxPart.titulo||'').replace(/^BFC\s*vs\s*/i,'').replace(/^Barranquilla\s*FC\s*vs\s*/i,'').trim(), accion:"irA('informes')" });
+  h += "<div style='padding:16px 28px 0;'>";
+  if(_pendProg.length){
+    h += "<div style='background:linear-gradient(135deg,rgba(99,102,241,.12),rgba(139,92,246,.08));border:1.5px solid rgba(99,102,241,.25);border-radius:14px;padding:14px 18px;margin-bottom:0;'>";
+    h += "<div style='font-size:11px;font-weight:800;color:#a5b4fc;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;'>"+_saludo+" — Pendientes del día</div>";
+    h += "<div style='display:flex;flex-wrap:wrap;gap:8px;'>";
+    _pendProg.forEach(function(p){
+      h += "<button onclick='"+p.accion+"' style='display:flex;align-items:center;gap:8px;padding:9px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(99,102,241,.3);border-radius:10px;cursor:pointer;font-size:11px;font-weight:600;color:#cbd5e1;text-align:left;'>";
+      h += "<span style='font-size:16px;'>"+p.icon+"</span><span>"+p.txt+"</span></button>";
+    });
+    h += "</div></div>";
+  } else {
+    h += "<div style='background:linear-gradient(135deg,rgba(5,150,105,.12),rgba(16,185,129,.08));border:1.5px solid rgba(5,150,105,.3);border-radius:14px;padding:14px 18px;'>";
+    h += "<div style='font-size:13px;font-weight:800;color:#34d399;'>✅ Todo al día — "+_saludo+"</div>";
+    h += "<div style='font-size:11px;color:#64748b;margin-top:3px;'>Wellness registrado · Sesión del día guardada · Sin partidos urgentes</div>";
+    h += "</div>";
+  }
+  h += "</div>";
+
   // ── CARDS FILA SUPERIOR ──
   h += "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;padding:20px 28px;'>";
 
@@ -5474,6 +6019,57 @@ function renderProgramacion() {
       h += "</div></div></div>";
     }
   })();
+
+  // ── PRÓXIMOS EVENTOS ──
+  var _proxEvs = safeArr(EVS).filter(function(e){ return e.fecha >= todayStr; }).sort(function(a,b){ return a.fecha.localeCompare(b.fecha); }).slice(0,8);
+  var _tcEvs = {
+    'partido':       { bg:'rgba(59,130,246,.18)',  bord:'rgba(59,130,246,.5)',  txt:'#93c5fd',  icon:'⚽' },
+    'entrenamiento': { bg:'rgba(16,185,129,.15)',  bord:'rgba(16,185,129,.4)', txt:'#6ee7b7',  icon:'🏃' },
+    'recuperacion':  { bg:'rgba(234,179,8,.15)',   bord:'rgba(234,179,8,.4)',  txt:'#fde68a',  icon:'🛁' },
+    'descanso':      { bg:'rgba(100,116,139,.1)',  bord:'rgba(100,116,139,.25)', txt:'#94a3b8', icon:'💤' },
+    'viaje':         { bg:'rgba(168,85,247,.15)',  bord:'rgba(168,85,247,.4)', txt:'#d8b4fe',  icon:'✈️' },
+    'nota_staff':    { bg:'rgba(99,102,241,.1)',   bord:'rgba(99,102,241,.25)', txt:'#a5b4fc', icon:'📌' }
+  };
+  h += "<div style='padding:0 28px 20px;'>";
+  h += "<div style='background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:18px;'>";
+  h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;'>";
+  h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;'>📅 Próximos eventos</div>";
+  h += "<button onclick=\"irA('microciclo')\" style='font-size:9px;font-weight:800;color:#6366f1;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);border-radius:7px;padding:4px 10px;cursor:pointer;'>+ Agregar evento</button>";
+  h += "</div>";
+  if(_proxEvs.length){
+    h += "<div style='display:flex;flex-direction:column;gap:6px;'>";
+    _proxEvs.forEach(function(ev){
+      var tipo = (ev.tipo||'entrenamiento').toLowerCase();
+      var tc   = _tcEvs[tipo] || _tcEvs['entrenamiento'];
+      var evParts = (ev.fecha||'').split('-');
+      var evObj   = evParts.length===3 ? new Date(+evParts[0],+evParts[1]-1,+evParts[2]) : null;
+      var evDiff  = evObj ? Math.round((evObj - new Date(+todayStr.split('-')[0],+todayStr.split('-')[1]-1,+todayStr.split('-')[2]))/86400000) : null;
+      var diffLabel = evDiff===null?'':(evDiff===0?'<span style="color:#22c55e;font-weight:800;">HOY</span>':evDiff===1?'<span style="color:#a3e635;font-weight:700;">Mañana</span>':'<span style="color:#64748b;">En '+evDiff+' días</span>');
+      var mesCorto = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      var dia  = evParts[2]?+evParts[2]:'?';
+      var mes  = evParts[1]?mesCorto[+evParts[1]-1]:'';
+      h += "<div style='display:flex;align-items:center;gap:12px;background:"+tc.bg+";border:1px solid "+tc.bord+";border-radius:10px;padding:10px 14px;'>";
+      h += "<div style='min-width:40px;text-align:center;'>";
+      h += "<div style='font-size:18px;font-weight:900;color:"+tc.txt+";line-height:1.1;'>"+dia+"</div>";
+      h += "<div style='font-size:9px;font-weight:700;color:#475569;text-transform:uppercase;'>"+mes+"</div>";
+      h += "</div>";
+      h += "<div style='font-size:20px;line-height:1;'>"+tc.icon+"</div>";
+      h += "<div style='flex:1;min-width:0;'>";
+      h += "<div style='font-size:13px;font-weight:800;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>"+escHtml(ev.titulo||tipo)+"</div>";
+      h += "<div style='font-size:10px;color:#64748b;margin-top:1px;'>"+(ev.hora?'🕐 '+ev.hora+' · ':'')+escHtml(ev.lugar||'')+(ev.carga?' · <span style="font-weight:700;color:'+tc.txt+';">'+ev.carga+'</span>':'')+"</div>";
+      h += "</div>";
+      h += "<div style='font-size:11px;white-space:nowrap;'>"+diffLabel+"</div>";
+      h += "</div>";
+    });
+    h += "</div>";
+  } else {
+    h += "<div style='text-align:center;padding:20px;'>";
+    h += "<div style='font-size:28px;margin-bottom:8px;'>📭</div>";
+    h += "<div style='font-size:13px;color:#475569;font-weight:600;'>Sin eventos próximos programados</div>";
+    h += "<div style='font-size:11px;color:#334155;margin-top:4px;'>Agrega partidos y sesiones en el Microciclo</div>";
+    h += "</div>";
+  }
+  h += "</div></div>";
 
   // ── CALENDARIO MENSUAL NAVEGABLE ──
   h += "<div style='padding:0 28px 28px;'>";
@@ -6194,6 +6790,205 @@ function _renderCalendarioBFC(){
 // ================================================
 // DASHBOARD
 // ================================================
+// ════════════════════════════════════════════════════════════════════════════
+// PANEL CARGA SEMANAL — reemplaza el calendario en el Dashboard
+// Muestra: GPS dist+HSR (barras), UA carga interna, wellness score, ACWR
+// por jugador · últimos 7 días
+// ════════════════════════════════════════════════════════════════════════════
+function _renderPanelCargaSemanal(plantelAll) {
+  // Fechas de los últimos 7 días (hoy inclusive)
+  var dias = [];
+  for (var d = 6; d >= 0; d--) {
+    var dt = new Date(); dt.setDate(dt.getDate() - d);
+    dias.push(dt.toISOString().slice(0,10));
+  }
+  var dMin = dias[0], dMax = dias[6];
+  var diasLabel = ['L','M','X','J','V','S','D'];
+  // Días de la semana por fecha (0=dom … 6=sab, en es-CO lunes=primero)
+  function diaLabel(fecha) {
+    var d = new Date(fecha+'T12:00:00');
+    return ['D','L','M','X','J','V','S'][d.getDay()];
+  }
+
+  // Datos GPS últimos 7 días por jugador
+  var cargaMap = {}; // pid → {fecha: {distTotal, hsr, playerLoad}}
+  safeArr(CARGA).filter(function(c){ return c.fecha >= dMin && c.fecha <= dMax; }).forEach(function(c){
+    var pid = c.pid||c.jugadorId;
+    if(!pid) return;
+    if(!cargaMap[pid]) cargaMap[pid] = {};
+    cargaMap[pid][c.fecha] = c;
+  });
+
+  // Datos carga interna (UA) últimos 7 días por jugador
+  var ciMap = {}; // pid → {fecha: ua}
+  safeArr(CI_DB).filter(function(r){ return r.fecha >= dMin && r.fecha <= dMax; }).forEach(function(r){
+    var pid = r.pid||r.jugadorId;
+    if(!pid) return;
+    if(!ciMap[pid]) ciMap[pid] = {};
+    if(!ciMap[pid][r.fecha]) ciMap[pid][r.fecha] = 0;
+    ciMap[pid][r.fecha] += (r.ua||0);
+  });
+
+  // Wellness últimos 7 días por jugador (score promedio diario)
+  var bienMap = {}; // pid → {fecha: score}
+  safeArr(BIEN).filter(function(b){ return b.fecha >= dMin && b.fecha <= dMax; }).forEach(function(b){
+    var pid = b.pid||b.jugadorId;
+    if(!pid) return;
+    if(!bienMap[pid]) bienMap[pid] = {};
+    bienMap[pid][b.fecha] = scoreW(b);
+  });
+
+  // Calcular ACWR por jugador (agudo 7d / crónico 28d usando UA)
+  var d28 = (function(){ var dt=new Date(); dt.setDate(dt.getDate()-28); return dt.toISOString().slice(0,10); })();
+  var acwrMap = {};
+  var ciTodo = safeArr(CI_DB).filter(function(r){ return r.fecha >= d28; });
+  plantelAll.forEach(function(j){
+    var regs = ciTodo.filter(function(r){ return r.pid===j.id||r.jugadorId===j.id; });
+    var ag = regs.filter(function(r){ return r.fecha>=dMin; }).reduce(function(a,r){ return a+(r.ua||0);},0);
+    var cr = regs.reduce(function(a,r){ return a+(r.ua||0);},0);
+    var crAvg = cr/4; // promedio semanal de 4 semanas
+    acwrMap[j.id] = (crAvg>0) ? Math.round(ag/crAvg*100)/100 : null;
+  });
+
+  // Máx distancia para escalar barras
+  var maxDist = 0;
+  plantelAll.forEach(function(j){ dias.forEach(function(f){ var c=( cargaMap[j.id]||{})[f]; if(c&&c.distancia>maxDist) maxDist=c.distancia; }); });
+  if(maxDist < 1000) maxDist = 12000; // fallback
+
+  // ── Render ──
+  var h = "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:16px;margin-bottom:16px;overflow:hidden;'>";
+
+  // Encabezado
+  h += "<div style='display:flex;align-items:center;justify-content:space-between;padding:14px 18px 10px;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px;'>";
+  h += "<div>";
+  h += "<div style='font-size:13px;font-weight:800;color:var(--text-1);'>📊 Carga semanal del equipo</div>";
+  h += "<div style='font-size:10px;color:var(--text-3);margin-top:2px;'>Últimos 7 días · GPS distancia (barras) · UA carga interna · Wellness · ACWR</div>";
+  h += "</div>";
+
+  // Leyenda de días + indicadores
+  h += "<div style='display:flex;align-items:center;gap:14px;'>";
+  h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:10px;height:10px;border-radius:2px;background:#6366f1;'></div><span style='font-size:9px;color:var(--text-3);'>Dist GPS</span></div>";
+  h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:10px;height:10px;border-radius:2px;background:#f59e0b;'></div><span style='font-size:9px;color:var(--text-3);'>HSR</span></div>";
+  h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:10px;height:10px;border-radius:50%;background:#10b981;'></div><span style='font-size:9px;color:var(--text-3);'>Wellness</span></div>";
+  h += "<button onclick=\"irA('cargainterna')\" style='font-size:10px;padding:5px 12px;border-radius:8px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;'>Ver carga interna →</button>";
+  h += "</div></div>";
+
+  // Tabla
+  h += "<div style='overflow-x:auto;'>";
+  h += "<table style='width:100%;border-collapse:collapse;min-width:720px;'>";
+
+  // Cabecera de días
+  h += "<thead><tr style='background:rgba(255,255,255,.03);'>";
+  h += "<th style='padding:8px 14px;text-align:left;font-size:10px;font-weight:700;color:var(--text-3);width:160px;'>Jugador</th>";
+  dias.forEach(function(f){
+    var esHoy = f===TODAY;
+    h += "<th style='padding:6px 4px;text-align:center;font-size:10px;font-weight:"+(esHoy?'800':'600')+";color:"+(esHoy?'#a5b4fc':'var(--text-3)')+";min-width:68px;'>";
+    h += diaLabel(f)+"<br><span style='font-size:9px;font-weight:400;'>"+f.slice(8)+"</span></th>";
+  });
+  h += "<th style='padding:6px 8px;text-align:center;font-size:10px;font-weight:700;color:var(--text-3);'>Total km</th>";
+  h += "<th style='padding:6px 8px;text-align:center;font-size:10px;font-weight:700;color:var(--text-3);'>UA 7d</th>";
+  h += "<th style='padding:6px 8px;text-align:center;font-size:10px;font-weight:700;color:var(--text-3);'>ACWR</th>";
+  h += "</tr></thead><tbody>";
+
+  plantelAll.forEach(function(j, ri) {
+    var nombre = (j.apellido||j.nombre||'').toUpperCase();
+    if(nombre.length > 14) nombre = nombre.slice(0,13)+'…';
+    var distTotal7 = 0, uaTotal7 = 0;
+    var ci7 = ciMap[j.id] || {};
+    var cg7 = cargaMap[j.id] || {};
+    var bi7 = bienMap[j.id] || {};
+    Object.values(ci7).forEach(function(v){ uaTotal7 += v; });
+    Object.keys(cg7).forEach(function(f){ distTotal7 += (cg7[f].distancia||0); });
+    var acwr = acwrMap[j.id];
+    var acwrColor = acwr===null?'#64748b':acwr>1.3?'#ef4444':acwr>1.1?'#f59e0b':'#22c55e';
+    var acwrBg = acwr===null?'transparent':acwr>1.3?'rgba(239,68,68,.12)':acwr>1.1?'rgba(245,158,11,.12)':'rgba(34,197,94,.1)';
+
+    h += "<tr style='border-bottom:1px solid var(--border);background:"+(ri%2===0?'transparent':'rgba(255,255,255,.015)')+";'>";
+    h += "<td style='padding:8px 14px;'>";
+    h += "<div style='display:flex;align-items:center;gap:7px;'>";
+    h += avEl(j, 26);
+    h += "<div style='font-size:11px;font-weight:700;color:var(--text-1);'>"+nombre+"</div>";
+    h += "</div></td>";
+
+    dias.forEach(function(f){
+      var cg = cg7[f];
+      var ua = ci7[f]||0;
+      var bs = bi7[f];
+      var esHoy = f===TODAY;
+      var dist = cg ? (cg.distancia||0) : 0;
+      var hsr  = cg ? (cg.hsr||cg.distAlta||0) : 0;
+      var pct  = maxDist>0 ? Math.round(dist/maxDist*100) : 0;
+      var pctH = maxDist>0 ? Math.round(hsr/maxDist*100) : 0;
+
+      h += "<td style='padding:4px 3px;vertical-align:middle;text-align:center;"+(esHoy?'background:rgba(99,102,241,.06);':'')+"'>";
+
+      if(dist>0 || ua>0 || bs!==null) {
+        h += "<div style='display:flex;flex-direction:column;align-items:center;gap:2px;'>";
+
+        // Barra distancia GPS
+        if(dist>0){
+          h += "<div style='position:relative;width:52px;height:14px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden;' title='Dist: "+dist.toLocaleString()+"m · HSR: "+hsr.toLocaleString()+"m'>";
+          h += "<div style='position:absolute;left:0;top:0;height:100%;width:"+pct+"%;background:#6366f1;border-radius:3px;'></div>";
+          if(pctH>0) h += "<div style='position:absolute;left:0;top:0;height:100%;width:"+pctH+"%;background:#f59e0b;border-radius:3px;opacity:.8;'></div>";
+          h += "</div>";
+          h += "<span style='font-size:8px;color:var(--text-3);'>"+Math.round(dist/1000*10)/10+"km</span>";
+        } else {
+          h += "<div style='width:52px;height:14px;'></div>";
+          h += "<span style='font-size:8px;color:var(--border);'>—</span>";
+        }
+
+        // UA + Wellness dot
+        h += "<div style='display:flex;align-items:center;gap:3px;margin-top:1px;'>";
+        if(ua>0) h += "<span style='font-size:8px;font-weight:700;color:#a78bfa;background:rgba(167,139,250,.12);border-radius:3px;padding:0 3px;'>"+Math.round(ua)+"UA</span>";
+        if(bs!==null){
+          var bsColor = bs>=4?'#22c55e':bs>=3?'#f59e0b':'#ef4444';
+          h += "<span style='width:7px;height:7px;border-radius:50%;background:"+bsColor+";display:inline-block;' title='Wellness: "+bs+"/5'></span>";
+        }
+        h += "</div>";
+
+      } else {
+        // Sin datos ese día
+        h += "<div style='width:52px;text-align:center;'><span style='font-size:9px;color:var(--border);'>·</span></div>";
+      }
+
+      h += "</td>";
+    });
+
+    // Totales
+    h += "<td style='padding:6px 8px;text-align:center;'>";
+    if(distTotal7>0) h += "<span style='font-size:11px;font-weight:800;color:#818cf8;'>"+Math.round(distTotal7/1000*10)/10+"</span>";
+    else h += "<span style='font-size:10px;color:var(--border);'>—</span>";
+    h += "</td>";
+
+    h += "<td style='padding:6px 8px;text-align:center;'>";
+    if(uaTotal7>0) h += "<span style='font-size:11px;font-weight:800;color:#a78bfa;'>"+Math.round(uaTotal7)+"</span>";
+    else h += "<span style='font-size:10px;color:var(--border);'>—</span>";
+    h += "</td>";
+
+    h += "<td style='padding:6px 8px;text-align:center;'>";
+    if(acwr!==null) h += "<span style='font-size:11px;font-weight:800;color:"+acwrColor+";background:"+acwrBg+";padding:2px 8px;border-radius:6px;'>"+acwr.toFixed(2)+"</span>";
+    else h += "<span style='font-size:10px;color:var(--border);'>—</span>";
+    h += "</td>";
+
+    h += "</tr>";
+  });
+
+  h += "</tbody></table></div>";
+
+  // Pie: resumen del equipo
+  var distEquipo = plantelAll.reduce(function(a,j){ return a+Object.values(cargaMap[j.id]||{}).reduce(function(s,c){ return s+(c.distancia||0);},0);},0);
+  var uaEquipo   = plantelAll.reduce(function(a,j){ return a+Object.values(ciMap[j.id]||{}).reduce(function(s,v){ return s+v;},0);},0);
+  var jugConDatos = plantelAll.filter(function(j){ return Object.keys(cargaMap[j.id]||{}).length>0||Object.keys(ciMap[j.id]||{}).length>0; }).length;
+  h += "<div style='padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:20px;flex-wrap:wrap;'>";
+  h += "<span style='font-size:10px;color:var(--text-3);'>Jugadores con datos: <strong style='color:var(--text-2);'>"+jugConDatos+"/"+plantelAll.length+"</strong></span>";
+  if(distEquipo>0) h += "<span style='font-size:10px;color:var(--text-3);'>Dist. equipo 7d: <strong style='color:#818cf8;'>"+Math.round(distEquipo/1000)+" km</strong></span>";
+  if(uaEquipo>0) h += "<span style='font-size:10px;color:var(--text-3);'>UA equipo 7d: <strong style='color:#a78bfa;'>"+Math.round(uaEquipo)+"</strong></span>";
+  h += "</div>";
+
+  h += "</div>";
+  return h;
+}
+
 function renderDashboard() {
   var plantelAll = JDB.length>0 ? JDB : PL;
   var el = document.getElementById("page-dashboard");
@@ -6212,130 +7007,25 @@ function renderDashboard() {
   var scores = bHoy.map(function(b){return scoreW(b);}).filter(function(x){return x!==null;});
   var avgB = scores.length ? Math.round(scores.reduce(function(a,b){return a+b;},0)/scores.length*10)/10 : null;
 
-  // Próximos eventos
-  var prox = safeArr(EVS).filter(function(e){return e.fecha>=TODAY;}).sort(function(a,b){return a.fecha.localeCompare(b.fecha);}).slice(0,4);
-
   // Jugadores en alerta/riesgo
   var enProblema = plantelAll.filter(function(p,i){return estados[i].global==="warn"||estados[i].global==="danger";});
 
   var h = "";
 
-  // ── Calcular datos extra para el dashboard ──
-  var proximoPartido = safeArr(EVS).filter(function(e){ return (e.tipo||'').toLowerCase()==='partido' && e.fecha>=TODAY; }).sort(function(a,b){ return a.fecha.localeCompare(b.fecha); })[0] || null;
-  var diasParaPartido = null;
-  if(proximoPartido){
-    var d1=new Date(TODAY), d2=new Date(proximoPartido.fecha);
-    diasParaPartido = Math.round((d2-d1)/(1000*60*60*24));
-  }
-  var ultimaSesion = (function(){
-    try{
-      var hist = JSON.parse(localStorage.getItem('BFC_HISTORIAL')||'[]');
-      return hist && hist.length ? hist[0] : null;
-    }catch(e){ return null; }
-  })();
-  var mcHist = (function(){
-    try{ return JSON.parse(localStorage.getItem('bfc_mc_hist')||'[]'); }catch(e){ return []; }
-  })();
-  var ultimoMC = mcHist && mcHist.length ? mcHist[0] : null;
   var bienHoy = bHoy.length;
   var pctBien = plantelAll.length ? Math.round(bienHoy/plantelAll.length*100) : 0;
-  var horaNow = new Date().getHours();
-  var saludo  = horaNow<12 ? 'Buenos días' : horaNow<18 ? 'Buenas tardes' : 'Buenas noches';
 
   // ── HEADER ──
   h += "<div class='ph'><div>";
   h += "<div class='ph-title'>Dashboard &mdash; "+new Date().toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long'})+"</div>";
   h += "<div class='ph-sub'>Estado del equipo en tiempo real &mdash; 3 pilares integrados</div>";
   h += "</div><div style='display:flex;gap:8px;flex-wrap:wrap;'>";
-  h += "<button class='btn' onclick='syncSheets()'>&#8635; Sync Sheets</button>";
   h += "<button class='btn-y' onclick='reporteDiario()'>&#128196; Reporte diario</button>";
   h += "<button class='btn-g' onclick='reporteSemanal()'>&#128202; Reporte semanal</button>";
   h += "</div></div>";
 
-  // ── BANNER CONTEXTUAL (guía diaria) ──
-  var pasosPendientes = [];
-  if(bienHoy < plantelAll.length) pasosPendientes.push({ icon:'🌅', txt:'Wellness: '+bienHoy+'/'+plantelAll.length+' registros — activa el Kiosko', accion:"irA('kiosko')" });
-  if(!ultimaSesion || ultimaSesion.fecha !== TODAY) pasosPendientes.push({ icon:'📋', txt:'Sesión de hoy sin registrar todavía', accion:"irA('sesion')" });
-  if(proximoPartido && diasParaPartido <= 7) pasosPendientes.push({ icon:'⚽', txt:'Partido en '+diasParaPartido+' día'+(diasParaPartido!==1?'s':'')+' — ¿Convocatoria lista?', accion:"irA('informes')" });
-
-  if(pasosPendientes.length){
-    h += "<div style='background:linear-gradient(135deg,rgba(99,102,241,.12),rgba(139,92,246,.08));border:1.5px solid rgba(99,102,241,.25);border-radius:14px;padding:14px 18px;margin-bottom:16px;'>";
-    h += "<div style='font-size:11px;font-weight:800;color:#a5b4fc;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;'>"+saludo+", Diego — Pendientes del día</div>";
-    h += "<div style='display:flex;flex-wrap:wrap;gap:8px;'>";
-    pasosPendientes.forEach(function(p){
-      h += "<button onclick='"+p.accion+"' style='display:flex;align-items:center;gap:8px;padding:9px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(99,102,241,.3);border-radius:10px;cursor:pointer;font-size:11px;font-weight:600;color:#cbd5e1;text-align:left;'>";
-      h += "<span style='font-size:16px;'>"+p.icon+"</span><span>"+p.txt+"</span></button>";
-    });
-    h += "</div></div>";
-  } else {
-    h += "<div style='background:linear-gradient(135deg,rgba(5,150,105,.12),rgba(16,185,129,.08));border:1.5px solid rgba(5,150,105,.3);border-radius:14px;padding:14px 18px;margin-bottom:16px;'>";
-    h += "<div style='font-size:13px;font-weight:800;color:#34d399;'>✅ Todo al día — "+saludo+", Diego</div>";
-    h += "<div style='font-size:11px;color:#64748b;margin-top:3px;'>Wellness registrado · Sesión del día guardada · Sin partidos urgentes</div>";
-    h += "</div>";
-  }
-
-  // ── FILA DE CONTEXTO RÁPIDO (próximo partido + última sesión + microciclo) ──
-  h += "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:16px;'>";
-
-  // Card: próximo partido
-  if(proximoPartido){
-    var urgente = diasParaPartido !== null && diasParaPartido <= 3;
-    var rival = (proximoPartido.titulo||'').replace(/^BFC\s*vs\s*/i,'').replace(/^Barranquilla\s*FC\s*vs\s*/i,'') || 'Rival';
-    h += "<div style='background:var(--bg-card);border:1.5px solid "+(urgente?'rgba(239,68,68,.4)':'rgba(99,102,241,.25)')+";border-radius:14px;padding:14px 16px;cursor:pointer;' onclick=\"irA('informes')\">";
-    h += "<div style='font-size:9px;font-weight:800;color:"+(urgente?'#f87171':'#818cf8')+";text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;'>⚽ Próximo partido</div>";
-    h += "<div style='font-size:16px;font-weight:900;color:#fff;'>BFC vs "+escHtml(rival)+"</div>";
-    h += "<div style='font-size:11px;color:#64748b;margin-top:3px;'>"+escHtml(proximoPartido.fecha||'')+(proximoPartido.hora?' · '+proximoPartido.hora:'')+"</div>";
-    if(diasParaPartido !== null){
-      h += "<div style='margin-top:8px;display:inline-block;padding:4px 12px;border-radius:99px;font-size:11px;font-weight:800;background:"+(urgente?'rgba(239,68,68,.2)':'rgba(99,102,241,.15)')+";color:"+(urgente?'#f87171':'#a5b4fc')+"'>";
-      h += (diasParaPartido===0?'🔴 HOY':diasParaPartido===1?'🟡 Mañana':'🔵 En '+diasParaPartido+' días')+"</div>";
-    }
-    h += "</div>";
-  } else {
-    h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;cursor:pointer;' onclick=\"irA('microciclo')\">";
-    h += "<div style='font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;'>⚽ Próximo partido</div>";
-    h += "<div style='font-size:13px;color:#475569;'>Sin partido programado</div>";
-    h += "<div style='font-size:10px;color:#334155;margin-top:4px;'>Configura en Microciclo →</div>";
-    h += "</div>";
-  }
-
-  // Card: última sesión
-  if(ultimaSesion){
-    var mismaFecha = ultimaSesion.fecha === TODAY;
-    h += "<div style='background:var(--bg-card);border:1.5px solid "+(mismaFecha?'rgba(16,185,129,.35)':'var(--border)')+";border-radius:14px;padding:14px 16px;cursor:pointer;' onclick=\"irA('historial')\">";
-    h += "<div style='font-size:9px;font-weight:800;color:"+(mismaFecha?'#34d399':'#64748b')+";text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;'>"+(mismaFecha?'✅':'📅')+" Última sesión</div>";
-    h += "<div style='font-size:14px;font-weight:800;color:#fff;'>"+escHtml(ultimaSesion.nombre||ultimaSesion.titulo||'Sin nombre')+"</div>";
-    h += "<div style='font-size:11px;color:#64748b;margin-top:3px;'>"+escHtml(ultimaSesion.fecha||'')+(ultimaSesion.duracion?' · '+ultimaSesion.duracion+' min':'')+"</div>";
-    if(!mismaFecha){
-      h += "<div style='margin-top:6px;font-size:10px;color:#475569;'>Sesión de hoy: sin registrar</div>";
-    }
-    h += "</div>";
-  } else {
-    h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;cursor:pointer;' onclick=\"irA('sesion')\">";
-    h += "<div style='font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;'>📅 Última sesión</div>";
-    h += "<div style='font-size:13px;color:#475569;'>Sin sesiones guardadas</div>";
-    h += "<div style='font-size:10px;color:#334155;margin-top:4px;'>Registra en Sesión del día →</div>";
-    h += "</div>";
-  }
-
-  // Card: microciclo activo
-  if(ultimoMC){
-    h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;cursor:pointer;' onclick=\"irA('microciclo')\">";
-    h += "<div style='font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;'>📅 Microciclo activo</div>";
-    h += "<div style='font-size:14px;font-weight:800;color:#fff;'>"+escHtml(ultimoMC.rival||ultimoMC.rival||'Semana')+"</div>";
-    h += "<div style='font-size:11px;color:#64748b;margin-top:3px;'>"+escHtml(ultimoMC.fechaInicio||'')+' al '+escHtml(ultimoMC.fechaFin||'')+"</div>";
-    h += "</div>";
-  } else {
-    h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;cursor:pointer;' onclick=\"irA('microciclo')\">";
-    h += "<div style='font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;'>📅 Microciclo</div>";
-    h += "<div style='font-size:13px;color:#475569;'>Sin semana configurada</div>";
-    h += "<div style='font-size:10px;color:#334155;margin-top:4px;'>Configura la semana →</div>";
-    h += "</div>";
-  }
-
-  h += "</div>"; // end grid contexto rápido
-
-  // ── CALENDARIO MENSUAL ──
-  h += _renderCalendarioBFC();
+  // ── PANEL CARGA SEMANAL ──
+  h += _renderPanelCargaSemanal(plantelAll);
 
   // ── MÉTRICAS PRINCIPALES ──
   h += "<div class='mets' style='margin-bottom:16px;'>";
@@ -6358,48 +7048,91 @@ function renderDashboard() {
       h += avEl(p,30);
       h += "<div><div style='font-size:13px;font-weight:600;'>"+nm+"</div>";
       h += "<div style='display:flex;gap:4px;margin-top:3px;'>";
-      h += "<span style='font-size:9px;padding:1px 6px;border-radius:4px;background:"+(est.bienestar.estado==="ok"?"#dcfce7":est.bienestar.estado==="warn"?"#fef9c3":est.bienestar.estado==="danger"?"#fee2e2":"#f3f4f6")+";color:"+(est.bienestar.estado==="ok"?"#166534":est.bienestar.estado==="warn"?"#854d0e":est.bienestar.estado==="danger"?"#991b1b":"#6b7280")+";font-weight:600;'>B:"+(est.bienestar.score||"—")+"</span>";
-      h += "<span style='font-size:9px;padding:1px 6px;border-radius:4px;background:"+(est.carga.estado==="ok"?"#dcfce7":est.carga.estado==="warn"?"#fef9c3":est.carga.estado==="danger"?"#fee2e2":"#f3f4f6")+";color:"+(est.carga.estado==="ok"?"#166534":est.carga.estado==="warn"?"#854d0e":est.carga.estado==="danger"?"#991b1b":"#6b7280")+";font-weight:600;'>GPS:"+( est.carga.raw?"&#10003;":"—")+"</span>";
+      var _bDias = est.bienestar.diasAlerta||0;
+      var _cDias = est.carga.diasAlerta||0;
+      var _bLabel = "B:"+(est.bienestar.score||"—")+(_bDias>=2?" ⚠"+_bDias+"d":"");
+      var _cLabel = "GPS:"+(est.carga.raw?"✓":"—")+(_cDias>=2?" ⚠"+_cDias+"d":"");
+      h += "<span style='font-size:9px;padding:1px 6px;border-radius:4px;background:"+(est.bienestar.estado==="ok"?"#dcfce7":est.bienestar.estado==="warn"?"#fef9c3":est.bienestar.estado==="danger"?"#fee2e2":"#f3f4f6")+";color:"+(est.bienestar.estado==="ok"?"#166534":est.bienestar.estado==="warn"?"#854d0e":est.bienestar.estado==="danger"?"#991b1b":"#6b7280")+";font-weight:600;'>"+_bLabel+"</span>";
+      h += "<span style='font-size:9px;padding:1px 6px;border-radius:4px;background:"+(est.carga.estado==="ok"?"#dcfce7":est.carga.estado==="warn"?"#fef9c3":est.carga.estado==="danger"?"#fee2e2":"#f3f4f6")+";color:"+(est.carga.estado==="ok"?"#166534":est.carga.estado==="warn"?"#854d0e":est.carga.estado==="danger"?"#991b1b":"#6b7280")+";font-weight:600;'>"+_cLabel+"</span>";
       h += "<span style='font-size:9px;padding:1px 6px;border-radius:4px;background:"+(est.neuro.estado==="ok"?"#dcfce7":est.neuro.estado==="warn"?"#fef9c3":est.neuro.estado==="danger"?"#fee2e2":"#f3f4f6")+";color:"+(est.neuro.estado==="ok"?"#166534":est.neuro.estado==="warn"?"#854d0e":est.neuro.estado==="danger"?"#991b1b":"#6b7280")+";font-weight:600;'>CMJ:"+(est.neuro.raw?Math.round(est.neuro.raw.val/est.neuro.base*100)+"%":"—")+"</span>";
       h += "</div></div></div>";
     });
     h += "</div></div>";
   }
 
-  // ── DOS COLUMNAS: eventos + plantel ──
-  h += "<div class='g2' style='margin-bottom:14px;'>";
-
-  // Eventos
-  h += "<div class='card card-y'><div class='lbl'>Proximos eventos</div>";
-  if(prox.length){
-    prox.forEach(function(e){
-      h += "<div style='display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f3f4f6;'>";
-      h += "<div style='text-align:center;min-width:36px;'><div style='font-size:18px;font-weight:800;'>"+parseInt(e.fecha.slice(8))+"</div><div style='font-size:10px;color:#9ca3af;'>"+["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][parseInt(e.fecha.slice(5,7))-1]+"</div></div>";
-      h += "<div style='flex:1;'><div style='font-size:13px;font-weight:600;'>"+e.titulo+"</div><div style='font-size:11px;color:#9ca3af;'>"+(e.hora?e.hora+" &middot; ":"")+(e.lugar||"")+"</div></div>";
-      h += "<span class='pill "+tipoPill(e.tipo)+"'>"+e.tipo+"</span></div>";
+  // ── ALERTA ACUMULACIÓN PRE-PARTIDO ───────────────────────────
+  // Si hay partido en ≤4 días, muestra jugadores con carga acumulada
+  // en los últimos 3 días que supera el umbral (por defecto: ACWR > 1.3
+  // O UA 3d > 1800). Se puede configurar desde CI settings.
+  (function(){
+    // Calcular próximo partido localmente (independiente de renderProgramacion)
+    var todayStrAP = TODAY;
+    var _proxPart = safeArr(EVS).filter(function(e){ return (e.tipo||'').toLowerCase()==='partido' && e.fecha >= todayStrAP; }).sort(function(a,b){ return a.fecha.localeCompare(b.fecha); })[0] || null;
+    var _diasPart = null;
+    if(_proxPart){ var _d1AP=new Date(todayStrAP),_d2AP=new Date(_proxPart.fecha); _diasPart=Math.round((_d2AP-_d1AP)/86400000); }
+    if(!_proxPart || _diasPart === null || _diasPart > 4) return;
+    var umbralUA3d  = 1800; // UA acumuladas en 3 días = alerta
+    var umbralACWR  = 1.3;  // ACWR > precaución = alerta
+    // Rango de los últimos 3 días
+    var d3ago = new Date(TODAY + 'T00:00:00'); d3ago.setDate(d3ago.getDate()-3);
+    var d3s = d3ago.toISOString().slice(0,10);
+    var jugAcum = [];
+    plantelAll.forEach(function(p){
+      var regsPid  = safeArr(CI_DB).filter(function(r){ return r.pid===p.id||r.jugadorId===p.id; });
+      var regs3d   = regsPid.filter(function(r){ return r.fecha >= d3s; });
+      var ua3d     = regs3d.reduce(function(a,r){ return a + (r.ua||0); }, 0);
+      var acwrInfo = ciACWR(regsPid, TODAY);
+      var alerta   = ua3d >= umbralUA3d || (acwrInfo.acwr !== null && acwrInfo.acwr > umbralACWR);
+      if(alerta){
+        jugAcum.push({
+          p: p,
+          ua3d: ua3d,
+          acwr: acwrInfo.acwr,
+          nivel: (acwrInfo.acwr !== null && acwrInfo.acwr > 1.5) || ua3d >= 2400 ? 'danger' : 'warn'
+        });
+      }
     });
-  } else {
-    h += "<div style='font-size:13px;color:#9ca3af;padding:10px 0;'>Sin eventos proximos.</div>";
-  }
-  h += "</div>";
-
-  // Bienestar Tally hoy
-  var shHoy = safeArr(BIEN).filter(function(b){return b.fecha===TODAY&&b.fuente==="sheets";});
-  h += "<div class='card'><div class='lbl'>Bienestar Tally hoy ("+shHoy.length+" respuestas)</div>";
-  if(shHoy.length){
-    h += "<div style='display:flex;flex-wrap:wrap;gap:6px;'>";
-    shHoy.forEach(function(b){
-      var sc=scoreW(b); var s=semW(sc);
-      h += "<div style='display:flex;align-items:center;gap:6px;background:var(--bg-elevated);border-radius:var(--r-md);padding:6px 10px;'>";
-      h += "<div class='av' style='width:26px;height:26px;font-size:8px;'>"+ini(b.nombreExt||"?")+"</div>";
-      h += "<span style='font-size:12px;font-weight:600;'>"+(b.nombreExt||"—").split(" ")[0]+"</span>";
-      h += "<span class='pill "+s+"'>"+sc+"</span></div>";
+    if(!jugAcum.length) return;
+    jugAcum.sort(function(a,b){ return (b.acwr||0) - (a.acwr||0); });
+    var rival0pp = (_proxPart.titulo||'').replace(/^BFC\s*vs\s*/i,'').replace(/^Barranquilla\s*FC\s*vs\s*/i,'').trim() || 'próximo partido';
+    var diasTexto = _diasPart === 0 ? 'HOY' : _diasPart === 1 ? '1 día' : _diasPart + ' días';
+    h += "<div class='card' style='border:2px solid #ef4444;border-radius:14px;padding:16px;margin-bottom:14px;background:rgba(239,68,68,.04);'>";
+    h += "<div style='display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;'>";
+    h += "<span style='font-size:20px;'>⚽🚨</span>";
+    h += "<div style='flex:1;'>";
+    h += "<div style='font-size:12px;font-weight:900;color:#ef4444;'>ALERTA ACUMULACIÓN PRE-PARTIDO</div>";
+    h += "<div style='font-size:10px;color:#9ca3af;margin-top:1px;'>vs "+escHtml(rival0pp)+" — en "+diasTexto+" · "+jugAcum.length+" jugador(es) con carga elevada en los últimos 3 días</div>";
+    h += "</div>";
+    h += "<span style='font-size:9px;background:rgba(239,68,68,.12);color:#ef4444;padding:3px 8px;border-radius:5px;font-weight:700;border:1px solid rgba(239,68,68,.3);'>Umbral: UA3d≥"+umbralUA3d+" o ACWR>"+umbralACWR+"</span>";
+    h += "</div>";
+    h += "<div style='display:flex;flex-wrap:wrap;gap:8px;'>";
+    jugAcum.forEach(function(item){
+      var p = item.p;
+      var nm = (p.apellido||p.nombre||'').toUpperCase();
+      var acwrCol = item.acwr !== null ? ciColorACWR(item.acwr).color : '#9ca3af';
+      var bord    = item.nivel === 'danger' ? '#ef4444' : '#f97316';
+      var bgCard  = item.nivel === 'danger' ? 'rgba(239,68,68,.07)' : 'rgba(249,115,22,.07)';
+      h += "<div style='display:flex;align-items:center;gap:10px;background:"+bgCard+";border:1.5px solid "+bord+"40;border-radius:10px;padding:9px 14px;min-width:160px;'>";
+      h += avEl(p, 32);
+      h += "<div>";
+      h += "<div style='font-size:11px;font-weight:800;color:var(--text-1);'>"+nm+"</div>";
+      h += "<div style='display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;'>";
+      h += "<span style='font-size:9px;background:rgba(139,0,0,.12);color:#8B0000;padding:1px 6px;border-radius:4px;font-weight:700;'>UA3d: "+item.ua3d+"</span>";
+      if(item.acwr !== null) h += "<span style='font-size:9px;padding:1px 6px;border-radius:4px;font-weight:700;background:"+acwrCol+"22;color:"+acwrCol+";border:1px solid "+acwrCol+"44;'>ACWR: "+item.acwr+"</span>";
+      h += "</div>";
+      h += "<div style='font-size:9px;color:"+(item.nivel==='danger'?'#ef4444':'#f97316')+";font-weight:700;margin-top:3px;'>"+(item.nivel==='danger'?'🔴 Riesgo alto':'🟡 Precaución')+"</div>";
+      h += "</div></div>";
     });
     h += "</div>";
-  } else {
-    h += "<div style='font-size:13px;color:#9ca3af;'>Sin respuestas hoy. Haz clic en Sync Sheets.</div>";
-  }
-  h += "</div></div>";
+    // Recomendación rápida
+    var nDanger = jugAcum.filter(function(x){ return x.nivel==='danger'; }).length;
+    h += "<div style='margin-top:12px;padding:10px 14px;background:rgba(239,68,68,.08);border-radius:8px;border:1px solid rgba(239,68,68,.2);font-size:10px;color:#fca5a5;line-height:1.6;'>";
+    h += "<strong>💡 Recomendación:</strong> ";
+    if(nDanger>0) h += nDanger+" jugador(es) con riesgo alto — considerar reducir volumen en la sesión previa al partido y priorizar recuperación activa.";
+    else h += "Monitorear evolución del bienestar en las próximas 24-48h. Ajustar carga de sesión previa al partido si el ACWR se mantiene elevado.";
+    h += "</div>";
+    h += "</div>";
+  })();
 
   // ── PLANTEL COMPLETO: SEMÁFORO 3 PILARES ──
   h += "<div class='lbl' style='margin-bottom:10px;'>Estado del plantel &mdash; semaforo 3 pilares</div>";
@@ -6452,8 +7185,13 @@ function renderDashboard() {
     h += "<td style='padding:10px 14px;font-size:12px;font-weight:700;color:#9ca3af;'>#"+(p.num||p.numero||"—")+"</td>";
     h += "<td style='padding:10px 14px;'><div style='display:flex;align-items:center;gap:8px;'>"+avH+"<div style='font-size:13px;font-weight:600;'>"+nm+"</div></div></td>";
     h += "<td style='padding:10px 14px;font-size:12px;color:var(--text-2);'>"+(p.pos||p.posicion||"—")+"</td>";
-    h += "<td style='padding:10px 14px;text-align:center;'><span style='display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:"+bBg+";color:"+bCol+"'>"+bTxt+"</span></td>";
-    h += "<td style='padding:10px 14px;text-align:center;'><span style='display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:"+cBg+";color:"+cCol+"'>"+cTxt+"</span></td>";
+    // Badges de tendencia (días consecutivos en alerta)
+    var bDias = est.bienestar.diasAlerta||0;
+    var cDias = est.carga.diasAlerta||0;
+    var bTrendBadge = bDias>=2 ? "<span style='margin-left:4px;font-size:9px;font-weight:900;padding:1px 5px;border-radius:4px;background:#ef4444;color:#fff;vertical-align:middle;'>⚠ "+bDias+"d</span>" : "";
+    var cTrendBadge = cDias>=2 ? "<span style='margin-left:4px;font-size:9px;font-weight:900;padding:1px 5px;border-radius:4px;background:#ef4444;color:#fff;vertical-align:middle;'>⚠ "+cDias+"d</span>" : "";
+    h += "<td style='padding:10px 14px;text-align:center;'><span style='display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:"+bBg+";color:"+bCol+"'>"+bTxt+"</span>"+bTrendBadge+"</td>";
+    h += "<td style='padding:10px 14px;text-align:center;'><span style='display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:"+cBg+";color:"+cCol+"'>"+cTxt+"</span>"+cTrendBadge+"</td>";
     h += "<td style='padding:10px 14px;text-align:center;'><span style='display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:"+nBg+";color:"+nCol+"'>"+nTxt+"</span></td>";
     h += "<td style='padding:10px 14px;text-align:center;'><span style='display:inline-block;font-size:13px;font-weight:800;width:30px;height:30px;line-height:30px;border-radius:50%;background:"+gBg+";color:"+gCol+"'>"+gIcon+"</span></td>";
     h += "</tr>";
@@ -6716,6 +7454,7 @@ function guardarJugador() {
   });
   fotoTemp = null;
   guardar();
+  fbAuditLog('plantel','Jugador agregado: '+n);
   toast("Jugador agregado");
   closeModal();
   renderPlantel();
@@ -8196,6 +8935,7 @@ function togglePerfVar(varKey){
   try{ var s=localStorage.getItem('BFC_PERF_VARS_CFG'); if(s) cfg=JSON.parse(s)||{}; }catch(e){}
   cfg[varKey] = !cfg[varKey];
   try{ localStorage.setItem('BFC_PERF_VARS_CFG', JSON.stringify(cfg)); }catch(e){}
+  fbGuardar(); // sincronizar configuración de variables de rendimiento a Firebase
   recargarPartido();
 }
 function cambiarVarComparativa(varKey, label){
@@ -9274,6 +10014,7 @@ function kioskoGuardarWellness(){
     hora: new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})
   });
   guardar();
+  fbAuditLog('kiosko','Wellness registrado');
   _kioskoFase = 'done';
   window._bienTab='kiosko'; renderBienestar();
 }
@@ -9300,6 +10041,47 @@ function kioskoGuardarRpe(){
     });
   }
   guardar();
+  fbAuditLog('kiosko','RPE post-sesión registrado');
+
+  // ── AUTO-CARGA INTERNA: RPE × duración → CI_DB ──────────────────────
+  // Buscar duración de sesión: 1) sesData activo, 2) último historial del día
+  var _tiempoSes = 0;
+  if(typeof sesData !== 'undefined' && sesData && sesData.tiempo) {
+    _tiempoSes = parseInt(sesData.tiempo) || 0;
+  }
+  if(!_tiempoSes) {
+    // Buscar en historial: última sesión guardada hoy
+    try {
+      var _hist = typeof HISTORIAL_DB !== 'undefined' ? HISTORIAL_DB : JSON.parse(localStorage.getItem('BFC_HISTORIAL')||'[]');
+      var _seHoy = safeArr(_hist).find(function(s){ return (s.fecha||s.fechaSes||'')=== TODAY; });
+      if(_seHoy && _seHoy.tiempo) _tiempoSes = parseInt(_seHoy.tiempo) || 0;
+    } catch(e) {}
+  }
+  if(_tiempoSes > 0) {
+    var _ua = ciUA(_kioskoRpe, _tiempoSes);
+    // Eliminar entrada previa auto-generada del mismo jugador/día para no duplicar
+    CI_DB = safeArr(CI_DB).filter(function(r){
+      return !((r.pid===_kioskoJugId||r.jugadorId===_kioskoJugId) && r.fecha===TODAY && r.fuente==='kiosko_auto');
+    });
+    CI_DB.push({
+      id: 'ci_kiosko_'+Date.now()+'_'+_kioskoJugId,
+      pid: _kioskoJugId,
+      jugadorId: _kioskoJugId,
+      fecha: TODAY,
+      tipo: 'MD',
+      tipoEvt: 'Sesión',
+      rival: '', resultado: '',
+      rpe: _kioskoRpe,
+      tiempo: _tiempoSes,
+      ua: _ua,
+      notas: 'Auto: RPE Kiosko × duración sesión',
+      fuente: 'kiosko_auto'
+    });
+    ciSave();
+    fbAuditLog('carga-interna','UA auto-calculada desde Kiosko (jugador '+_kioskoJugId+'): RPE '+_kioskoRpe+' × '+_tiempoSes+' min = '+_ua);
+  }
+  // ────────────────────────────────────────────────────────────────────
+
   _kioskoFase = 'done';
   window._bienTab='kiosko'; renderBienestar();
 }
@@ -9755,6 +10537,7 @@ function neuroImportarFilas(rows){
   });
 
   try{ localStorage.setItem('bfc_pruebas', JSON.stringify(PRUEBAS)); }catch(e){}
+  fbGuardar(); // sincronizar pruebas importadas a Firebase
 
   var resumen = '<strong style="color:#22c55e;">✅ '+importados+' registros importados</strong>';
   if(ignorados) resumen += ' &nbsp;·&nbsp; <span style="color:#f59e0b;">'+ignorados+' ignorados</span>';
@@ -10297,6 +11080,7 @@ function neuroGuardarRapido(prueba){
 
   PRUEBAS.push(reg);
   try{ localStorage.setItem("BFC_PRUEBAS", JSON.stringify(PRUEBAS)); }catch(e){}
+  fbGuardar(); // sincronizar prueba kiosko a Firebase
 
   var jug = safeArr(JDB).find(function(x){ return x.id===pid; }) || safeArr(PL).find(function(x){ return x.id===pid; });
   var nom = jug ? jug.nombre : pid;
@@ -11586,6 +12370,23 @@ function mcHistEditar(hkey){
   if(typeof toast==='function') toast('✏️ Microciclo '+mcNumMicro+' cargado para editar');
 }
 
+function mcHistDuplicar(hkey){
+  var hist = mcHistLoad();
+  var rec = null;
+  for(var i=0;i<hist.length;i++){ if(hist[i]._hkey===hkey){ rec=hist[i]; break; } }
+  if(!rec){ if(typeof toast==='function') toast('❌ Microciclo no encontrado'); return; }
+  // Cargar datos igual que editar, pero SIN asignar _mcEditHkey → se guardará como nuevo
+  mcNumMicro = rec.numero || '';
+  MC_FECHAS_ACTIVAS = (rec.fechas||[]).slice();
+  MC_DIAS_ACTIVOS   = (rec.dias||[]).slice();
+  mcData = JSON.parse(JSON.stringify(rec.data||[]));
+  // NO asignamos window._mcEditHkey → al guardar se creará un registro nuevo
+  window._mcEditHkey = null;
+  window._mcPagTab = 'editor';
+  renderMicro();
+  if(typeof toast==='function') toast('📋 Microciclo duplicado — modificá fechas y guardá como nuevo');
+}
+
 function mcHistEliminar(hkey){
   showModal("<div style='padding:20px 24px;max-width:320px;text-align:center;'><div style='font-size:34px;margin-bottom:10px;'>🗑️</div><div style='color:#f1f5f9;font-weight:800;font-size:14px;margin-bottom:6px;'>¿Eliminar este microciclo?</div><div style='color:#64748b;font-size:12px;margin-bottom:18px;'>Esta acción no se puede deshacer.</div><div style='display:flex;gap:8px;justify-content:center;'><button onclick='closeModal();_mcHistEliminarOk(\""+hkey+"\")' style='background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.35);color:#f87171;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:800;'>Eliminar</button><button onclick='closeModal()' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:700;'>Cancelar</button></div></div>");
 }
@@ -11682,6 +12483,11 @@ function mcGuardarAlSistema(){
     cambios++;
   });
   guardar(); // guarda EVS + resto a localStorage
+  // Refrescar calendario de programación si está visible
+  if(typeof renderProgramacion === 'function'){
+    var pgProg = document.getElementById('page-programacion');
+    if(pgProg && pgProg.classList.contains('on')) renderProgramacion();
+  }
   if(cambios > 0){
     toast('✅ Microciclo guardado · ' + cambios + ' partido(s) sincronizado(s) con Informes');
   } else {
@@ -11984,7 +12790,7 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
   // Tabla
   var nCols = mcData.length || 7;
   var colW = Math.max(60, Math.floor((100-13)/nCols));
-  h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;min-width:650px;table-layout:fixed;empty-cells:show;'>";
+  h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:separate;border-spacing:0;min-width:650px;table-layout:fixed;'>";
   h += "<colgroup><col style='width:110px;'>";
   mcData.forEach(function(){ h += "<col style='width:"+colW+"px;'>"; });
   h += "</colgroup>";
@@ -12013,7 +12819,7 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
       // Descanso: rowspan sin líneas internas
       if(isDesc){
         if(li===0){ descDone.push(i);
-          h += "<td rowspan='"+LBLS.length+"' style='padding:6px;background:"+NAV+";text-align:center;vertical-align:middle;border-right:1px solid "+BORDER+";border-bottom:none;'>";
+          h += "<td rowspan='"+LBLS.length+"' style='padding:6px;background:"+NAV+";text-align:center;vertical-align:middle;border-right:1px solid "+BORDER+";border-left:0;border-top:0;border-bottom:0;'>";
           h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.1em;line-height:2;text-align:center;'>D<br>E<br>S<br>C<br>A<br>N<br>S<br>O</div></td>";
         }
         return;
@@ -12028,7 +12834,7 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
           var logoHtml = mcLogoRival
             ? "<img src='"+mcLogoRival+"' style='width:34px;height:34px;object-fit:contain;display:block;margin:0 auto 6px;'>"
             : "<div style='font-size:26px;text-align:center;margin-bottom:6px;'>&#127942;</div>";
-          h += "<td rowspan='"+LBLS.length+"' style='padding:10px 6px;background:"+NAV+";text-align:center;vertical-align:middle;border-right:1px solid "+BORDER+";border-top:0;border-bottom:0;'>";
+          h += "<td rowspan='"+LBLS.length+"' style='padding:10px 6px;background:"+NAV+";text-align:center;vertical-align:middle;border-right:1px solid "+BORDER+";border-left:0;border-top:0;border-bottom:0;'>";
           h += "<div style='display:flex;flex-direction:column;align-items:center;justify-content:center;'>";
           h += logoHtml;
           if(rivalMD) h += "<div style='font-size:10px;font-weight:800;color:rgba(255,255,255,.9);margin-bottom:3px;'>"+rivalMD+"</div>";
@@ -13235,60 +14041,9 @@ function iaGuardarKey(){
 }
 
 // ================================================
-// GOOGLE SHEETS SYNC
 // ================================================
+// PRUEBAS (antes bajo Sheets sync)
 var PRUEBAS = JSON.parse(localStorage.getItem("bfc_pruebas")||"[]");
-var shLastSync=null, shBusy=false;
-
-function syncSheets(silent){
-  if(shBusy)return;shBusy=true;
-  updSyncBadge("syncing");
-  fetch(SHEETS_URL+Date.now())
-  .then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.text();})
-  .then(function(text){
-    var lines=text.split(/\r?\n/).filter(function(l){return l.trim();});
-    if(lines.length<2){updSyncBadge("ok");shBusy=false;return;}
-    var hdr=parseLine(lines[0]);
-    function fi(kw){return hdr.findIndex(function(h){return h.toLowerCase().indexOf(kw)>=0;});}
-    var iJ=fi("jugador"),iP=fi("posicion"),iN=fi("numero"),iSub=fi("submitted"),iSue=fi("dormiste"),iF=fi("cansado"),iH=fi("animo"),iE=fi("estr"),iR=fi("duro"),iO=fi("molestia");
-    var nuevos=0;
-    lines.slice(1).forEach(function(line){
-      var row=parseLine(line);
-      var nombre=(row[iJ]||"").trim();if(!nombre)return;
-      var sub=row[iSub]||"";var fecha=sub?sub.slice(0,10):TODAY;
-      var pid=safeArr(PL).find(function(p){return p.nombre.toLowerCase()===nombre.toLowerCase();})||{};
-      pid=pid.id||("ext_"+nombre.replace(/\s+/g,"_").toLowerCase());
-      var ya=safeArr(BIEN).find(function(b){return b.pid===pid&&b.fecha===fecha&&b.fuente==="sheets";});
-      if(!ya){BIEN.push({id:"sh_"+Date.now()+"_"+Math.random().toString(36).slice(2),pid:pid,nombreExt:nombre,posExt:row[iP]||"",numExt:row[iN]||"",fecha:fecha,sueno:parseInt(row[iSue])||0,fatiga:parseInt(row[iF])||0,humor:parseInt(row[iH])||0,estres:parseInt(row[iE])||0,rpe:parseInt(row[iR])||0,obs:iO>=0?row[iO]||"":"",fuente:"sheets"});nuevos++;}
-    });
-    if(nuevos>0)guardar();
-    shLastSync=new Date();updSyncBadge("ok",nuevos);
-    if(!silent&&nuevos>0)toast(""+nuevos+" registro(s) sincronizados desde Tally");
-    if(document.getElementById("page-bienestar").classList.contains("on"))renderBienestar();
-    if(document.getElementById("page-dashboard").classList.contains("on"))renderDashboard();
-  })
-  .catch(function(e){updSyncBadge("err");if(!silent)toast("Error conectando con Google Sheets",false);})
-  .finally(function(){shBusy=false;});
-}
-
-function parseLine(line){
-  var vals=[],cur="",inQ=false;
-  for(var i=0;i<line.length;i++){
-    if(line[i]==="\"")inQ=!inQ;
-    else if(line[i]==="," && !inQ){vals.push(cur.replace(/^"|"$/g,"").trim());cur="";}
-    else cur+=line[i];
-  }
-  vals.push(cur.replace(/^"|"$/g,"").trim());
-  return vals;
-}
-
-function updSyncBadge(st,n){
-  var el=document.getElementById("sync-badge");if(!el)return;
-  var h=shLastSync?shLastSync.toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit"}):"—";
-  if(st==="ok"){el.style.background="#dcfce7";el.style.color="#166534";el.style.borderColor="#bbf7d0";el.textContent="Sheets: sync "+h+(n?" (+"+n+")":"");}
-  else if(st==="syncing"){el.style.background="#fef9c3";el.style.color="#854d0e";el.style.borderColor="#fde68a";el.textContent="Sincronizando...";}
-  else{el.style.background="#fee2e2";el.style.color="#991b1b";el.style.borderColor="#fecaca";el.textContent="Sheets: error";}
-}
 
 // ================================================
 // FIREBASE — Modal de configuración
@@ -13321,7 +14076,20 @@ function fbMostrarConfig() {
     h += "</div>";
     h += "<button class='btn-y' style='width:100%;margin-bottom:8px;' onclick='fbForzarSync();closeModal();'>🔄 Forzar sincronización ahora</button>";
   }
-  h += "<button class='btn' style='width:100%;margin-top:8px;' onclick='closeModal()'>Cerrar</button>";
+  // Sección de nombre de usuario (siempre visible)
+  h += "<div style='background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.18);border-radius:12px;padding:16px;margin-top:14px;margin-bottom:8px;'>";
+  h += "<div style='font-size:12px;font-weight:700;color:#a5b4fc;margin-bottom:8px;'>👤 Tu nombre en el sistema</div>";
+  h += "<div style='display:flex;gap:8px;align-items:center;'>";
+  h += "<input id='fb-cfg-nombre' type='text' value='"+escHtml(BFC_USER_NAME)+"' placeholder='Ej: Profe García' style='flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--text-1);outline:none;'>";
+  h += "<button class='btn-y' style='padding:8px 16px;white-space:nowrap;' onclick=\"var n=document.getElementById('fb-cfg-nombre').value.trim();if(n){BFC_USER_NAME=n;try{localStorage.setItem('bfc_user_name',n);}catch(e){}fbAuditLog('config','Nombre de usuario cambiado a: '+n);showToast('✅ Nombre guardado: '+n);}else{showToast('❌ Escribe un nombre');}\">Guardar</button>";
+  h += "</div>";
+  h += "<p style='font-size:11px;color:var(--text-2);margin-top:6px;'>Aparece en el historial de cambios y en el indicador de presencia en tiempo real.</p>";
+  h += "</div>";
+  h += "<div style='display:flex;gap:8px;margin-top:4px;'>";
+  h += "<button class='btn' style='flex:1;' onclick='closeModal();fbVerBackups();'>💾 Ver backups</button>";
+  h += "<button class='btn' style='flex:1;' onclick='closeModal();fbAuditMostrar();'>📋 Ver historial</button>";
+  h += "<button class='btn' style='flex:1;' onclick='closeModal()'>Cerrar</button>";
+  h += "</div>";
   h += "</div>";
   document.getElementById('modal-content').innerHTML = h;
   document.getElementById('overlay').style.display = 'flex';
@@ -13342,8 +14110,6 @@ try{
 }catch(e){}
 fbInit(); // Inicializar Firebase (si está habilitado)
 renderDashboard();
-setTimeout(function(){ syncSheets(true); }, 1500);
-setInterval(function(){ syncSheets(true); }, 300000);
 
 // Wrappers para onclick en strings (evitan conflicto de comillas)
 function mcGoTabD(){ mcGoTab("datos"); }
@@ -13417,7 +14183,7 @@ function renderHistorialMc(){
           h += "<span title='"+d.tipo+"' style='display:inline-block;width:9px;height:9px;border-radius:50%;background:"+col2+";margin:0 1px;'></span>";
         });
         h += "</td>";
-        h += "<td style='padding:8px 10px;text-align:center;'><button onclick=\"mcHistEditar('"+hkey+"');irA('microciclo')\" style='padding:4px 10px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;'>✏️ Editar</button></td>";
+        h += "<td style='padding:8px 10px;text-align:center;'><div style='display:flex;gap:5px;justify-content:center;'><button onclick=\"mcHistEditar('"+hkey+"');irA('microciclo')\" style='padding:4px 10px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;'>✏️ Editar</button><button onclick=\"mcHistDuplicar('"+hkey+"');irA('microciclo')\" style='padding:4px 10px;background:rgba(245,200,0,.1);border:1px solid rgba(245,200,0,.3);color:#fcd34d;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;'>📋 Duplicar</button></div></td>";
         h += "</tr>";
       });
       h += "</tbody></table></div>";
@@ -13458,6 +14224,7 @@ function renderHistorialMc(){
       h += "</div></div>";
       h += "<div style='display:flex;gap:8px;flex-shrink:0;'>";
       h += "<button onclick=\"mcHistEditar('"+hkey+"');irA('microciclo')\" style='padding:8px 16px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer;'>✏️ Editar</button>";
+      h += "<button onclick=\"mcHistDuplicar('"+hkey+"');irA('microciclo')\" style='padding:8px 16px;background:rgba(245,200,0,.1);border:1px solid rgba(245,200,0,.3);color:#fcd34d;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer;'>📋 Duplicar</button>";
       h += "<button onclick=\"mcHistEliminar('"+hkey+"');renderHistorialMc()\" style='padding:8px 10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#f87171;border-radius:9px;font-size:11px;cursor:pointer;'>🗑</button>";
       h += "</div></div></div>";
     });
@@ -15906,6 +16673,8 @@ var CATEGORIAS_EJ = safeArr(CATS_ACCION).map(function(c){ return c.code+" — "+
 
 function ejSave(){
   localStorage.setItem('BFC_EJERCICIOS', JSON.stringify(EJERCICIOS_DB));
+  fbGuardar(); // sincronizar biblioteca de ejercicios a Firebase
+  fbAuditLog('ejercicios','Guardado biblioteca de ejercicios');
 }
 function ejLoad(){
   try{ var d = localStorage.getItem('BFC_EJERCICIOS'); if(d) EJERCICIOS_DB=safeArr(JSON.parse(d)); }catch(e){}
@@ -16178,6 +16947,7 @@ function ejUsarEnSesionTarea(ejId, tareaIdx){
 function histSave(){
   localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB));
   fbGuardar(); // sincronizar historial sesiones a Firebase
+  fbAuditLog('historial','Guardado historial de sesiones');
 }
 function histLoad(){
   try{ var d = localStorage.getItem('BFC_HISTORIAL'); if(d) HISTORIAL_DB = JSON.parse(d)||[]; }catch(e){}
@@ -16186,6 +16956,7 @@ function sesGuardarManual(){
   sesSave();
   guardarEnHistorial();
   fbGuardar();
+  fbAuditLog('sesion','Sesión guardada en historial: '+(sesData.sesionNum||''));
   toast('💾 Sesión guardada en historial');
 }
 window.sesGuardarManual = sesGuardarManual;
@@ -16278,6 +17049,39 @@ function _histCargarOk(id){
   sesSave();
   irA('sesion');
   setTimeout(function(){ renderSesion(); }, 100);
+}
+
+function histUsarPlantilla(id){
+  histLoad();
+  var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
+  if(!snap){ toast('⚠️ Sesión no encontrada'); return; }
+  showModal("<div style='padding:20px 24px;max-width:340px;text-align:center;'><div style='font-size:34px;margin-bottom:10px;'>📋</div><div style='color:#f1f5f9;font-weight:800;font-size:14px;margin-bottom:6px;'>¿Usar como plantilla?</div><div style='color:#64748b;font-size:12px;margin-bottom:18px;'>Se copiarán todas las tareas y objetivos de la sesión. Solo deberás cambiar la fecha y el número de sesión.</div><div style='display:flex;gap:8px;justify-content:center;'><button onclick='closeModal();_histUsarPlantillaOk(\""+id+"\")' style='background:rgba(245,200,0,.2);border:1px solid rgba(245,200,0,.4);color:#fcd34d;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:800;'>📋 Usar como plantilla</button><button onclick='closeModal()' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:700;'>Cancelar</button></div></div>");
+}
+function _histUsarPlantillaOk(id){
+  histLoad();
+  var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
+  if(!snap){ toast('⚠️ Sesión no encontrada'); return; }
+  // Copiar todo EXCEPTO fecha, sesionNum y morfociclo → el usuario los cambia
+  sesData.fecha        = TODAY; // siempre hoy como punto de partida
+  sesData.sesionNum    = '';     // limpiar para que lo llene el usuario
+  sesData.morfociclo   = '';     // limpiar para que lo llene el usuario
+  sesData.numJugadores = snap.numJugadores || 0;
+  sesData.tiempo       = snap.tiempo || '';
+  sesData.objtacof     = snap.objtacof || '';
+  sesData.objtacdef    = snap.objtacdef || '';
+  sesData.objtecof     = snap.objtecof || '';
+  sesData.objtecdef    = snap.objtecdef || '';
+  sesData.objfisof     = snap.objfisof || '';
+  sesData.objfisdef    = snap.objfisdef || '';
+  sesData.faseFinal    = snap.faseFinal || '';
+  sesData.observaciones = snap.observaciones || '';
+  sesData.tareas = (snap.tareas||[]).map(function(t){
+    return {titulo:t.titulo||'',objetivo:t.objetivo||'',descripcion:t.descripcion||'',tiempo:t.tiempo||'',img:null,zonaData:null};
+  });
+  sesSave();
+  irA('sesion');
+  setTimeout(function(){ renderSesion(); }, 100);
+  toast('📋 Plantilla cargada — cambiá fecha y número de sesión');
 }
 
 function histVerPDF(id){
@@ -16411,6 +17215,7 @@ function renderHistorial(){
       h += "</div>";
       h += "<div style='display:flex;gap:6px;'>";
       h += "<button onclick=\"histVerPDF('"+snap.id+"')\" style='background:rgba(255,255,255,.1);color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:10px;cursor:pointer;'>📄 Ver PDF</button>";
+      h += "<button onclick=\"histUsarPlantilla('"+snap.id+"')\" style='background:rgba(245,200,0,.2);color:#fcd34d;border:1px solid rgba(245,200,0,.35);border-radius:4px;padding:4px 10px;font-size:10px;cursor:pointer;font-weight:700;'>📋 Plantilla</button>";
       h += "<button onclick=\"histCargarSesion('"+snap.id+"')\" style='background:#8B0000;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:10px;cursor:pointer;'>🔄 Reutilizar</button>";
       h += "<button onclick=\"histEliminar('"+snap.id+"')\" style='background:rgba(255,50,50,.15);color:#fca5a5;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;'>✕</button>";
       h += "</div></div>";
@@ -17362,6 +18167,7 @@ var NOTIF_AUTOR_ACTIVO = 'pf'; // por defecto el PF
 function notifSave(){
   try{ localStorage.setItem('BFC_NOTIF', JSON.stringify(NOTIF_DB)); }catch(e){}
   notifActualizarBadge();
+  fbGuardar(); // sincronizar notificaciones a Firebase para todo el staff
 }
 function notifLoad(){
   try{
@@ -17834,7 +18640,7 @@ function respuestaLocal(pregunta){
 // Índice de estrés (Training Stress Score adaptado)
 // ═══════════════════════════════════════════════════════════════
 
-function ciSave(){ try{ localStorage.setItem('BFC_CI', JSON.stringify(CI_DB)); }catch(e){} }
+function ciSave(){ try{ localStorage.setItem('BFC_CI', JSON.stringify(CI_DB)); }catch(e){} fbGuardar(); fbAuditLog('carga-interna','Guardado carga interna'); }
 function ciLoad(){ try{ var d=localStorage.getItem('BFC_CI'); if(d) CI_DB=JSON.parse(d)||[]; }catch(e){} }
 
 // Wrapper: calcACWR(pid) — usado en Plantilla, Jornada, Bot
@@ -18564,6 +19370,201 @@ function ciTabIndividual(plantel){
   });
   h += "</div></div>";
 
+  // ── PERFIL 8 SEMANAS: UA semanal + ACWR + marcadores de lesión ──
+  (function(){
+    // Construir 8 semanas hacia atrás (semana = lunes a domingo)
+    var semanas = [];
+    var hoy = new Date(TODAY + 'T00:00:00');
+    // Ir al lunes de la semana actual
+    var diaSem = hoy.getDay(); // 0=dom,1=lun,...6=sab
+    var diasDesLunes = (diaSem + 6) % 7;
+    var lunesHoy = new Date(hoy); lunesHoy.setDate(hoy.getDate() - diasDesLunes);
+    for(var sw = 7; sw >= 0; sw--){
+      var lunesSem = new Date(lunesHoy); lunesSem.setDate(lunesHoy.getDate() - sw*7);
+      var domSem   = new Date(lunesSem); domSem.setDate(lunesSem.getDate() + 6);
+      var dLunes = lunesSem.toISOString().slice(0,10);
+      var dDom   = domSem.toISOString().slice(0,10);
+      // UA total de la semana
+      var regsSem = regs.filter(function(r){ return r.fecha>=dLunes && r.fecha<=dDom; });
+      var uaSem   = regsSem.reduce(function(a,r){ return a+r.ua; }, 0);
+      var sessSem = regsSem.length;
+      var rpeAvgSem = sessSem ? Math.round(regsSem.reduce(function(a,r){return a+r.rpe;},0)/sessSem*10)/10 : null;
+      // ACWR al final de esa semana (con todos los registros hasta domSem)
+      var regsHastaDom = regs.filter(function(r){ return r.fecha<=dDom; });
+      var acwrSem = ciACWR(regsHastaDom, dDom);
+      // Lesiones activas esa semana (LESIONES_DB)
+      var lesionesActivas = safeArr(typeof LESIONES_DB!=='undefined'?LESIONES_DB:[]).filter(function(l){
+        return (l.pid===selId||l.jugadorId===selId) && l.fechaInicio<=dDom && (!l.fechaFin||l.fechaFin>=dLunes);
+      }).length;
+      semanas.push({
+        label: 'S'+(8-sw),
+        lunes: dLunes, dom: dDom,
+        uaSem: uaSem, sessSem: sessSem, rpeAvgSem: rpeAvgSem,
+        acwr: acwrSem.acwr, lesiones: lesionesActivas
+      });
+    }
+    var maxUA8 = Math.max.apply(null, semanas.map(function(s){ return s.uaSem; }))||1;
+
+    h += "<div class='card' style='padding:16px;margin-bottom:14px;'>";
+    h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;'>";
+    h += "<div style='font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.06em;'>📅 Perfil de Carga — 8 Semanas</div>";
+    // Mini stat chips
+    var ua8Total = semanas.reduce(function(a,s){ return a+s.uaSem; },0);
+    var acwrAhora = semanas[semanas.length-1].acwr;
+    h += "<div style='display:flex;gap:8px;flex-wrap:wrap;'>";
+    h += "<span style='font-size:9px;background:rgba(139,0,0,.12);color:#8B0000;padding:3px 8px;border-radius:4px;font-weight:700;'>UA 8sem: "+ua8Total+"</span>";
+    if(acwrAhora!==null){
+      var acwrColNow = ciColorACWR(acwrAhora);
+      h += "<span style='font-size:9px;background:rgba(0,0,0,.08);color:"+acwrColNow.color+";padding:3px 8px;border-radius:4px;font-weight:700;border:1px solid "+acwrColNow.color+"40;'>ACWR actual: "+acwrAhora+"</span>";
+    }
+    h += "</div></div>";
+
+    // ── Gráfico SVG: barras UA semanal + línea ACWR ──
+    var svgW = 560, svgH = 160, padL = 46, padR = 10, padT = 12, padB = 36;
+    var chartW = svgW - padL - padR;
+    var chartH = svgH - padT - padB;
+    var barW   = Math.floor(chartW / semanas.length) - 4;
+
+    // Escala ACWR: 0 → 2.0
+    var acwrMax = 2.0;
+    function xBar(i){ return padL + i*(chartW/semanas.length) + (chartW/semanas.length - barW)/2; }
+    function yUA(ua){ return padT + chartH - Math.round(ua/maxUA8*chartH); }
+    function yACWR(v){ return padT + chartH - Math.round(v/acwrMax*chartH); }
+
+    h += "<div style='overflow-x:auto;'>";
+    h += "<svg width='"+svgW+"' height='"+svgH+"' viewBox='0 0 "+svgW+" "+svgH+"' style='display:block;min-width:400px;max-width:100%;'>";
+
+    // Líneas de referencia ACWR (0.8, 1.3, 1.5)
+    [[0.8,'rgba(56,161,105,.4)'],[1.3,'rgba(217,119,6,.4)'],[1.5,'rgba(229,62,62,.4)']].forEach(function(ref){
+      var yRef = yACWR(ref[0]);
+      h += "<line x1='"+padL+"' y1='"+yRef+"' x2='"+(svgW-padR)+"' y2='"+yRef+"' stroke='"+ref[1]+"' stroke-width='1' stroke-dasharray='4,3'/>";
+      h += "<text x='"+(svgW-padR+2)+"' y='"+(yRef+3)+"' font-size='7' fill='"+ref[1]+"'>"+ref[0]+"</text>";
+    });
+
+    // Barras UA por semana
+    semanas.forEach(function(s, i){
+      var bx = xBar(i);
+      var by = yUA(s.uaSem);
+      var bh = padT + chartH - by;
+      var col = ciColorACWR(s.acwr).color || '#8B0000';
+      h += "<rect x='"+bx+"' y='"+by+"' width='"+barW+"' height='"+bh+"' fill='"+col+"' rx='2' opacity='0.75'>";
+      h += "<title>"+s.lunes+" → "+s.dom+"\nUA: "+s.uaSem+"\nSesiones: "+s.sessSem+"\nRPE prom: "+(s.rpeAvgSem||'—')+"\nACWR: "+(s.acwr||'—')+"</title></rect>";
+      // Valor UA encima de la barra si tiene datos
+      if(s.uaSem>0){
+        h += "<text x='"+(bx+barW/2)+"' y='"+(by-2)+"' text-anchor='middle' font-size='7' font-weight='700' fill='"+col+"'>"+s.uaSem+"</text>";
+      }
+      // Marcador de lesión (triángulo rojo en la barra)
+      if(s.lesiones>0){
+        var lx = bx + barW/2;
+        var ly = by - 10;
+        h += "<polygon points='"+(lx)+" "+(ly-7)+","+(lx-5)+" "+ly+","+(lx+5)+" "+ly+"' fill='#ef4444' opacity='0.9'>";
+        h += "<title>⚠ "+s.lesiones+" lesión(es) activa(s) en esta semana</title></polygon>";
+      }
+      // Etiqueta eje X
+      h += "<text x='"+(bx+barW/2)+"' y='"+(svgH-padB+13)+"' text-anchor='middle' font-size='8' fill='#9ca3af'>"+s.label+"</text>";
+      h += "<text x='"+(bx+barW/2)+"' y='"+(svgH-padB+22)+"' text-anchor='middle' font-size='7' fill='#6b7280'>"+s.lunes.slice(5)+"</text>";
+    });
+
+    // Eje Y izquierdo (UA)
+    [0,0.25,0.5,0.75,1].forEach(function(pct){
+      var yGrid = padT + chartH*(1-pct);
+      var vGrid = Math.round(maxUA8*pct);
+      h += "<line x1='"+padL+"' y1='"+yGrid+"' x2='"+(svgW-padR)+"' y2='"+yGrid+"' stroke='rgba(0,0,0,.06)' stroke-width='1'/>";
+      h += "<text x='"+(padL-4)+"' y='"+(yGrid+3)+"' text-anchor='end' font-size='8' fill='#9ca3af'>"+vGrid+"</text>";
+    });
+
+    // Línea ACWR
+    var acwrPts = semanas.map(function(s,i){ return s.acwr!==null ? (xBar(i)+barW/2)+','+(yACWR(s.acwr)) : null; }).filter(Boolean);
+    if(acwrPts.length>=2){
+      var polyAcwr = semanas.map(function(s,i){ return s.acwr!==null ? [(xBar(i)+barW/2), yACWR(Math.min(s.acwr,acwrMax))] : null; }).filter(Boolean);
+      // Línea suave
+      h += "<polyline points='"+polyAcwr.map(function(p){ return p[0]+','+p[1]; }).join(' ')+"' fill='none' stroke='#38bdf8' stroke-width='2' stroke-linejoin='round' opacity='0.9'/>";
+      // Puntos
+      polyAcwr.forEach(function(p,i){
+        var sw_i = semanas.filter(function(s){ return s.acwr!==null; })[i];
+        var pCol = sw_i ? ciColorACWR(sw_i.acwr).color : '#38bdf8';
+        h += "<circle cx='"+p[0]+"' cy='"+p[1]+"' r='3.5' fill='"+pCol+"' stroke='#fff' stroke-width='1.5'>";
+        h += "<title>ACWR "+(sw_i?sw_i.label:'')+" = "+(sw_i?sw_i.acwr:'—')+"</title></circle>";
+      });
+    }
+
+    // Eje Y derecho (ACWR label)
+    h += "<text x='"+(svgW-padR)+"' y='"+(padT-4)+"' text-anchor='end' font-size='7' fill='#38bdf8' font-weight='700'>← ACWR</text>";
+    h += "<text x='"+(padL/2)+"' y='"+(svgH/2)+"' text-anchor='middle' font-size='7' fill='#9ca3af' transform='rotate(-90,"+(padL/2)+","+(svgH/2)+")'>UA</text>";
+    h += "</svg></div>";
+
+    // Leyenda
+    h += "<div style='display:flex;gap:12px;margin-top:8px;flex-wrap:wrap;align-items:center;'>";
+    h += "<div style='display:flex;align-items:center;gap:4px;'><div style='width:14px;height:8px;border-radius:2px;background:#8B0000;opacity:.75;'></div><span style='font-size:9px;color:var(--text-2);'>UA semanal</span></div>";
+    h += "<div style='display:flex;align-items:center;gap:4px;'><div style='width:16px;height:2px;background:#38bdf8;border-radius:1px;'></div><span style='font-size:9px;color:var(--text-2);'>ACWR</span></div>";
+    h += "<div style='display:flex;align-items:center;gap:4px;'><svg width='10' height='10'><polygon points='5,0 0,10 10,10' fill='#ef4444'/></svg><span style='font-size:9px;color:var(--text-2);'>Lesión activa</span></div>";
+    [{c:'#3182ce',l:'0.8 subcarga'},{c:'#38a169',l:'0.8-1.3 óptimo'},{c:'#d97706',l:'1.3-1.5 precaución'},{c:'#e53e3e',l:'>1.5 riesgo'}].forEach(function(s){
+      h += "<div style='display:flex;align-items:center;gap:4px;'><div style='width:8px;height:8px;border-radius:50%;background:"+s.c+";'></div><span style='font-size:9px;color:var(--text-2);'>"+s.l+"</span></div>";
+    });
+    h += "</div>";
+
+    // Tabla resumen semanal
+    h += "<div style='margin-top:12px;overflow-x:auto;'>";
+    h += "<table style='width:100%;border-collapse:collapse;min-width:500px;'><thead><tr style='border-bottom:2px solid var(--border);'>";
+    ["SEMANA","PERÍODO","SESIONES","UA TOTAL","RPE PROM","ACWR","LESIÓN"].forEach(function(col){
+      h += "<th style='padding:5px 8px;font-size:9px;font-weight:700;color:#888;text-align:center;text-transform:uppercase;letter-spacing:.04em;'>"+col+"</th>";
+    });
+    h += "</tr></thead><tbody>";
+    semanas.forEach(function(s,i){
+      var acwrColSem = s.acwr!==null ? ciColorACWR(s.acwr).color : '#9ca3af';
+      var esActual = i===semanas.length-1;
+      h += "<tr style='border-bottom:1px solid #f3f4f6;"+(esActual?'background:rgba(139,0,0,.04);font-weight:700;':'')+(!s.uaSem?'opacity:.45;':'')+";'>";
+      h += "<td style='padding:6px 8px;text-align:center;font-size:10px;font-weight:"+(esActual?800:600)+";color:var(--text-1);'>"+s.label+(esActual?' ★':'')+"</td>";
+      h += "<td style='padding:6px 8px;text-align:center;font-size:9px;color:var(--text-2);'>"+s.lunes.slice(5)+" — "+s.dom.slice(5)+"</td>";
+      h += "<td style='padding:6px 8px;text-align:center;font-size:12px;font-weight:700;color:var(--text-1);'>"+s.sessSem+"</td>";
+      h += "<td style='padding:6px 8px;text-align:center;font-size:12px;font-weight:900;color:#8B0000;'>"+s.uaSem+"</td>";
+      h += "<td style='padding:6px 8px;text-align:center;font-size:11px;font-weight:700;color:#b45309;'>"+(s.rpeAvgSem||'—')+"</td>";
+      h += "<td style='padding:6px 8px;text-align:center;'>";
+      if(s.acwr!==null) h += "<span style='font-size:12px;font-weight:900;color:"+acwrColSem+";'>"+s.acwr+"</span>";
+      else h += "<span style='font-size:9px;color:#d1d5db;'>sin datos</span>";
+      h += "</td>";
+      h += "<td style='padding:6px 8px;text-align:center;'>";
+      if(s.lesiones>0) h += "<span style='font-size:9px;background:#fef2f2;color:#ef4444;padding:2px 6px;border-radius:4px;font-weight:700;'>🔴 "+s.lesiones+"</span>";
+      else             h += "<span style='font-size:9px;color:#22c55e;'>✓</span>";
+      h += "</td></tr>";
+    });
+    h += "</tbody></table></div>";
+    h += "</div>";
+
+    // ── Historial de Lesiones del jugador ──────────────────────────
+    var lesJug = safeArr(typeof LESIONES_DB!=='undefined'?LESIONES_DB:[]).filter(function(l){ return l.pid===selId||l.jugadorId===selId; });
+    lesJug.sort(function(a,b){ return b.fechaInicio.localeCompare(a.fechaInicio); });
+    h += "<div class='card' style='padding:16px;margin-bottom:14px;'>";
+    h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;'>";
+    h += "<div style='font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.06em;'>🩹 Historial de Lesiones</div>";
+    h += "<button onclick='lesionNuevaModal(\""+selId+"\")' style='font-size:10px;font-weight:700;padding:5px 12px;border-radius:6px;background:#ef4444;color:#fff;border:none;cursor:pointer;'>+ Registrar</button>";
+    h += "</div>";
+    if(!lesJug.length){
+      h += "<div style='text-align:center;padding:20px;color:#9ca3af;font-size:11px;'>Sin lesiones registradas</div>";
+    } else {
+      h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;min-width:460px;'><thead><tr style='border-bottom:2px solid var(--border);'>";
+      ["INICIO","FIN","TIPO","ZONA","DÍAS FUERA","ESTADO"].forEach(function(col){
+        h += "<th style='padding:5px 8px;font-size:9px;font-weight:700;color:#888;text-align:center;text-transform:uppercase;letter-spacing:.04em;'>"+col+"</th>";
+      });
+      h += "</tr></thead><tbody>";
+      lesJug.forEach(function(l,li){
+        var activa = !l.fechaFin || l.fechaFin >= TODAY;
+        h += "<tr style='border-bottom:1px solid #f3f4f6;background:"+(activa?'rgba(239,68,68,.04)':'inherit')+"'>";
+        h += "<td style='padding:6px 8px;text-align:center;font-size:10px;font-weight:700;color:var(--text-1);'>"+l.fechaInicio+"</td>";
+        h += "<td style='padding:6px 8px;text-align:center;font-size:10px;color:var(--text-2);'>"+(l.fechaFin||'—')+"</td>";
+        h += "<td style='padding:6px 8px;text-align:center;font-size:10px;color:var(--text-1);'>"+escHtml(l.tipo||'—')+"</td>";
+        h += "<td style='padding:6px 8px;text-align:center;font-size:10px;color:var(--text-2);'>"+escHtml(l.zona||'—')+"</td>";
+        h += "<td style='padding:6px 8px;text-align:center;font-size:12px;font-weight:900;color:#b45309;'>"+(l.diasFuera||'—')+"</td>";
+        h += "<td style='padding:6px 8px;text-align:center;'>";
+        if(activa) h += "<span style='font-size:9px;background:#fef2f2;color:#ef4444;padding:2px 6px;border-radius:4px;font-weight:700;'>🔴 Activa</span>";
+        else       h += "<span style='font-size:9px;background:#f0fdf4;color:#22c55e;padding:2px 6px;border-radius:4px;font-weight:700;'>✓ Alta</span>";
+        h += "</td></tr>";
+      });
+      h += "</tbody></table></div>";
+    }
+    h += "</div>";
+  })();
+
   // Tabla detalle sesiones
   h += "<div class='card' style='padding:0;overflow:hidden;'>";
   h += "<div style='background:#1a1a1a;padding:9px 14px;'><span style='color:#fff;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;'>Detalle de sesiones</span></div>";
@@ -18992,13 +19993,13 @@ var NOVEDADES_DB = [];
 
 function dispSave(){ try{ localStorage.setItem('BFC_DISP', JSON.stringify(DISP_DB)); }catch(e){} fbGuardar(); }
 function dispLoad(){ try{ var d=localStorage.getItem('BFC_DISP'); if(d) DISP_DB=safeArr(JSON.parse(d)); }catch(e){} }
-function novSave(){ try{ localStorage.setItem('BFC_NOV', JSON.stringify(NOVEDADES_DB)); }catch(e){} }
+function novSave(){ try{ localStorage.setItem('BFC_NOV', JSON.stringify(NOVEDADES_DB)); }catch(e){} fbGuardar(); }
 
 // ══════════════════════════════════════════════════════
 // ÁREA MÉDICA — EXPEDIENTES CLÍNICOS
 // ══════════════════════════════════════════════════════
 var EXPEDIENTES_DB = [];
-function expSave(){ try{ localStorage.setItem('BFC_EXPEDIENTES', JSON.stringify(EXPEDIENTES_DB)); }catch(e){} }
+function expSave(){ try{ localStorage.setItem('BFC_EXPEDIENTES', JSON.stringify(EXPEDIENTES_DB)); }catch(e){} fbGuardar(); }
 function expLoad(){ try{ var d=localStorage.getItem('BFC_EXPEDIENTES'); if(d) EXPEDIENTES_DB=safeArr(JSON.parse(d)); }catch(e){} }
 
 // Estados que activan expediente
@@ -21399,9 +22400,9 @@ window.cvCargarEstadoGuardado = cvCargarEstadoGuardado;
 // ════════════════════════════════════════════════════════════════════════════
 
 var BFC_PP_KEY = 'BFC_POSTPARTIDO_DB';
-var PP_DB = [];
+// PP_DB declarado globalmente al inicio del script para compatibilidad con fbEscuchar
 function ppLoad(){ try{ var r=localStorage.getItem(BFC_PP_KEY); PP_DB=r?JSON.parse(r):[]; }catch(e){ PP_DB=[]; } }
-function ppSave(){ try{ localStorage.setItem(BFC_PP_KEY,JSON.stringify(PP_DB)); }catch(e){} }
+function ppSave(){ try{ localStorage.setItem(BFC_PP_KEY,JSON.stringify(PP_DB)); }catch(e){} fbGuardar(); fbAuditLog('post-partido','Guardado análisis post-partido'); }
 function infPartidoKey(fecha,rival){ return fecha+'_'+(rival||'').replace(/\s+/g,'_'); }
 
 // ─── Render principal ───────────────────────────────────────────────────────
@@ -21721,14 +22722,100 @@ function infTabPostPartido(){
   }
   h += "</div>";
 
+  // Sección análisis / observaciones
+  h += "<div class='card' style='margin-bottom:14px;'>";
+  h += "<div style='font-size:12px;font-weight:800;color:var(--text-1);margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:10px;'>📝 Análisis del partido</div>";
+  h += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;'>";
+  var oFields=[['observacionesOfen','⚔️ Ofensivo'],['observacionesDefen','🛡️ Defensivo'],['observacionesFisico','💪 Físico / Cargas'],['observacionesTactico','♟️ Táctico']];
+  oFields.forEach(function(of){
+    var val=escHtml(state[of[0]]||'');
+    h += "<div><label style='font-size:9px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px;'>"+of[1]+"</label>"
+      +"<textarea rows='3' oninput='(window._infPPState=window._infPPState||{})[\""+of[0]+"\"]=this.value' placeholder='Notas...'"
+      +" style='width:100%;padding:7px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);font-size:11px;background:var(--bg-card);color:var(--text-1);resize:vertical;box-sizing:border-box;'>"+val+"</textarea></div>";
+  });
+  h += "</div>";
+  h += "<div><label style='font-size:9px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px;'>📌 Conclusiones generales</label>"
+    +"<textarea rows='3' oninput='(window._infPPState=window._infPPState||{}).conclusiones=this.value' placeholder='Puntos clave, decisiones próximos entrenamientos...'"
+    +" style='width:100%;padding:7px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);font-size:11px;background:var(--bg-card);color:var(--text-1);resize:vertical;box-sizing:border-box;'>"+escHtml(state.conclusiones||'')+"</textarea></div>";
+  h += "</div>";
+
+  // ── DATOS FÍSICOS AUTO (desde CI_DB + CARGA del día del partido) ──
+  if(state.fecha){
+    var _ppFis = ppAutoFisicos(state.fecha, state.titulares||[]);
+    if(_ppFis.jugadores>0){
+      h += "<div class='card' style='margin-bottom:14px;border-left:4px solid #6366f1;'>";
+      h += "<div style='font-size:12px;font-weight:800;color:var(--text-1);margin-bottom:10px;'>⚡ Datos físicos del partido <span style='font-size:9px;font-weight:600;background:rgba(99,102,241,.18);color:#818cf8;padding:2px 8px;border-radius:6px;margin-left:6px;'>AUTO · "+_ppFis.jugadores+" jug.</span></div>";
+      h += "<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;'>";
+      var _ppMetrics=[
+        {lbl:'RPE promedio',val:_ppFis.rpePromedio!==null?_ppFis.rpePromedio+'/10':'—'},
+        {lbl:'UA promedio',val:_ppFis.uaPromedio!==null?_ppFis.uaPromedio+' UA':'—'},
+        {lbl:'Tiempo medio',val:_ppFis.tiempoPromedio!==null?_ppFis.tiempoPromedio+" min":'—'},
+        {lbl:'Dist. promedio',val:_ppFis.distPromedio!==null?_ppFis.distPromedio.toLocaleString()+" m":'—'},
+        {lbl:'Carga total equipo',val:_ppFis.uaTotal!==null?_ppFis.uaTotal+' UA':'—'},
+        {lbl:'Alta carga (≥1200)',val:_ppFis.jugAltaCarga>0?_ppFis.jugAltaCarga+' jug.':'0 jug.'}
+      ];
+      _ppMetrics.forEach(function(m){
+        h += "<div style='background:var(--bg-elevated);border-radius:8px;padding:10px 12px;'>";
+        h += "<div style='font-size:9px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;'>"+m.lbl+"</div>";
+        h += "<div style='font-size:16px;font-weight:900;color:var(--text-1);'>"+m.val+"</div></div>";
+      });
+      h += "</div>";
+      // Alerta si RPE > 8
+      if(_ppFis.rpePromedio!==null && _ppFis.rpePromedio>=8){
+        h += "<div style='margin-top:10px;padding:8px 12px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;font-size:11px;color:#f87171;font-weight:700;'>⚠️ RPE elevado ("+_ppFis.rpePromedio+"/10) — revisar recuperación post-partido</div>";
+      }
+      h += "</div>";
+    }
+  }
+  // ────────────────────────────────────────────────────────────────────
+
   // Botones
   h += "<div style='display:flex;gap:10px;flex-wrap:wrap;'>";
   h += "<button onclick='ppGuardar()' style='flex:1;min-width:140px;padding:11px;background:#1a1a1a;color:#fff;border:none;border-radius:var(--r-sm);font-size:12px;font-weight:700;cursor:pointer;'>💾 Guardar post partido</button>";
-  h += "<button onclick='ppVerPDF()' style='flex:1;min-width:140px;padding:11px;background:#059669;color:#fff;border:none;border-radius:var(--r-sm);font-size:12px;font-weight:700;cursor:pointer;'>🖨️ Vista PDF</button>";
+  h += "<button onclick='ppVerPDF()' style='flex:1;min-width:140px;padding:11px;background:#059669;color:#fff;border:none;border-radius:var(--r-sm);font-size:12px;font-weight:700;cursor:pointer;'>🖨️ Exportar PDF</button>";
   h += "</div>";
 
   return h;
 }
+
+// ── CÁLCULO AUTO DE DATOS FÍSICOS DE PARTIDO ─────────────────────────
+function ppAutoFisicos(fecha, titulares){
+  var result = { jugadores:0, rpePromedio:null, uaPromedio:null, tiempoPromedio:null,
+                 distPromedio:null, uaTotal:null, jugAltaCarga:0 };
+  if(!fecha) return result;
+
+  // RPE + UA + tiempo desde CI_DB del día
+  var ciDia = safeArr(CI_DB).filter(function(r){ return r.fecha===fecha; });
+  // GPS desde CARGA del día
+  var cargaDia = safeArr(CARGA).filter(function(r){ return r.fecha===fecha; });
+
+  var pidsFiltro = (titulares||[]).map(function(j){ return j.pid; });
+  if(pidsFiltro.length) {
+    ciDia = ciDia.filter(function(r){ return pidsFiltro.indexOf(r.pid||r.jugadorId)>=0; });
+    cargaDia = cargaDia.filter(function(r){ return pidsFiltro.indexOf(r.pid||r.jugadorId)>=0; });
+  }
+
+  if(ciDia.length) {
+    var rpes = ciDia.filter(function(r){ return r.rpe>0; }).map(function(r){ return r.rpe; });
+    var uas  = ciDia.filter(function(r){ return r.ua>0; }).map(function(r){ return r.ua; });
+    var tms  = ciDia.filter(function(r){ return r.tiempo>0; }).map(function(r){ return r.tiempo; });
+    if(rpes.length) result.rpePromedio = Math.round(rpes.reduce(function(a,b){return a+b;},0)/rpes.length*10)/10;
+    if(uas.length) {
+      result.uaTotal = uas.reduce(function(a,b){return a+b;},0);
+      result.uaPromedio = Math.round(result.uaTotal/uas.length);
+      result.jugAltaCarga = uas.filter(function(u){ return u>=1200; }).length;
+    }
+    if(tms.length) result.tiempoPromedio = Math.round(tms.reduce(function(a,b){return a+b;},0)/tms.length);
+    result.jugadores = Math.max(ciDia.length, cargaDia.length);
+  }
+  if(cargaDia.length) {
+    var dists = cargaDia.filter(function(r){ return r.distancia>0; }).map(function(r){ return r.distancia; });
+    if(dists.length) result.distPromedio = Math.round(dists.reduce(function(a,b){return a+b;},0)/dists.length);
+    if(!result.jugadores) result.jugadores = cargaDia.length;
+  }
+  return result;
+}
+// ─────────────────────────────────────────────────────────────────────
 
 function ppAgregarJugador(tipo){
   var sel=document.getElementById('pp-jug-sel');
@@ -21817,7 +22904,36 @@ function ppVerPDF(){
     });
   }
   html+='</tbody></table>';
-  html+='<div style="text-align:center;margin-top:16px;"><button onclick="window.print()" style="padding:8px 24px;background:#1a1a1a;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">🖨️ Imprimir PDF</button></div>';
+  // Sección de datos físicos auto
+  var _pdfFis = ppAutoFisicos(state.fecha, state.titulares||[]);
+  if(_pdfFis.jugadores>0){
+    html+='<h2 style="font-size:13px;font-weight:900;border-bottom:2px solid #6366f1;padding-bottom:6px;margin-bottom:12px;">⚡ DATOS FÍSICOS DEL PARTIDO</h2>';
+    html+='<table><tbody>';
+    if(_pdfFis.rpePromedio!==null) html+='<tr><td style="font-weight:700;width:160px;">RPE Promedio</td><td>'+_pdfFis.rpePromedio+'/10</td></tr>';
+    if(_pdfFis.uaPromedio!==null) html+='<tr><td style="font-weight:700;">UA Promedio</td><td>'+_pdfFis.uaPromedio+' UA</td></tr>';
+    if(_pdfFis.uaTotal!==null) html+='<tr><td style="font-weight:700;">Carga Total Equipo</td><td>'+_pdfFis.uaTotal+' UA</td></tr>';
+    if(_pdfFis.tiempoPromedio!==null) html+='<tr><td style="font-weight:700;">Tiempo Medio</td><td>'+_pdfFis.tiempoPromedio+' min</td></tr>';
+    if(_pdfFis.distPromedio!==null) html+='<tr><td style="font-weight:700;">Distancia Promedio GPS</td><td>'+_pdfFis.distPromedio.toLocaleString()+' m</td></tr>';
+    if(_pdfFis.jugAltaCarga>0) html+='<tr><td style="font-weight:700;">Jug. Alta Carga (≥1200 UA)</td><td><strong style="color:#dc2626;">'+_pdfFis.jugAltaCarga+' jugadores</strong></td></tr>';
+    html+='</tbody></table>';
+  }
+  // Sección de análisis si hay contenido
+  function _ppEsc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/\n/g,'<br>'); }
+  var hayAnalisis = state.observacionesOfen||state.observacionesDefen||state.observacionesFisico||state.observacionesTactico||state.conclusiones;
+  if(hayAnalisis){
+    html+='<h2 style="font-size:13px;font-weight:900;border-bottom:2px solid #1a1a1a;padding-bottom:6px;margin-bottom:12px;">ANÁLISIS DEL PARTIDO</h2>';
+    html+='<table><tbody>';
+    if(state.observacionesOfen) html+='<tr><td style="font-weight:700;white-space:nowrap;padding-right:12px;width:120px;">⚔️ Ofensivo</td><td>'+_ppEsc(state.observacionesOfen)+'</td></tr>';
+    if(state.observacionesDefen) html+='<tr><td style="font-weight:700;white-space:nowrap;">🛡️ Defensivo</td><td>'+_ppEsc(state.observacionesDefen)+'</td></tr>';
+    if(state.observacionesFisico) html+='<tr><td style="font-weight:700;white-space:nowrap;">💪 Físico</td><td>'+_ppEsc(state.observacionesFisico)+'</td></tr>';
+    if(state.observacionesTactico) html+='<tr><td style="font-weight:700;white-space:nowrap;">♟️ Táctico</td><td>'+_ppEsc(state.observacionesTactico)+'</td></tr>';
+    if(state.conclusiones) html+='<tr><td style="font-weight:700;white-space:nowrap;">📌 Conclusiones</td><td style="font-weight:700;">'+_ppEsc(state.conclusiones)+'</td></tr>';
+    html+='</tbody></table>';
+  }
+  html+='<div style="margin-top:20px;text-align:center;border-top:2px solid #1a1a1a;padding-top:12px;">';
+  html+='<span style="font-size:9px;color:#9ca3af;">Generado por BFC Performance System · '+new Date().toLocaleDateString('es-CO')+'</span>';
+  html+='</div>';
+  html+='<div style="text-align:center;margin-top:16px;"><button onclick="window.print()" style="padding:8px 24px;background:#1a1a1a;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">🖨️ Imprimir / Guardar como PDF</button></div>';
   html+='</body></html>';
   w.document.write(html); w.document.close();
 }
