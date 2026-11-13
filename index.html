@@ -5098,21 +5098,43 @@ function renderProgramacion() {
 
   // ── Próximo partido ──
   var nextPartido = null;
-  var todayStr = vYY + '-' + padZ(vMM+1) + '-' + padZ(todayD);
+  var todayStr = yy + '-' + padZ(mm+1) + '-' + padZ(todayD);
   // Buscar en EVS
   var evsSort = safeArr(EVS).filter(function(ev){ return ev.fecha >= todayStr && (ev.tipo||'').toLowerCase()==='partido'; }).sort(function(a,b){ return (a.fecha||'').localeCompare(b.fecha||''); });
   if (evsSort.length) nextPartido = evsSort[0];
 
+  // Próximo entrenamiento (si no hay partido)
+  var nextEntreno = null;
+  if (!nextPartido) {
+    var entSort = safeArr(EVS).filter(function(ev){ return ev.fecha >= todayStr && (ev.tipo||'').toLowerCase()==='entrenamiento'; }).sort(function(a,b){ return (a.fecha||'').localeCompare(b.fecha||''); });
+    if (entSort.length) nextEntreno = entSort[0];
+  }
+
+  // Próximos 3 partidos
+  var proxPartidos3 = safeArr(EVS).filter(function(ev){ return ev.fecha >= todayStr && (ev.tipo||'').toLowerCase()==='partido'; }).sort(function(a,b){ return (a.fecha||'').localeCompare(b.fecha||''); }).slice(0,3);
+
   // ── Microciclo semana activa ──
+  // Calcula lunes y domingo de la semana actual
+  var _todayDate = new Date(yy, mm, todayD);
+  var _dow = (_todayDate.getDay() + 6) % 7; // 0=lun,6=dom
+  var _lunDate = new Date(_todayDate); _lunDate.setDate(todayD - _dow);
+  var _domDate = new Date(_todayDate); _domDate.setDate(todayD - _dow + 6);
+  function _fmtD(d){ return d.getFullYear()+'-'+padZ(d.getMonth()+1)+'-'+padZ(d.getDate()); }
+  var _lunStr = _fmtD(_lunDate);
+  var _domStr = _fmtD(_domDate);
+
   var mcActivo = null;
   var mcDiaHoy = null;
   for (var mi2 = 0; mi2 < mcHistRaw.length; mi2++) {
     var mce = mcHistRaw[mi2];
     if (!mce.data) continue;
+    var _hasThisWeek = false;
     for (var di2 = 0; di2 < mce.data.length; di2++) {
-      if (mce.data[di2].fecha === todayStr) { mcActivo = mce; mcDiaHoy = mce.data[di2]; break; }
+      var _fd = mce.data[di2].fecha || '';
+      if (_fd >= _lunStr && _fd <= _domStr) { _hasThisWeek = true; }
+      if (_fd === todayStr) { mcDiaHoy = mce.data[di2]; }
     }
-    if (mcActivo) break;
+    if (_hasThisWeek) { mcActivo = mce; break; }
   }
 
   // ── Disponibilidad superficial ──
@@ -5173,26 +5195,62 @@ function renderProgramacion() {
   } else if (mcDiaHoy && mcDiaHoy.tipo === 'descanso') {
     h += "<div style='font-size:11px;color:#64748b;font-weight:600;margin-top:4px;'>Descanso</div>";
   }
+  // Alerta carga alta
+  if (mcDiaHoy && (mcDiaHoy.carga||'').toLowerCase() === 'muy alta') {
+    h += "<div style='margin-top:6px;font-size:9px;font-weight:800;color:#ef4444;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:3px 8px;'>⚠️ CARGA MUY ALTA</div>";
+  } else if (mcDiaHoy && (mcDiaHoy.carga||'').toLowerCase() === 'alta') {
+    h += "<div style='margin-top:6px;font-size:9px;font-weight:800;color:#f97316;background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.25);border-radius:6px;padding:3px 8px;'>↑ CARGA ALTA</div>";
+  }
   h += "</div>";
 
-  // Card: Próximo partido
+  // Card: Próximo partido / entrenamiento
   h += "<div style='background:linear-gradient(135deg,rgba(59,130,246,.15),rgba(59,130,246,.05));border:1px solid rgba(59,130,246,.3);border-radius:16px;padding:16px 18px;'>";
-  h += "<div style='font-size:9px;font-weight:800;color:#3b82f6;text-transform:uppercase;letter-spacing:.10em;margin-bottom:8px;'>Próximo partido</div>";
   if (nextPartido) {
     var dpStr = nextPartido.fecha || '';
     var dpParts = dpStr.split('-');
     var dpObj = dpParts.length === 3 ? new Date(+dpParts[0], +dpParts[1]-1, +dpParts[2]) : null;
     var diff = dpObj ? Math.round((dpObj - new Date(yy, mm, todayD)) / 86400000) : null;
+    var diffC = diff === null ? '#6366f1' : (diff === 0 ? '#22c55e' : diff <= 2 ? '#ef4444' : diff <= 5 ? '#eab308' : '#6366f1');
     var rival0 = (nextPartido.titulo||'').replace(/^BFC\s*vs\s*/i,'').replace(/^Barranquilla\s*FC\s*vs\s*/i,'').trim() || nextPartido.titulo || '';
-    h += "<div style='font-size:15px;font-weight:900;color:#f1f5f9;margin-bottom:4px;'>vs " + rival0 + "</div>";
+    h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;'>";
+    h += "<div style='font-size:9px;font-weight:800;color:#3b82f6;text-transform:uppercase;letter-spacing:.10em;'>Próximo partido</div>";
+    if (diff !== null) h += "<div style='font-size:18px;font-weight:900;color:" + diffC + ";line-height:1;'>" + (diff===0?'¡HOY!':diff===1?'Mañana':diff+' días') + "</div>";
+    h += "</div>";
+    h += "<div style='font-size:16px;font-weight:900;color:#f1f5f9;margin-bottom:3px;'>vs " + rival0 + "</div>";
     h += "<div style='font-size:11px;color:#93c5fd;font-weight:700;'>" + (nextPartido.fecha||'') + (nextPartido.hora?' · '+nextPartido.hora:'') + "</div>";
-    if (nextPartido.lugar) h += "<div style='font-size:10px;color:#475569;margin-top:3px;'>" + nextPartido.lugar + "</div>";
-    if (diff !== null) {
-      var diffC = diff === 0 ? '#22c55e' : diff <= 2 ? '#ef4444' : diff <= 5 ? '#eab308' : '#6366f1';
-      h += "<div style='margin-top:8px;font-size:22px;font-weight:900;color:" + diffC + ";'>" + (diff===0?'¡HOY!':diff===1?'Mañana':diff+' días') + "</div>";
+    if (nextPartido.lugar) h += "<div style='font-size:10px;color:#475569;margin-top:2px;'>" + nextPartido.lugar + "</div>";
+    // Próximos 3 partidos (si hay más)
+    if (proxPartidos3.length > 1) {
+      h += "<div style='margin-top:10px;border-top:1px solid rgba(59,130,246,.2);padding-top:8px;'>";
+      h += "<div style='font-size:8px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px;'>Próximos</div>";
+      for (var pxi = 1; pxi < proxPartidos3.length; pxi++) {
+        var px = proxPartidos3[pxi];
+        var pxRival = (px.titulo||'').replace(/^BFC\s*vs\s*/i,'').replace(/^Barranquilla\s*FC\s*vs\s*/i,'').trim();
+        var pxParts = (px.fecha||'').split('-');
+        var pxObj = pxParts.length===3 ? new Date(+pxParts[0],+pxParts[1]-1,+pxParts[2]) : null;
+        var pxDiff = pxObj ? Math.round((pxObj - new Date(yy,mm,todayD))/86400000) : null;
+        h += "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;'>";
+        h += "<span style='font-size:9px;color:#cbd5e1;font-weight:700;'>vs " + pxRival + "</span>";
+        h += "<span style='font-size:9px;color:#64748b;'>" + (pxDiff!==null ? pxDiff+' días' : px.fecha||'') + "</span>";
+        h += "</div>";
+      }
+      h += "</div>";
+    }
+  } else if (nextEntreno) {
+    var enStr = nextEntreno.fecha || '';
+    var enParts = enStr.split('-');
+    var enObj = enParts.length === 3 ? new Date(+enParts[0], +enParts[1]-1, +enParts[2]) : null;
+    var enDiff = enObj ? Math.round((enObj - new Date(yy, mm, todayD)) / 86400000) : null;
+    h += "<div style='font-size:9px;font-weight:800;color:#6ee7b7;text-transform:uppercase;letter-spacing:.10em;margin-bottom:6px;'>Próximo entrenamiento</div>";
+    h += "<div style='font-size:14px;font-weight:900;color:#f1f5f9;margin-bottom:3px;'>" + (nextEntreno.titulo||'Sesión') + "</div>";
+    h += "<div style='font-size:11px;color:#6ee7b7;font-weight:700;'>" + enStr + (nextEntreno.hora?' · '+nextEntreno.hora:'') + "</div>";
+    if (enDiff !== null && enDiff >= 0) {
+      var enC = enDiff === 0 ? '#22c55e' : enDiff === 1 ? '#a3e635' : '#6ee7b7';
+      h += "<div style='margin-top:6px;font-size:18px;font-weight:900;color:" + enC + ";'>" + (enDiff===0?'¡HOY!':enDiff===1?'Mañana':enDiff+' días') + "</div>";
     }
   } else {
-    h += "<div style='font-size:13px;color:#475569;font-weight:600;'>Sin partidos programados</div>";
+    h += "<div style='font-size:9px;font-weight:800;color:#3b82f6;text-transform:uppercase;letter-spacing:.10em;margin-bottom:8px;'>Próximo partido</div>";
+    h += "<div style='font-size:13px;color:#475569;font-weight:600;'>Sin eventos programados</div>";
   }
   h += "</div>";
 
@@ -5241,6 +5299,50 @@ function renderProgramacion() {
     h += "</div></div></div>";
   }
 
+  // ── RESUMEN SEMANA PASADA ──
+  (function() {
+    var _prevLun = new Date(_lunDate); _prevLun.setDate(_prevLun.getDate() - 7);
+    var _prevDom = new Date(_domDate); _prevDom.setDate(_prevDom.getDate() - 7);
+    var _prevLunStr = _fmtD(_prevLun), _prevDomStr = _fmtD(_prevDom);
+    // Partidos semana pasada
+    var _prevPP = ipdbRaw.filter(function(p){ return p.fecha >= _prevLunStr && p.fecha <= _prevDomStr; });
+    var _ppV = _prevPP.filter(function(p){ return +(p.golesF||0) > +(p.golesC||0); }).length;
+    var _ppE = _prevPP.filter(function(p){ return +(p.golesF||0) === +(p.golesC||0) && p.golesF!==undefined; }).length;
+    var _ppD = _prevPP.filter(function(p){ return +(p.golesF||0) < +(p.golesC||0); }).length;
+    // Sesiones semana pasada
+    var _prevSes = SES_DB_RAW.filter(function(s){ var f=s.fecha||s.fechaSes||''; return f>=_prevLunStr&&f<=_prevDomStr; }).length;
+    // Microciclo semana pasada
+    var _mcPrev = null;
+    for (var _mi=0; _mi<mcHistRaw.length; _mi++) {
+      var _mce=mcHistRaw[_mi]; if(!_mce.data) continue;
+      for (var _di=0; _di<_mce.data.length; _di++) {
+        var _fd=_mce.data[_di].fecha||'';
+        if (_fd>=_prevLunStr&&_fd<=_prevDomStr){ _mcPrev=_mce; break; }
+      }
+      if(_mcPrev) break;
+    }
+    var _prevSesiones = _mcPrev ? _mcPrev.data.filter(function(d){ return d.fecha>=_prevLunStr&&d.fecha<=_prevDomStr&&d.tipo!=='descanso'; }).length : 0;
+    if (_prevPP.length > 0 || _prevSesiones > 0) {
+      h += "<div style='padding:0 28px 16px;'>";
+      h += "<div style='background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:14px 18px;'>";
+      h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;margin-bottom:10px;'>Semana pasada · " + _prevLunStr + " — " + _prevDomStr + "</div>";
+      h += "<div style='display:flex;gap:14px;align-items:center;flex-wrap:wrap;'>";
+      if (_prevPP.length > 0) {
+        if (_ppV>0) h += "<div style='display:flex;align-items:center;gap:5px;'><span style='font-size:16px;font-weight:900;color:#22c55e;'>"+_ppV+"</span><span style='font-size:9px;color:#64748b;font-weight:700;'>V</span></div>";
+        if (_ppE>0) h += "<div style='display:flex;align-items:center;gap:5px;'><span style='font-size:16px;font-weight:900;color:#eab308;'>"+_ppE+"</span><span style='font-size:9px;color:#64748b;font-weight:700;'>E</span></div>";
+        if (_ppD>0) h += "<div style='display:flex;align-items:center;gap:5px;'><span style='font-size:16px;font-weight:900;color:#ef4444;'>"+_ppD+"</span><span style='font-size:9px;color:#64748b;font-weight:700;'>D</span></div>";
+        h += "<div style='width:1px;height:28px;background:rgba(255,255,255,.08);'></div>";
+      }
+      if (_prevSesiones > 0) {
+        h += "<div style='display:flex;align-items:center;gap:5px;'><span style='font-size:16px;font-weight:900;color:#a5b4fc;'>"+_prevSesiones+"</span><span style='font-size:9px;color:#64748b;font-weight:700;'>SESIONES</span></div>";
+      }
+      if (_prevSes > 0) {
+        h += "<div style='display:flex;align-items:center;gap:5px;'><span style='font-size:16px;font-weight:900;color:#6ee7b7;'>"+_prevSes+"</span><span style='font-size:9px;color:#64748b;font-weight:700;'>REG. SESIÓN</span></div>";
+      }
+      h += "</div></div></div>";
+    }
+  })();
+
   // ── CALENDARIO MENSUAL NAVEGABLE ──
   h += "<div style='padding:0 28px 28px;'>";
   h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:18px;'>";
@@ -5249,12 +5351,13 @@ function renderProgramacion() {
   h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;'>";
   h += "<button onclick=\"window._progMesOff=(window._progMesOff||0)-1;renderProgramacion()\" style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:6px 14px;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:700;'>&#8249;</button>";
   h += "<div style='text-align:center;'>";
-  h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;'>" + (off === 0 ? 'Mes actual' : off < 0 ? 'Mes anterior' : 'Mes siguiente') + "</div>";
+  h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;'>" + (off === 0 ? 'Mes actual' : (Math.abs(off) === 1 ? (off < 0 ? 'Mes anterior' : 'Mes siguiente') : (off < 0 ? (Math.abs(off) + ' meses atrás') : (off + ' meses adelante')))) + "</div>";
   h += "<div style='font-size:18px;font-weight:900;color:#f1f5f9;'>" + mesNombres[vMM] + " " + vYY + "</div>";
   h += "</div>";
   h += "<div style='display:flex;gap:6px;'>";
   if (off !== 0) h += "<button onclick=\"window._progMesOff=0;renderProgramacion()\" style='background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.4);border-radius:9px;padding:6px 12px;color:#a5b4fc;cursor:pointer;font-size:11px;font-weight:700;'>Hoy</button>";
   h += "<button onclick=\"window._progMesOff=(window._progMesOff||0)+1;renderProgramacion()\" style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:6px 14px;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:700;'>&#8250;</button>";
+  h += "<button onclick=\"_progExportarMes(" + vYY + "," + vMM + ")\" style='background:rgba(99,102,241,.14);border:1px solid rgba(99,102,241,.3);border-radius:9px;padding:6px 12px;color:#818cf8;cursor:pointer;font-size:11px;font-weight:700;' title='Exportar mes como PDF o imagen'>📤 Exportar</button>";
   h += "</div></div>";
 
 
@@ -5287,8 +5390,10 @@ function renderProgramacion() {
     var mc4    = dd4.mc, ses4 = dd4.ses, evs4 = dd4.evs, res4 = dd4.res;
 
     // Tipo visual
+    // Excluir nota_staff del display de eventos del calendario
+    var evs4vis = evs4.filter(function(e){ return e.tipo !== 'nota_staff'; });
     var tprin2 = null, tinf2 = null;
-    if (evs4.length) { tprin2 = (evs4[0].tipo||'').toLowerCase(); tinf2 = TC[tprin2]||null; }
+    if (evs4vis.length) { tprin2 = (evs4vis[0].tipo||'').toLowerCase(); tinf2 = TC[tprin2]||null; }
     else if (mc4)    { tprin2 = (mc4.tipo||'').toLowerCase(); tinf2 = TC[tprin2]||null; }
 
     // Resultado
@@ -5303,7 +5408,7 @@ function renderProgramacion() {
     var cbg2  = esHoy2 ? 'rgba(99,102,241,.18)' : (rinf2 ? rinf2.bg : (tinf2 ? tinf2.bg : (esFin2 ? 'rgba(255,255,255,.015)' : 'transparent')));
     var cbord2 = esHoy2 ? 'rgba(99,102,241,.8)' : (rinf2 ? rinf2.bd : (tinf2 ? tinf2.bord : 'rgba(255,255,255,.04)'));
 
-    h += "<div style='min-height:78px;padding:6px 7px;border-right:1px solid rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.04);background:" + cbg2 + ";box-shadow:inset 0 0 0 " + (esHoy2?'2':'1') + "px " + cbord2 + ";position:relative;'>";
+    h += "<div style='min-height:78px;padding:6px 7px;border-right:1px solid rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.04);background:" + cbg2 + ";box-shadow:inset 0 0 0 " + (esHoy2?'2':'1') + "px " + cbord2 + ";position:relative;cursor:pointer;' onclick='_progAbrirNotaDia(\"" + dStr2 + "\")'>";
 
     // Número + rel
     h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;'>";
@@ -5317,8 +5422,8 @@ function renderProgramacion() {
     if (rinf2) {
       h += "<div style='font-size:11px;font-weight:900;color:" + rinf2.c + ";'>" + rinf2.r + " " + rinf2.g + "</div>";
       if (res4 && res4.rival) h += "<div style='font-size:8px;color:rgba(255,255,255,.4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>vs " + (res4.rival||'').replace(/</g,'&lt;') + "</div>";
-    } else if (evs4.length) {
-      var ev0 = evs4[0];
+    } else if (evs4vis.length) {
+      var ev0 = evs4vis[0];
       var etq2 = tinf2 ? (tprin2==='partido'?'MD':tprin2.substring(0,3).toUpperCase()) : (ev0.tipo||'').toUpperCase().slice(0,3);
       h += "<div style='font-size:9px;font-weight:700;color:" + (tinf2?tinf2.txt:'#94a3b8') + ";'>" + etq2 + "</div>";
       if (ev0.titulo) {
@@ -5341,6 +5446,19 @@ function renderProgramacion() {
       var cC3 = cargaColor[(mc4.carga||'').toLowerCase()] || '#64748b';
       h += "<div style='position:absolute;bottom:4px;left:7px;font-size:7px;font-weight:800;color:" + cC3 + ";text-transform:uppercase;opacity:.8;'>" + mc4.carga + "</div>";
     }
+    // Nota staff del día
+    var _notaDia = null;
+    for (var _ni=0; _ni<safeArr(EVS).length; _ni++) {
+      if (EVS[_ni].tipo==='nota_staff' && EVS[_ni].fecha===dStr2) { _notaDia=EVS[_ni]; break; }
+    }
+    if (_notaDia) {
+      // Dot indicator top-right
+      h += "<div style='position:absolute;top:4px;right:5px;width:7px;height:7px;border-radius:50%;background:#a5b4fc;box-shadow:0 0 4px rgba(165,180,252,.6);' title='" + (_notaDia.titulo||'').replace(/'/g,'&#39;') + "'></div>";
+      // Show text only if no other content is filling the cell already
+      if (!rinf2 && !evs4vis.length && !mc4) {
+        h += "<div style='margin-top:3px;font-size:7px;color:#a5b4fc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3;'>" + (_notaDia.titulo||'').replace(/</g,'&lt;') + "</div>";
+      }
+    }
 
     h += "</div>";
   }
@@ -5354,18 +5472,339 @@ function renderProgramacion() {
   h += "</div>";
   h += "</div></div>"; // end card + padding
 
-  // ── NOTA DEL DÍA ──
+  // ── NOTA DEL DÍA (sincronizada a Firebase via EVS) ──
+  // Buscar nota del día en EVS
+  var notaEvHoy = null;
+  for (var ni=0; ni<safeArr(EVS).length; ni++) {
+    if (EVS[ni].tipo==='nota_staff' && EVS[ni].fecha===todayStr) { notaEvHoy = EVS[ni]; break; }
+  }
+  var notaValHoy = notaEvHoy ? (notaEvHoy.titulo||'') : notaGuard;
+
   h += "<div style='padding:0 28px 28px;'>";
-  h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px 18px;display:flex;align-items:center;gap:12px;'>";
-  h += "<span style='font-size:18px;'>📌</span><div style='flex:1;'>";
-  h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px;'>Nota del día para el staff &mdash; " + todayD + " de " + mesNombres[mm] + "</div>";
-  h += "<input type='text' id='_prog_nota_inp' value='" + notaGuard.replace(/'/g,'&#39;').replace(/</g,'&lt;') + "' placeholder='Avisos del día para el cuerpo técnico…' maxlength='150'";
-  h += " oninput=\"try{localStorage.setItem('" + notaKey + "',this.value);}catch(ex){}\"";
-  h += " style='width:100%;background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,.12);padding:5px 0;font-size:13px;font-weight:600;color:#cbd5e1;outline:none;'>";
+  h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px 18px;'>";
+  h += "<div style='display:flex;align-items:center;gap:10px;margin-bottom:8px;'>";
+  h += "<span style='font-size:16px;'>📌</span>";
+  h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.08em;'>Aviso del día para el staff &mdash; " + todayD + " de " + mesNombres[mm] + "</div>";
+  h += "<div style='margin-left:auto;font-size:9px;color:#22c55e;font-weight:700;'>🔄 Sincronizado</div>";
+  h += "</div>";
+  h += "<div style='display:flex;gap:8px;align-items:center;'>";
+  h += "<input type='text' id='_prog_nota_inp' value='" + notaValHoy.replace(/'/g,'&#39;').replace(/</g,'&lt;') + "' placeholder='Aviso para el cuerpo técnico hoy…' maxlength='120'";
+  h += " style='flex:1;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:8px 12px;font-size:13px;font-weight:600;color:#cbd5e1;outline:none;'>";
+  h += "<button onclick=\"(function(){ var v=document.getElementById('_prog_nota_inp').value.trim(); var idx=-1; for(var i=0;i<EVS.length;i++){if(EVS[i].tipo==='nota_staff'&&EVS[i].fecha==='" + todayStr + "'){idx=i;break;}} if(v){if(idx>=0){EVS[idx].titulo=v;}else{EVS.push({id:'ns_'+Date.now(),tipo:'nota_staff',fecha:'" + todayStr + "',titulo:v,autor:'staff'});} } else { if(idx>=0) EVS.splice(idx,1); } guardar(); renderProgramacion(); })()\"";
+  h += " style='background:rgba(99,102,241,.3);border:1px solid rgba(99,102,241,.5);border-radius:9px;padding:8px 16px;color:#a5b4fc;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>Publicar</button>";
   h += "</div></div></div>";
 
   el.innerHTML = h;
 }
+
+// ================================================
+// EVENTO RÁPIDO CALENDARIO — mini modal staff
+// ================================================
+function _progExportarMes(vYY, vMM) {
+  var mesNombres = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var diasSem    = ['LUN','MAR','MIÉ','JUE','VIE','SÁB','DOM'];
+  var now = new Date();
+  var todayD = now.getDate(), todayM = now.getMonth(), todayY = now.getFullYear();
+  var todayStr = todayY+'-'+(todayM<9?'0':'')+(todayM+1)+'-'+(todayD<10?'0':'')+todayD;
+
+  function padZ(n){ return n<10?'0'+n:''+n; }
+
+  // Load data
+  var ipdbRaw=[]; try{ipdbRaw=JSON.parse(localStorage.getItem('BFC_IP_DB')||'[]')||[];}catch(e){}
+  var mcHistRaw=[]; try{mcHistRaw=JSON.parse(localStorage.getItem('bfc_mc_hist')||'[]')||[];}catch(e){}
+  var SES_DB_RAW=[]; try{SES_DB_RAW=JSON.parse(localStorage.getItem('bfc_ses_hist')||'[]')||[];}catch(e){}
+
+  function getDayInfo(dStr) {
+    var mc=null, ses=null, evs=[], res=null, nota=null;
+    for(var mi=0;mi<mcHistRaw.length;mi++){
+      var e=mcHistRaw[mi]; if(!e.data) continue;
+      for(var di=0;di<e.data.length;di++){ if(e.data[di].fecha===dStr){mc=e.data[di];break;} }
+      if(mc) break;
+    }
+    for(var si=0;si<SES_DB_RAW.length;si++){ if((SES_DB_RAW[si].fecha||SES_DB_RAW[si].fechaSes)===dStr){ses=SES_DB_RAW[si];break;} }
+    safeArr(EVS).forEach(function(ev){ if(ev.fecha===dStr){ if(ev.tipo==='nota_staff') nota=ev; else evs.push(ev); } });
+    for(var ri=0;ri<ipdbRaw.length;ri++){ if(ipdbRaw[ri].fecha===dStr){res=ipdbRaw[ri];break;} }
+    return {mc:mc,ses:ses,evs:evs,res:res,nota:nota};
+  }
+
+  var cargaColor = {'alta':'#ef4444','media':'#eab308','baja':'#22c55e','muy alta':'#dc2626','baja-media':'#84cc16','media-alta':'#f97316','descanso':'#94a3b8','partido':'#3b82f6'};
+  var TC = {
+    'partido':       {bg:'#1e3a5f',bord:'#3b82f6',txt:'#93c5fd',lbl:'MD'},
+    'entrenamiento': {bg:'#0f2d22',bord:'#16a34a',txt:'#6ee7b7',lbl:'ENT'},
+    'recuperacion':  {bg:'#2d2010',bord:'#ca8a04',txt:'#fde68a',lbl:'REC'},
+    'descanso':      {bg:'#1a1f2e',bord:'#475569',txt:'#94a3b8',lbl:'DESC'},
+    'viaje':         {bg:'#1f1030',bord:'#9333ea',txt:'#d8b4fe',lbl:'VIAJE'}
+  };
+
+  var primerDia = new Date(vYY,vMM,1).getDay();
+  var primerLun = (primerDia+6)%7;
+  var diasMes   = new Date(vYY,vMM+1,0).getDate();
+
+  // Build nota mes key
+  var notaMesKey = 'BFC_NOTA_MES_'+vYY+'_'+vMM;
+  var notaMes = ''; try{notaMes=localStorage.getItem(notaMesKey)||'';}catch(e){}
+
+  // Build calendar HTML for export
+  var cal = '';
+  // Header días
+  cal += "<div style='display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:3px;'>";
+  var colores = ['#64748b','#64748b','#64748b','#64748b','#64748b','#94a3b8','#94a3b8'];
+  for(var dh=0;dh<7;dh++){
+    cal += "<div style='text-align:center;padding:5px 2px;font-size:9px;font-weight:800;letter-spacing:.08em;color:"+colores[dh]+";text-transform:uppercase;border-bottom:2px solid #1e293b;'>"+diasSem[dh]+"</div>";
+  }
+  cal += "</div>";
+  // Grid días
+  cal += "<div style='display:grid;grid-template-columns:repeat(7,1fr);gap:3px;'>";
+  for(var vb=0;vb<primerLun;vb++){
+    cal += "<div style='min-height:72px;background:#0a0f1a;border-radius:6px;'></div>";
+  }
+  for(var dia=1;dia<=diasMes;dia++){
+    var dStr = vYY+'-'+padZ(vMM+1)+'-'+padZ(dia);
+    var info = getDayInfo(dStr);
+    var mc=info.mc, ses=info.ses, evs=info.evs, res=info.res, nota=info.nota;
+    var esHoy = (vYY===todayY && vMM===todayM && dia===todayD);
+    var colI = (primerLun+dia-1)%7;
+    var esFin = colI>=5;
+
+    // Determine type/bg
+    var tpInfo = null;
+    if(evs.length) tpInfo = TC[(evs[0].tipo||'').toLowerCase()]||null;
+    else if(mc) tpInfo = TC[(mc.tipo||'').toLowerCase()]||null;
+
+    // Result
+    var rinf=null;
+    if(res && res.golesF!==undefined){
+      var gf=+(res.golesF||0),gc=+(res.golesC||0);
+      if(gf>gc) rinf={c:'#22c55e',bg:'#0a2e18',bd:'#166534',r:'V',g:gf+'-'+gc};
+      else if(gf<gc) rinf={c:'#ef4444',bg:'#2d0f0f',bd:'#991b1b',r:'D',g:gf+'-'+gc};
+      else rinf={c:'#eab308',bg:'#2d2210',bd:'#854d0e',r:'E',g:gf+'-'+gc};
+    }
+
+    var bg = esHoy ? '#1e1b4b' : (rinf ? rinf.bg : (tpInfo ? tpInfo.bg : (esFin ? '#0d1117' : '#0d1117')));
+    var border = esHoy ? '2px solid #6366f1' : (rinf ? '1px solid '+rinf.bd : (tpInfo ? '1px solid '+tpInfo.bord : '1px solid #1e293b'));
+
+    cal += "<div style='min-height:72px;background:"+bg+";border:"+border+";border-radius:6px;padding:5px 6px;position:relative;overflow:hidden;'>";
+    // Day number
+    var numCol = esHoy ? '#a5b4fc' : (esFin ? '#94a3b8' : '#e2e8f0');
+    cal += "<div style='font-size:"+(esHoy?'13':'11')+"px;font-weight:"+(esHoy?'900':'700')+";color:"+numCol+";margin-bottom:2px;'>"+(esHoy?'●':'')+dia+"</div>";
+
+    // Content
+    if(rinf){
+      cal += "<div style='font-size:12px;font-weight:900;color:"+rinf.c+";'>"+rinf.r+" "+rinf.g+"</div>";
+      if(res.rival) cal += "<div style='font-size:7px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>vs "+res.rival.replace(/</g,'&lt;')+"</div>";
+    } else if(evs.length){
+      var ev0=evs[0];
+      var tp0=(ev0.tipo||'').toLowerCase();
+      var tinf0=TC[tp0]||null;
+      cal += "<div style='font-size:9px;font-weight:800;color:"+(tinf0?tinf0.txt:'#94a3b8')+";"+"'>"+(tp0==='partido'?'MD':tp0.substring(0,3).toUpperCase())+"</div>";
+      if(ev0.titulo){
+        var r0=(ev0.titulo||'').replace(/^BFC\s*vs\s*/i,'').replace(/^Barranquilla\s*FC\s*vs\s*/i,'').trim();
+        cal += "<div style='font-size:7px;color:rgba(255,255,255,.5);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>"+(r0||ev0.titulo).replace(/</g,'&lt;')+"</div>";
+      }
+    } else if(mc && mc.tipo && mc.tipo!=='descanso'){
+      var tinf2=TC[mc.tipo]||null;
+      cal += "<div style='font-size:9px;font-weight:800;color:"+(tinf2?tinf2.txt:'#94a3b8')+";"+"'>"+(tinf2?tinf2.lbl:(mc.tipo||'').toUpperCase().slice(0,3))+"</div>";
+      if(mc.carga){
+        var cC=cargaColor[(mc.carga||'').toLowerCase()]||'#64748b';
+        cal += "<div style='font-size:7px;font-weight:800;color:"+cC+";text-transform:uppercase;'>"+mc.carga+"</div>";
+      }
+    } else if(mc && mc.tipo==='descanso'){
+      cal += "<div style='font-size:8px;color:#334155;font-weight:700;'>DESC</div>";
+    }
+
+    // CDEF
+    if(ses && ses.cdefSel){
+      var cdefMap={C:['C','d','e','f'],D:['c','D','e','f'],E:['c','d','E','f'],F:['c','d','e','F'],cdef:['c','d','e','f']};
+      var cdefCols={C:'#93c5fd',D:'#c4b5fd',E:'#6ee7b7',F:'#fda4af'};
+      var letters=cdefMap[ses.cdefSel]||['c','d','e','f'];
+      var keys=['C','D','E','F'];
+      var cdefOut='';
+      for(var ci=0;ci<4;ci++){
+        var upper=letters[ci]===keys[ci];
+        cdefOut+="<span style='font-size:"+(upper?'10':'8')+"px;font-weight:"+(upper?'900':'600')+";color:"+(upper?cdefCols[keys[ci]]:'#334155')+";margin-right:1px;'>"+letters[ci]+"</span>";
+      }
+      cal += "<div style='margin-top:2px;'>"+cdefOut+"</div>";
+    }
+
+    // Nota staff dot
+    if(nota){
+      cal += "<div style='position:absolute;top:4px;right:4px;width:6px;height:6px;border-radius:50%;background:#818cf8;' title='"+nota.titulo.replace(/'/g,'&#39;')+"'></div>";
+    }
+
+    cal += "</div>"; // end day cell
+  }
+  // Fill empty end
+  var tot = primerLun+diasMes;
+  var vf = (7-(tot%7))%7;
+  for(var ve=0;ve<vf;ve++){
+    cal += "<div style='min-height:72px;background:#0a0f1a;border-radius:6px;'></div>";
+  }
+  cal += "</div>";
+
+  // ── Build modal ──
+  var oldM = document.getElementById('_prog_export_modal');
+  if(oldM) oldM.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = '_prog_export_modal';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.8);z-index:9998;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);overflow-y:auto;padding:20px;box-sizing:border-box;';
+  overlay.onclick = function(e){ if(e.target===overlay) overlay.remove(); };
+
+  var box = document.createElement('div');
+  box.id = '_prog_export_box';
+  box.style.cssText = 'background:#0d1117;border:1px solid rgba(255,255,255,.1);border-radius:24px;width:min(760px,100%);box-shadow:0 32px 80px rgba(0,0,0,.8);overflow:hidden;';
+
+  // Top bar (outside print area)
+  var topBar = document.createElement('div');
+  topBar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid rgba(255,255,255,.07);background:#090d13;';
+  topBar.innerHTML = "<span style='font-size:13px;font-weight:800;color:#94a3b8;'>Vista previa de exportación</span>"
+    + "<div style='display:flex;gap:8px;'>"
+    + "<button id='_pexp_pdf' style='background:rgba(99,102,241,.3);border:1px solid rgba(99,102,241,.5);border-radius:9px;padding:8px 18px;color:#a5b4fc;font-size:12px;font-weight:800;cursor:pointer;'>⬇ Exportar PDF</button>"
+    + "<button onclick='document.getElementById(\"_prog_export_modal\").remove()' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:8px 14px;color:#64748b;font-size:12px;font-weight:700;cursor:pointer;'>✕ Cerrar</button>"
+    + "</div>";
+  box.appendChild(topBar);
+
+  // Print area
+  var printArea = document.createElement('div');
+  printArea.id = '_prog_print_area';
+  printArea.style.cssText = 'padding:28px 28px 24px;';
+  printArea.innerHTML =
+    // Header BFC
+    "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid #1e293b;'>"
+    + "<div>"
+    + "<div style='font-size:11px;font-weight:800;color:#6366f1;text-transform:uppercase;letter-spacing:.15em;margin-bottom:2px;'>Barranquilla Fútbol Club</div>"
+    + "<div style='font-size:28px;font-weight:900;color:#f1f5f9;letter-spacing:-.5px;line-height:1;'>"+mesNombres[vMM]+" "+vYY+"</div>"
+    + "<div style='font-size:11px;color:#475569;font-weight:600;margin-top:4px;'>Programación mensual · Staff técnico</div>"
+    + "</div>"
+    + "<div style='text-align:right;'>"
+    + "<div style='font-size:9px;color:#334155;font-weight:700;'>BFC Performance System</div>"
+    + "<div style='font-size:9px;color:#1e293b;font-weight:600;margin-top:2px;'>Generado: "+todayD+"/"+padZ(todayM+1)+"/"+todayY+"</div>"
+    + "</div>"
+    + "</div>"
+    // Calendar
+    + "<div style='margin-bottom:20px;'>" + cal + "</div>"
+    // Legend
+    + "<div style='display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px;padding-top:12px;border-top:1px solid #1e293b;'>"
+    + "<div style='display:flex;align-items:center;gap:5px;'><div style='width:10px;height:10px;border-radius:2px;background:#0f2d22;border:1px solid #16a34a;'></div><span style='font-size:9px;color:#64748b;font-weight:700;'>Entrenamiento</span></div>"
+    + "<div style='display:flex;align-items:center;gap:5px;'><div style='width:10px;height:10px;border-radius:2px;background:#1e3a5f;border:1px solid #3b82f6;'></div><span style='font-size:9px;color:#64748b;font-weight:700;'>Partido (MD)</span></div>"
+    + "<div style='display:flex;align-items:center;gap:5px;'><div style='width:10px;height:10px;border-radius:2px;background:#0a2e18;border:1px solid #166534;'></div><span style='font-size:9px;color:#64748b;font-weight:700;'>Victoria (V)</span></div>"
+    + "<div style='display:flex;align-items:center;gap:5px;'><div style='width:10px;height:10px;border-radius:2px;background:#2d2210;border:1px solid #854d0e;'></div><span style='font-size:9px;color:#64748b;font-weight:700;'>Empate (E)</span></div>"
+    + "<div style='display:flex;align-items:center;gap:5px;'><div style='width:10px;height:10px;border-radius:2px;background:#2d0f0f;border:1px solid #991b1b;'></div><span style='font-size:9px;color:#64748b;font-weight:700;'>Derrota (D)</span></div>"
+    + "<div style='display:flex;align-items:center;gap:5px;'><div style='width:10px;height:10px;border-radius:2px;background:#2d2010;border:1px solid #ca8a04;'></div><span style='font-size:9px;color:#64748b;font-weight:700;'>Recuperación</span></div>"
+    + "<div style='display:flex;align-items:center;gap:5px;'><div style='width:7px;height:7px;border-radius:50%;background:#818cf8;'></div><span style='font-size:9px;color:#64748b;font-weight:700;'>Nota staff</span></div>"
+    + "</div>"
+    // Nota del mes
+    + "<div style='background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:12px;padding:14px 16px;'>"
+    + "<div style='font-size:9px;font-weight:800;color:#6366f1;text-transform:uppercase;letter-spacing:.10em;margin-bottom:8px;'>Nota del mes</div>"
+    + "<textarea id='_pexp_nota' rows='2' placeholder='Agrega una nota o énfasis para este mes…' style='width:100%;box-sizing:border-box;background:transparent;border:none;resize:none;font-size:13px;font-weight:600;color:#cbd5e1;outline:none;line-height:1.5;'>"+(notaMes.replace(/</g,'&lt;'))+"</textarea>"
+    + "</div>";
+
+  box.appendChild(printArea);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  // PDF export via print dialog
+  document.getElementById('_pexp_pdf').onclick = function(){
+    var nota = document.getElementById('_pexp_nota').value;
+    try{ localStorage.setItem(notaMesKey, nota); }catch(e){}
+    var printWin = window.open('', '_blank', 'width=820,height=1100');
+    var pa = document.getElementById('_prog_print_area');
+    // Update textarea value in HTML
+    var htmlCopy = pa.innerHTML.replace(/<\/textarea>/,'</textarea>');
+    printWin.document.write(
+      '<!DOCTYPE html><html><head><meta charset="utf-8"><title>BFC - '+mesNombres[vMM]+' '+vYY+'</title>'
+      +'<style>*{box-sizing:border-box;margin:0;padding:0;} body{background:#0d1117;color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:28px;} @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}</style>'
+      +'</head><body>'
+      + pa.innerHTML
+      +'</body></html>'
+    );
+    printWin.document.close();
+    setTimeout(function(){ printWin.print(); }, 600);
+  };
+}
+
+function _progAbrirNotaDia(fechaStr) {
+  var mesNombres = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var parts = fechaStr.split('-');
+  var labelFecha = parts.length===3 ? (parseInt(parts[2])+' de '+mesNombres[parseInt(parts[1])-1]+' '+parts[0]) : fechaStr;
+
+  var existIdx = -1, existVal = '';
+  for (var i=0; i<EVS.length; i++) {
+    if (EVS[i].tipo==='nota_staff' && EVS[i].fecha===fechaStr) { existIdx=i; existVal=EVS[i].titulo||''; break; }
+  }
+
+  var oldM = document.getElementById('_prog_modal_ev');
+  if (oldM) oldM.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = '_prog_modal_ev';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);';
+  overlay.onclick = function(e){ if(e.target===overlay) overlay.remove(); };
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:24px 28px;width:min(420px,90vw);box-shadow:0 24px 64px rgba(0,0,0,.7);';
+
+  var lbl = document.createElement('div');
+  lbl.style.cssText = 'font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;margin-bottom:4px;';
+  lbl.textContent = 'Evento rápido';
+  box.appendChild(lbl);
+
+  var title = document.createElement('div');
+  title.style.cssText = 'font-size:17px;font-weight:900;color:#f1f5f9;margin-bottom:16px;';
+  title.textContent = labelFecha;
+  box.appendChild(title);
+
+  var inp = document.createElement('input');
+  inp.id = '_pmod_inp';
+  inp.type = 'text';
+  inp.value = existVal;
+  inp.placeholder = 'Ej: Sesión de fotos, Reunión staff, Visita médica…';
+  inp.maxLength = 100;
+  inp.style.cssText = 'width:100%;box-sizing:border-box;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:11px 14px;font-size:14px;font-weight:600;color:#cbd5e1;outline:none;margin-bottom:16px;';
+  inp.addEventListener('keydown', function(e){ if(e.key==='Enter') btnOk.click(); });
+  box.appendChild(inp);
+
+  var btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+
+  if (existIdx >= 0) {
+    var btnDel = document.createElement('button');
+    btnDel.textContent = 'Eliminar';
+    btnDel.style.cssText = 'background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);border-radius:9px;padding:9px 16px;color:#fca5a5;font-size:11px;font-weight:800;cursor:pointer;';
+    btnDel.onclick = function(){
+      EVS.splice(existIdx, 1);
+      guardar(); renderProgramacion(); overlay.remove();
+    };
+    btns.appendChild(btnDel);
+  }
+
+  var btnCan = document.createElement('button');
+  btnCan.textContent = 'Cancelar';
+  btnCan.style.cssText = 'background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:9px 16px;color:#94a3b8;font-size:11px;font-weight:800;cursor:pointer;';
+  btnCan.onclick = function(){ overlay.remove(); };
+  btns.appendChild(btnCan);
+
+  var btnOk = document.createElement('button');
+  btnOk.id = '_pmod_ok';
+  btnOk.textContent = 'Guardar';
+  btnOk.style.cssText = 'background:rgba(99,102,241,.35);border:1px solid rgba(99,102,241,.55);border-radius:9px;padding:9px 18px;color:#a5b4fc;font-size:11px;font-weight:800;cursor:pointer;';
+  btnOk.onclick = function(){
+    var v = inp.value.trim();
+    if (!v) { overlay.remove(); return; }
+    if (existIdx >= 0) {
+      EVS[existIdx].titulo = v;
+    } else {
+      EVS.push({ id: 'ns_' + Date.now(), tipo: 'nota_staff', fecha: fechaStr, titulo: v, autor: 'staff' });
+    }
+    guardar(); renderProgramacion(); overlay.remove();
+  };
+  btns.appendChild(btnOk);
+  box.appendChild(btns);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  setTimeout(function(){ inp.focus(); }, 80);
+}
+
 
 // ================================================
 // CALENDARIO MENSUAL BFC — devuelve HTML string
