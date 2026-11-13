@@ -994,6 +994,67 @@ var _plantillaDisp = {};
 var _plantillaManual = []; // jugadores manuales (sub-20, a prueba)
 try{ var _pmRaw=localStorage.getItem('BFC_MANUAL_JUG'); if(_pmRaw) _plantillaManual=JSON.parse(_pmRaw)||[]; }catch(e){}
 var _plantillaFiltro = 'todos'; // 'todos'|'ok'|'warn'|'danger'
+var _canchaLabel = 'apellido'; // 'apellido'|'nombre' — qué se muestra en los tokens de cancha
+try{ var _clRaw=localStorage.getItem('BFC_CANCHA_LABEL'); if(_clRaw==='nombre'||_clRaw==='apellido') _canchaLabel=_clRaw; }catch(e){}
+// Posiciones manuales de fichas en cancha {jugadorId: {x:%, y:%}}
+var _canchaPos = {};
+try{ var _cpRaw=localStorage.getItem('BFC_CANCHA_POS'); if(_cpRaw) _canchaPos=JSON.parse(_cpRaw)||{}; }catch(e){}
+function _canchaSavePos(jid, x, y){
+  _canchaPos[jid] = {x: Math.round(x*100)/100, y: Math.round(y*100)/100};
+  try{ localStorage.setItem('BFC_CANCHA_POS', JSON.stringify(_canchaPos)); }catch(e){}
+}
+function canchaResetPos(){
+  _canchaPos = {};
+  try{ localStorage.removeItem('BFC_CANCHA_POS'); }catch(e){}
+  renderPlantilla();
+}
+// ── Drag & drop de fichas en cancha ────────────────────────────────────────
+var _dd = {el:null, offX:0, offY:0, moved:false};
+function _canchaDragStart(e, el){
+  if(e.button !== 0) return;
+  _dd.el = el; _dd.moved = false;
+  el.style.cursor = 'grabbing'; el.style.zIndex = 99;
+  var field = document.getElementById('_canchaField');
+  if(!field) return;
+  var fr = field.getBoundingClientRect();
+  _dd.offX = e.clientX - (fr.left + (parseFloat(el.style.left)/100) * fr.width);
+  _dd.offY = e.clientY - (fr.top  + (parseFloat(el.style.top) /100) * fr.height);
+  e.preventDefault();
+}
+document.addEventListener('mousemove', function(e){
+  if(!_dd.el) return;
+  _dd.moved = true;
+  var field = document.getElementById('_canchaField');
+  if(!field) return;
+  var fr = field.getBoundingClientRect();
+  var nx = ((e.clientX - _dd.offX - fr.left) / fr.width)  * 100;
+  var ny = ((e.clientY - _dd.offY - fr.top)  / fr.height) * 100;
+  nx = Math.max(2, Math.min(98, nx));
+  ny = Math.max(2, Math.min(98, ny));
+  _dd.el.style.left = nx + '%';
+  _dd.el.style.top  = ny + '%';
+});
+document.addEventListener('mouseup', function(e){
+  if(!_dd.el) return;
+  if(_dd.moved){
+    var jid = _dd.el.getAttribute('data-jid');
+    var nx = parseFloat(_dd.el.style.left);
+    var ny = parseFloat(_dd.el.style.top);
+    if(jid) _canchaSavePos(jid, nx, ny);
+    _dd.el.style.cursor = 'grab'; _dd.el.style.zIndex = 2;
+  } else {
+    var fn = _dd.el.getAttribute('data-clickfn');
+    _dd.el.style.cursor = 'grab'; _dd.el.style.zIndex = 2;
+    if(fn){ try{ eval(fn); }catch(ex){} }
+  }
+  _dd.el = null;
+});
+// ── Fin drag & drop ────────────────────────────────────────────────────────
+function canchaToggleLabel(){
+  _canchaLabel = (_canchaLabel==='apellido') ? 'nombre' : 'apellido';
+  try{ localStorage.setItem('BFC_CANCHA_LABEL', _canchaLabel); }catch(e){}
+  renderPlantilla();
+}
 try{
   var _pdRaw=localStorage.getItem('BFC_PLANTILLA_DISP');
   if(_pdRaw){
@@ -1107,7 +1168,7 @@ function plantillaLinea(pos){
     'extremo izquierdo':'EI','ext. izquierdo':'EI','extremo izq.':'EI',
     'delantero centro':'DC','delantero':'DC','punta':'DC','9':'DC',
     'defensa central':'CD','defensa':'CD',
-    'lateral':'LD','extremo':'ED','medio centro':'MCD','volante interior':'VD',
+    'lateral':'LD','extremo':'EI','medio centro':'MCD','volante interior':'VD',
     'portero/a':'POR'
   };
   var p = (pos||'').toString().toLowerCase().trim();
@@ -1260,13 +1321,16 @@ function renderPlantilla(){
     h += "<button onclick=\"plantillaSetFiltro(\'"+f[0]+"\');\" style=\"padding:4px 10px;border-radius:99px;font-size:10px;font-weight:700;cursor:pointer;border:1.5px solid "+(act?f[2]:'rgba(255,255,255,.12)')+";background:"+(act?f[2]+'22':'transparent')+";color:"+(act?f[2]:'#64748b')+";\">" + f[1] + "</button>";
   });
   h += "<button onclick=\"plantillaAgregarManual();\" style=\"padding:4px 11px;border-radius:99px;font-size:10px;font-weight:700;cursor:pointer;border:1.5px solid rgba(99,102,241,.5);background:rgba(99,102,241,.15);color:#a5b4fc;margin-left:4px;\">＋ Agregar</button>";
+  h += "<button onclick=\"canchaToggleLabel();\" title='Cambiar entre mostrar nombre o apellido en cancha' style=\"padding:4px 11px;border-radius:99px;font-size:10px;font-weight:700;cursor:pointer;border:1.5px solid rgba(6,182,212,.5);background:rgba(6,182,212,.12);color:#67e8f9;margin-left:4px;\">🏷 "+(_canchaLabel==='apellido'?'Apellido':'Nombre')+"</button>";
+  var _hayPosMan = Object.keys(_canchaPos).length > 0;
+  h += "<button onclick=\"canchaResetPos();\" title='Restablecer posiciones automáticas' style=\"padding:4px 11px;border-radius:99px;font-size:10px;font-weight:700;cursor:pointer;border:1.5px solid rgba(251,146,60,.5);background:rgba(251,146,60,.12);color:#fdba74;margin-left:4px;"+ (_hayPosMan ? '' : 'opacity:.4;') +"\">↺ Reset</button>";
   h += "</div></div>";
 
   // ── Cuerpo: 2 columnas ──
   h += "<div style='display:flex;align-items:stretch;min-height:640px;'>";
 
   // ── Columna izquierda: CAMPO ──
-  h += "<div style='flex:0 0 55%;position:relative;background:linear-gradient(180deg,#14532d 0%,#166534 50%,#14532d 100%);overflow:hidden;'>";
+  h += "<div id='_canchaField' style='flex:0 0 55%;position:relative;background:linear-gradient(180deg,#14532d 0%,#166534 50%,#14532d 100%);overflow:hidden;'>";
 
   // SVG líneas del campo
   h += "<svg style='position:absolute;inset:0;width:100%;height:100%;' viewBox='0 0 660 560' preserveAspectRatio='none'>";
@@ -1284,26 +1348,81 @@ function renderPlantilla(){
   h += "<line x1='440' y1='10' x2='440' y2='550' stroke='rgba(255,255,255,.03)' stroke-width='1' stroke-dasharray='4,8'/>";
   h += "</svg>";
 
-  // Coordenadas X/Y basadas en referencia táctica real
+  // ── ZONAS TÁCTICAS ─────────────────────────────────────────────────────────
   // Y: 0=arriba(ataque) → 100=abajo(portería) | X: 0=izq → 100=der
-  //
-  //  16% ── DC · ED · EI          (línea de ataque)
-  //  32% ── MCO                   (enganche / mediapunta)
-  //  42% ── VD · VI               (interiores)
-  //  50% ── MCD                   (volante defensivo / pivote)
-  //  62% ── LD · LI               (laterales — más amplios)
-  //  70% ── CD · CI               (centrales)
-  //  87% ── POR                   (portero)
-  var _POS_XY = {
-    'DC':  {x:50, y:17},  'ED': {x:82, y:17},  'EI': {x:18, y:17},
-    'MCO': {x:50, y:32},
-    'VD':  {x:72, y:42},  'VI': {x:28, y:42},
-    'MCD': {x:50, y:51},
-    'LD':  {x:87, y:62},  'LI': {x:13, y:62},
-    'CD':  {x:65, y:71},  'CI': {x:35, y:71},
-    'POR': {x:50, y:87},
-    'OTRO':{x:50, y:50}
+  // Cada zona es amplia para acomodar hasta 4 jugadores sin solapamiento.
+  // Laterales (LI/LD/EI/ED): zonas verticalmente largas → stack vertical.
+  // Centrales (DC/CI/CD/MCO/MCD): zonas horizontalmente anchas → spread horizontal.
+  var _ZONA = {
+    'EI':  {xMin:2,  xMax:28, yMin:4,  yMax:30, maxCols:1},  // extremo izq: columna vertical
+    'DC':  {xMin:28, xMax:72, yMin:4,  yMax:28, maxCols:4},  // delantero centro
+    'ED':  {xMin:72, xMax:98, yMin:4,  yMax:30, maxCols:1},  // extremo der: columna vertical
+    'MCO': {xMin:20, xMax:80, yMin:28, yMax:42, maxCols:4},  // mediapunta
+    'VI':  {xMin:2,  xMax:30, yMin:32, yMax:62, maxCols:1},  // volante izq: columna vertical
+    'VD':  {xMin:70, xMax:98, yMin:32, yMax:62, maxCols:1},  // volante der: columna vertical
+    'MCD': {xMin:20, xMax:80, yMin:44, yMax:62, maxCols:4},  // mediocampista def
+    'LI':  {xMin:2,  xMax:28, yMin:52, yMax:84, maxCols:1},  // lateral izq: columna vertical
+    'LD':  {xMin:72, xMax:98, yMin:52, yMax:84, maxCols:1},  // lateral der: columna vertical
+    'CI':  {xMin:14, xMax:50, yMin:62, yMax:86, maxCols:2},  // central izq
+    'CD':  {xMin:50, xMax:86, yMin:62, yMax:86, maxCols:2},  // central der
+    'POR': {xMin:25, xMax:75, yMin:84, yMax:97, maxCols:4},  // portero
+    'OTRO':{xMin:20, xMax:80, yMin:42, yMax:62, maxCols:4}
   };
+
+  // Patrones de posición absolutos para 1-4 jugadores dentro de zona normalizada [0,1]
+  // Garantizan separación visual mínima independientemente del tamaño de zona
+  var _PATRONES = {
+    1: [[0.5, 0.5]],
+    2: [[0.5, 0.28], [0.5, 0.72]],                           // 2: arriba/abajo centrados
+    3: [[0.5, 0.18], [0.5, 0.52], [0.5, 0.86]],             // 3: columna vertical
+    4: [[0.5, 0.14], [0.5, 0.42], [0.5, 0.68], [0.5, 0.90]] // 4: columna vertical
+  };
+  // Para zonas anchas (maxCols > 1) usamos patrones horizontales
+  var _PATRONES_H = {
+    1: [[0.5,  0.5]],
+    2: [[0.28, 0.5],  [0.72, 0.5]],
+    3: [[0.2,  0.5],  [0.5,  0.5],  [0.8,  0.5]],
+    4: [[0.14, 0.5],  [0.38, 0.5],  [0.62, 0.5], [0.86, 0.5]]
+  };
+  // Patrones en 2 filas para zonas amplias con 3-4 jugadores
+  var _PATRONES_2F = {
+    3: [[0.28, 0.3],  [0.72, 0.3],  [0.5,  0.72]],
+    4: [[0.22, 0.28], [0.78, 0.28], [0.22, 0.72], [0.78, 0.72]]
+  };
+
+  function _distZona(zona, n, i){
+    var zW = zona.xMax - zona.xMin;
+    var zH = zona.yMax - zona.yMin;
+    var mc = zona.maxCols || 2;
+    var pat;
+    if(mc === 1){
+      // Zona lateral/extremo: siempre columna vertical
+      pat = _PATRONES[Math.min(n,4)];
+    } else if(n <= 2){
+      // 1-2 jugadores en zona ancha: horizontal
+      pat = _PATRONES_H[n];
+    } else if(n === 3 && zW >= 40 && zH >= 20){
+      // 3 jugadores con espacio: triángulo (2 arriba + 1 abajo)
+      pat = _PATRONES_2F[3];
+    } else if(n === 4 && zW >= 40 && zH >= 20){
+      // 4 jugadores con espacio: cuadrado 2x2
+      pat = _PATRONES_2F[4];
+    } else if(n <= 4 && mc <= 2){
+      // Zona semi-estrecha: columna vertical
+      pat = _PATRONES[Math.min(n,4)];
+    } else {
+      // Zona amplia, muchos jugadores: horizontal
+      pat = _PATRONES_H[Math.min(n,4)];
+    }
+    var idx = Math.min(i, pat.length - 1);
+    var px = pat[idx][0];
+    var py = pat[idx][1];
+    var padX = zW * 0.08;
+    var padY = zH * 0.08;
+    var xPct = zona.xMin + padX + px * (zW - padX * 2);
+    var yPct = zona.yMin + padY + py * (zH - padY * 2);
+    return {x: Math.max(3, Math.min(97, xPct)), y: Math.max(3, Math.min(97, yPct))};
+  }
 
   // Agrupar por línea
   var slotsByLinea = {};
@@ -1316,43 +1435,18 @@ function renderPlantilla(){
   Object.keys(slotsByLinea).forEach(function(lin){
     var jugsLin = slotsByLinea[lin];
     var n = jugsLin.length;
-    var base = _POS_XY[lin]||_POS_XY['OTRO'];
+    var zona = _ZONA[lin] || _ZONA['OTRO'];
 
     jugsLin.forEach(function(j, i){
-      var xPct, yPct;
-      // Separaciones amplias — campo usa todo su espacio
-      var YSEP = 12;  // separación vertical entre filas
-      var XSEP = 10;  // separación horizontal entre columnas
-      var carrilesFixed = ['ED','EI','LD','LI'];
-      if(n === 1){
-        xPct = base.x;
-        yPct = base.y;
-      } else {
-        // Máximo 3 columnas para posiciones centrales, 2 para laterales
-        var maxCols = carrilesFixed.indexOf(lin) > -1 ? 2 : 3;
-        var cols2 = Math.min(n, maxCols);
-        var rows2 = Math.ceil(n / cols2);
-        var col2  = i % cols2;
-        var row2  = Math.floor(i / cols2);
-        var totalW = (cols2 - 1) * XSEP;
-        var totalH = (rows2 - 1) * YSEP;
-        // Para carriles laterales: empujar hacia el centro para no solapar
-        if(carrilesFixed.indexOf(lin) > -1){
-          if(lin==='LD' || lin==='ED'){
-            xPct = base.x - col2 * XSEP;
-          } else {
-            xPct = base.x + col2 * XSEP;
-          }
-          yPct = base.y - totalH / 2 + row2 * YSEP;
-        } else {
-          xPct = base.x - totalW / 2 + col2 * XSEP;
-          yPct = base.y - totalH / 2 + row2 * YSEP;
-        }
-      }
-      xPct = Math.max(6, Math.min(94, xPct));
-      yPct = Math.max(14, Math.min(93, yPct));
+      var posAuto = _distZona(zona, n, i);
+      // Si hay posición manual guardada, usarla; si no, usar automática
+      var manPos = _canchaPos[j.id];
+      var xPct = manPos ? manPos.x : posAuto.x;
+      var yPct = manPos ? manPos.y : posAuto.y;
 
-      var nombre = (j.nombre||j.name||'?').split(' ')[0];
+      var nombre = _canchaLabel==='apellido'
+        ? (((j.apellido||'').trim().split(' ')[0]) || (j.nombre||j.name||'?').split(' ')[0])
+        : ((j.nombre||j.name||'?').split(' ')[0]);
       var num = j.numero||j.dorsal||'';
       var anioNac = '';
       var fnRaw = j.fechaNac||j.fecha_nac||j.nacimiento||'';
@@ -1380,7 +1474,8 @@ function renderPlantilla(){
       var _LESION_L = {'rehabilitacion':'Rehab.','baja':'Baja','readaptacion':'Readapt.'};
       var _lesionLbl = _LESION_L[_dispKeyC] || '';
       var _lesionNts = _dispEstC && _dispEstC.notas ? _dispEstC.notas : '';
-      h += "<div onclick=\""+_clickFnC+";\" style=\"position:absolute;left:"+xPct+"%;top:"+yPct+"%;transform:translate(-50%,-50%);text-align:center;cursor:pointer;z-index:2;\">";
+      var _jidSafe = j.id.replace(/'/g,"\\'");
+      h += "<div data-jid=\""+j.id+"\" data-clickfn=\""+_clickFnC+"\" onmousedown=\"_canchaDragStart(event,this)\" style=\"position:absolute;left:"+xPct+"%;top:"+yPct+"%;transform:translate(-50%,-50%);text-align:center;cursor:grab;z-index:2;user-select:none;\">";
       if(j.foto){
         h += "<div style=\"position:relative;width:34px;margin:0 auto;\">";
         h += "<div style=\"width:34px;height:34px;border-radius:50%;overflow:hidden;border:2.5px solid "+dot+";box-shadow:0 0 9px "+dot+"88;"+(est==='lesion'?'opacity:.75;':'')+"margin:0 auto;\"><img src='"+j.foto+"' style=\"width:100%;height:100%;object-fit:cover;\"></div>";
@@ -1392,7 +1487,7 @@ function renderPlantilla(){
         if(est==='lesion') h += "<div style=\"position:absolute;top:-4px;right:-4px;width:14px;height:14px;border-radius:50%;background:#7c3aed;border:1.5px solid #0f172a;display:flex;align-items:center;justify-content:center;font-size:8px;\">🏥</div>";
         h += "</div>";
       }
-      h += "<div style=\"font-size:7.5px;font-weight:800;color:#fff;margin-top:2px;text-shadow:0 1px 4px rgba(0,0,0,.95);white-space:nowrap;line-height:1.1;\">"+escHtml(nombre)+(num?' #'+num:'')+"</div>";
+      h += "<div style=\"font-size:7.5px;font-weight:800;color:#fff;margin-top:2px;text-shadow:0 1px 4px rgba(0,0,0,.95);white-space:nowrap;line-height:1.1;max-width:58px;overflow:hidden;text-overflow:ellipsis;\">"+escHtml(nombre)+"</div>";
       if(anioNac) h += "<div style=\"font-size:6px;color:rgba(255,255,255,.45);line-height:1.1;text-shadow:0 1px 3px rgba(0,0,0,.9);\">"+anioNac+"</div>";
       if(j._esManual) h += "<div style=\"font-size:6px;color:#a5b4fc;background:rgba(99,102,241,.4);border-radius:4px;padding:0 3px;margin-top:1px;\">"+escHtml(j.tag||'Manual')+"</div>";
       // Badge médico visible en cancha para lesionados
@@ -1418,6 +1513,7 @@ function renderPlantilla(){
   }
   h += "</div>";
   h += "</div>"; // cierra columna campo
+
 
   // ── Columna derecha: PLANTILLA POR LÍNEAS (ultra-compacta, 33+ jugadores) ──
   h += "<div style='flex:1;border-left:1px solid rgba(255,255,255,.06);overflow-y:auto;max-height:640px;'>";
