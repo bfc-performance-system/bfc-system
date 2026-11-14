@@ -853,12 +853,16 @@ function fbEscuchar() {
       }
     }
     // cancha_pos — posiciones manuales de fichas en vista de cancha
-    if (d.cancha_pos) {
-      var _cpStr = JSON.stringify(d.cancha_pos);
+    // Merge: preservar posiciones locales, solo actualizar si el remoto tiene más o más reciente
+    if (d.cancha_pos && Object.keys(d.cancha_pos).length > 0) {
+      var _cpLocal = {}; try{ var _cpRaw2=localStorage.getItem('BFC_CANCHA_POS'); if(_cpRaw2) _cpLocal=JSON.parse(_cpRaw2)||{}; }catch(e){}
+      // Merge: empezar con local, sobrescribir solo las posiciones que el remoto tiene y local no tiene
+      var _cpMerged = Object.assign({}, d.cancha_pos, _cpLocal);
+      var _cpMergedStr = JSON.stringify(_cpMerged);
       var _localCpStr = ''; try{ _localCpStr = localStorage.getItem('BFC_CANCHA_POS')||''; }catch(e){}
-      if (_cpStr !== _localCpStr) {
-        _canchaPos = d.cancha_pos;
-        try{ localStorage.setItem('BFC_CANCHA_POS', _cpStr); }catch(e){}
+      if (_cpMergedStr !== _localCpStr) {
+        _canchaPos = _cpMerged;
+        try{ localStorage.setItem('BFC_CANCHA_POS', _cpMergedStr); }catch(e){}
         rerender = true;
       }
     }
@@ -908,6 +912,19 @@ function fbEscuchar() {
           setTimeout(function(){ try{ _fbRenders[_pgId](); }catch(e){} }, 150);
         }
       } catch(e) {}
+    }
+    // Al recibir datos de Firebase: si tenemos fotos locales que Firebase no tiene, subirlas
+    // Esto asegura que el dispositivo con fotos las comparte a los demás al abrir el sistema
+    if (!window._fbFotosSyncIniciado) {
+      window._fbFotosSyncIniciado = true;
+      setTimeout(function(){
+        var _jdbLocal = []; try{ var _r=localStorage.getItem('bfc_jdb'); if(_r) _jdbLocal=JSON.parse(_r)||[]; }catch(e){}
+        var _fotosLocales = _jdbLocal.filter(function(j){ return j.foto && j.foto.length > 0 && j.foto.length <= 55000; });
+        if (_fotosLocales.length > 0) {
+          // Tenemos fotos comprimidas localmente — subirlas a Firebase para que todos las vean
+          if(typeof fbGuardarFotos === 'function') fbGuardarFotos();
+        }
+      }, 3000); // Esperar 3s para que todo esté cargado antes de subir
     }
   }, function(err) {
     console.warn("[BFC Firebase] Error escuchando:", err.message);
@@ -1055,7 +1072,7 @@ function fbForzarSync() {
     manual_jug: safeArr(_plantillaManual),
     disp_ts: _forzarDispTs || _forzarTs,
     plantilla_disp_ts: _forzarPdTs || _forzarTs,
-    cancha_pos: _canchaPos || {},
+    cancha_pos: (Object.keys(_canchaPos||{}).length > 0) ? _canchaPos : undefined,
     ts: _forzarTs
   };
   toast('⏫ Subiendo todos los datos...');
@@ -12269,6 +12286,10 @@ function mcToggleGuia(){
 window.mcToggleGuia = mcToggleGuia;
 
 function mcGoTab(id){
+  // Guardar datos de la pestaña actual ANTES de cambiar, para no perder lo que el usuario escribió
+  if(mcCurTab === "datos")   mcSaveDatos();
+  else if(mcCurTab === "fisico")  mcSaveFisico();
+  else if(mcCurTab === "tactico") mcSaveTactico();
   mcCurTab = id;
   ["datos","fisico","tactico","preview"].forEach(function(t){
     var btn = document.getElementById("mct-"+t);
@@ -12639,7 +12660,23 @@ function mcLoadRivalLogo(inp){
 var BFC_MC_HIST_KEY = 'bfc_mc_hist';
 
 function mcHistLoad(){
-  try{ var r=localStorage.getItem(BFC_MC_HIST_KEY); return r?JSON.parse(r):[]; }catch(e){ return []; }
+  try{
+    var r=localStorage.getItem(BFC_MC_HIST_KEY);
+    var arr = r ? JSON.parse(r) : [];
+    // Deduplicar: si hay dos registros con el mismo numero+fechaInicio, conservar el más reciente
+    var _dedup = {};
+    arr.forEach(function(h){
+      var ukey = String(h.numero||'')+'_'+String((h.fechas||[])[0]||'');
+      if(!_dedup[ukey] || (h.savedAt||0) > (_dedup[ukey].savedAt||0)) _dedup[ukey] = h;
+    });
+    var _clean = Object.keys(_dedup).map(function(k){ return _dedup[k]; });
+    _clean.sort(function(a,b){ return (b.savedAt||0)-(a.savedAt||0); });
+    // Si se eliminaron duplicados, guardar la versión limpia
+    if(_clean.length !== arr.length){
+      try{ localStorage.setItem(BFC_MC_HIST_KEY, JSON.stringify(_clean)); }catch(e){}
+    }
+    return _clean;
+  }catch(e){ return []; }
 }
 
 function mcHistGuardar(record){
@@ -12660,8 +12697,9 @@ function mcHistGuardar(record){
       if(hUkey===ukey){ idx=j; break; }
     }
   }
-  // Generar _hkey: conservar el original si es edición, o crear uno nuevo
-  var key = editHkey || (String(record.numero||'')+'_'+String((record.fechas||[])[0]||'')+'_'+(record.savedAt||Date.now()));
+  // Generar _hkey: conservar el original si es edición, o derivar de numero+fechaInicio (estable, sin timestamp)
+  // IMPORTANTE: el _hkey debe ser estable para que el merge entre dispositivos identifique el mismo microciclo
+  var key = editHkey || (String(record.numero||'')+'_'+String((record.fechas||[])[0]||''));
   record._hkey = key;
   if(idx>=0){ hist[idx]=record; } else { hist.unshift(record); }
   // Limpiar el hkey de edición después de guardar
@@ -12790,7 +12828,7 @@ function mcGuardarAlSistema(){
     dias: MC_DIAS_ACTIVOS.slice(),
     dias_nombres: MC_DIAS_ACTIVOS.slice(),
     data: mcDataConFecha,
-    savedAt: new Date().toISOString()
+    savedAt: Date.now()
   };
   localStorage.setItem('bfc_mc_last', JSON.stringify(mcRecord));
   // También guardar en el historial (lista de microciclos)
