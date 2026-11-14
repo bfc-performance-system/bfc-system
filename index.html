@@ -3003,6 +3003,8 @@ function plantillaGuardarEdicion(jid){
     comprimirFotoParaFirebase(_fotoNueva, function(fotoComprimida) {
       console.log('[BFC-FOTO] Foto comprimida:', fotoComprimida.length, 'chars. Guardando en jugador idx:', idx);
       arr[idx].foto = fotoComprimida;
+      // Actualizar JDB en memoria AHORA con la foto, antes de cualquier guardado
+      if(!enManual && safeArr(JDB).length > 0) JDB = arr;
       try{ localStorage.setItem('bfc_jdb', JSON.stringify(arr)); }catch(e){} // guardar foto en localStorage inmediatamente
       _finalizarGuardadoEdicion();
       // Llamar fbGuardarFotos explícitamente para asegurar sync de fotos a Firebase
