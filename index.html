@@ -459,6 +459,7 @@ function fbInit() {
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     fbDB = firebase.database();
     fbEscuchar();
+    fbEscucharFotos();       // 📸 Listener dedicado bfc/fotos — sync fotos en tiempo real
     fbMonitorConexion();     // 🔌 Monitor de conexión en tiempo real
     fbPresenciaInit();       // 👥 Presencia multi-usuario
     fbBackupAutoInit();      // 💾 Backup automático periódico
@@ -945,6 +946,34 @@ function fbEscuchar() {
     var badge = document.getElementById('fb-sync-badge');
     if (badge) { badge.textContent = '🔴 Sin sync'; badge.style.color='#f87171'; }
   });
+}
+
+// ── Listener dedicado bfc/fotos — reacciona en tiempo real cuando cualquier dispositivo sube fotos ──
+function fbEscucharFotos() {
+  if (!fbDB) return;
+  fbDB.ref('bfc/fotos').on('value', function(snap) {
+    var fotosRemoto = snap.val();
+    if (!fotosRemoto || typeof fotosRemoto !== 'object') return;
+    var _localJDB = []; try{ var _r=localStorage.getItem('bfc_jdb'); if(_r) _localJDB=JSON.parse(_r)||[]; }catch(e){}
+    if (_localJDB.length === 0) return;
+    var _cambio = false;
+    _localJDB = _localJDB.map(function(j){
+      var fotoRemota = fotosRemoto[j.id];
+      if (fotoRemota && fotoRemota !== j.foto) {
+        console.log('[BFC-FOTO] fbEscucharFotos: foto recibida para jugador', j.id, j.nombre||'');
+        j.foto = fotoRemota;
+        _cambio = true;
+      }
+      return j;
+    });
+    if (_cambio) {
+      JDB = _localJDB;
+      try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){}
+      // Re-renderizar vistas que muestran fotos
+      if (typeof renderPlantilla === 'function') try{ renderPlantilla(); }catch(e){}
+      if (typeof renderPlantel === 'function') try{ renderPlantel(); }catch(e){}
+    }
+  }, function(err){ console.warn('[BFC-FOTO] Error listener fotos:', err.message); });
 }
 
 // ── Guardar disponibilidad médica de forma aislada (nunca pisada por fbGuardar general) ──
@@ -13207,11 +13236,11 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
   // CSS Grid — 1 label col + nCols day cols, TOTAL_ROWS rows
   // grid-template-columns: 110px repeat(nCols, 1fr)
   h += "<div style='overflow-x:auto;'>";
-  h += "<div style='display:grid;grid-template-columns:110px repeat("+nCols+",1fr);grid-template-rows:repeat("+TOTAL_ROWS+",auto);min-width:650px;'>";
+  h += "<div style='display:grid;grid-template-columns:160px repeat("+nCols+",1fr);grid-template-rows:repeat("+TOTAL_ROWS+",auto);min-width:750px;'>";
 
   // ── Row 1: header cells ──────────────────────────────────────────────────
   // Label header (row 1, col 1)
-  h += "<div style='grid-row:1;grid-column:1;padding:8px 10px;background:"+CREAM+";border-right:1px solid "+BORDER+";border-bottom:2px solid "+BORDER+";'>";
+  h += "<div style='grid-row:1;grid-column:1;padding:8px 10px;width:160px;background:"+CREAM+";border-right:1px solid "+BORDER+";border-bottom:2px solid "+BORDER+";'>";
   h += "<span style='font-size:9px;font-weight:800;color:rgba(255,255,255,.75);letter-spacing:.12em;text-transform:uppercase;'>DÍA</span></div>";
 
   // Day headers (row 1, cols 2…nCols+1)
@@ -13238,7 +13267,7 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
 
     // Label cell (col 1)
     var lblBB = isLastRow ? "" : "border-bottom:1px solid "+BORDER+";";
-    h += "<div style='grid-row:"+gridRow+";grid-column:1;padding:6px 10px;background:"+lblBg+";font-size:9px;font-weight:"+(isLugEntRow?"800":"700")+";color:"+lblCol+";text-transform:uppercase;letter-spacing:.06em;border-right:1px solid "+BORDER+";"+lblBB+"white-space:nowrap;display:flex;align-items:center;'>"+(isLugEntRow?"🏟 ":"")+lbl+"</div>";
+    h += "<div style='grid-row:"+gridRow+";grid-column:1;padding:6px 10px;width:160px;background:"+lblBg+";font-size:9px;font-weight:"+(isLugEntRow?"800":"700")+";color:"+lblCol+";text-transform:uppercase;letter-spacing:.06em;border-right:1px solid "+BORDER+";"+lblBB+"white-space:normal;word-break:break-word;display:flex;align-items:center;'>"+(isLugEntRow?"🏟 ":"")+lbl+"</div>";
 
     // Data cells (cols 2…nCols+1)
     mcData.forEach(function(d,i){
