@@ -795,7 +795,19 @@ function fbEscuchar() {
     if (d.ejercicios && JSON.stringify(d.ejercicios) !== JSON.stringify(EJERCICIOS_DB)) { EJERCICIOS_DB = d.ejercicios; try{ localStorage.setItem('BFC_EJERCICIOS', JSON.stringify(EJERCICIOS_DB)); }catch(e){} rerender = true; }
     if (d.notif && JSON.stringify(d.notif) !== JSON.stringify(NOTIF_DB))        { NOTIF_DB  = d.notif;     try{ localStorage.setItem('BFC_NOTIF', JSON.stringify(NOTIF_DB)); }catch(e){} rerender = true; notifActualizarBadge(); }
     // Claves adicionales — escribir directamente a localStorage
-    if (d.mc_hist)   { try{ localStorage.setItem('bfc_mc_hist', JSON.stringify(d.mc_hist)); }catch(e){} rerender = true; }
+    // mc_hist: usar 'in' para detectar null/vacío (Firebase elimina arrays vacíos → null)
+    if ('mc_hist' in d) {
+      var _localMcTs = 0; try{ var _lmct=localStorage.getItem('bfc_mc_hist_ts'); if(_lmct) _localMcTs=parseInt(_lmct)||0; }catch(e){}
+      var _remoteMcTs = d.mc_hist_ts || 0;
+      if (_remoteMcTs >= _localMcTs) {
+        var _mcHistRemoto = safeArr(d.mc_hist); // null → []
+        var _mcHistLocal = []; try{ var _lmh=localStorage.getItem('bfc_mc_hist'); if(_lmh) _mcHistLocal=JSON.parse(_lmh)||[]; }catch(e){}
+        if (JSON.stringify(_mcHistRemoto) !== JSON.stringify(_mcHistLocal)) {
+          try{ localStorage.setItem('bfc_mc_hist', JSON.stringify(_mcHistRemoto)); localStorage.setItem('bfc_mc_hist_ts', String(_remoteMcTs)); }catch(e){}
+          rerender = true;
+        }
+      }
+    }
     if (d.mc_last)   { try{ localStorage.setItem('bfc_mc_last', JSON.stringify(d.mc_last)); }catch(e){} }
     if (d.ip_db)     { IP_DB = safeArr(d.ip_db); try{ localStorage.setItem('BFC_IP_DB', JSON.stringify(IP_DB)); }catch(e){} }
     if (d.gps_cat)   { try{ localStorage.setItem('BFC_GPS_CAT', JSON.stringify(d.gps_cat)); }catch(e){} rerender = true; }
@@ -929,6 +941,7 @@ function fbGuardar() {
       novedades_db: safeArr(NOVEDADES_DB),
       bien_extra: BIEN_EXTRA||[],
       mc_hist: _fbMcHist, mc_last: _fbMcLast,
+      mc_hist_ts: (function(){ var t=0; try{ var s=localStorage.getItem('bfc_mc_hist_ts'); if(s) t=parseInt(s)||0; }catch(e){} return t||Date.now(); })(),
       ip_db: _fbIpDb, gps_cat: _fbGpsCat,
       campos_extra: _fbCamposExtra,
       perf_vars_cfg: _fbPerfCfg,
@@ -1003,6 +1016,7 @@ function fbForzarSync() {
     novedades_db: safeArr(NOVEDADES_DB),
     bien_extra: BIEN_EXTRA||[],
     mc_hist: _fbMcHist, mc_last: _fbMcLast,
+    mc_hist_ts: (function(){ var t=0; try{ var s=localStorage.getItem('bfc_mc_hist_ts'); if(s) t=parseInt(s)||0; }catch(e){} return t||_forzarTs; })(),
     ip_db: _fbIpDb, gps_cat: _fbGpsCat,
     plantilla_disp: _fbPlantDisp,
     campos_extra: _fbCamposExtra,
@@ -12562,7 +12576,8 @@ function mcHistGuardar(record){
   if(idx>=0){ hist[idx]=record; } else { hist.unshift(record); }
   // Limpiar el hkey de edición después de guardar
   window._mcEditHkey = null;
-  try{ localStorage.setItem(BFC_MC_HIST_KEY, JSON.stringify(hist)); }catch(e){}
+  var _mcTs = Date.now();
+  try{ localStorage.setItem(BFC_MC_HIST_KEY, JSON.stringify(hist)); localStorage.setItem('bfc_mc_hist_ts', String(_mcTs)); }catch(e){}
   fbGuardar(); // sincronizar microciclos a Firebase
 }
 
@@ -12605,7 +12620,8 @@ function mcHistEliminar(hkey){
 function _mcHistEliminarOk(hkey){
   var hist = mcHistLoad();
   hist = hist.filter(function(h){ return h._hkey!==hkey; });
-  try{ localStorage.setItem(BFC_MC_HIST_KEY, JSON.stringify(hist)); }catch(e){}
+  var _mcTs = Date.now();
+  try{ localStorage.setItem(BFC_MC_HIST_KEY, JSON.stringify(hist)); localStorage.setItem('bfc_mc_hist_ts', String(_mcTs)); }catch(e){}
   fbGuardar(); // sincronizar microciclos a Firebase
   renderMicro();
 }
@@ -20772,13 +20788,21 @@ function dispRegistrarTodos(fecha){
   dispLoad();
   var plantel = (JDB&&JDB.length>0)?JDB:(PL||[]);
   plantel.forEach(function(j){
+    // 1. Registrar en DISP_DB (estado clínico médico)
     var existe = safeArr(DISP_DB).find(function(r){ return r.jugadorId===j.id && r.fecha===fecha; });
     if(!existe){
       DISP_DB.push({jugadorId:j.id, fecha:fecha, estado:'disponible', restriccion:'', protocolo:'', notas:'', registradoPor:'PF', hora:new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})});
     }
+    // 2. Sincronizar override táctico en _plantillaDisp para que la Plantilla refleje disponibilidad
+    // Solo se sobreescribe si no hay una decisión técnica de NO disponibilidad
+    var ovActual = _plantillaDisp[j.id] || null;
+    if(!ovActual || ovActual.estado !== 'no_disponible'){
+      _plantillaDisp[j.id] = { estado: 'disponible', obs: '' };
+    }
   });
   dispSave();
-  // NOTA: NO se limpian los overrides de _plantillaDisp — Plantilla y Disponibilidad son independientes
+  try{ localStorage.setItem('BFC_PLANTILLA_DISP', JSON.stringify(_plantillaDisp)); }catch(e){}
+  if(typeof fbGuardarPlantillaDisp === 'function') fbGuardarPlantillaDisp();
   renderDisponibilidad();
   if(document.getElementById('page-plantilla') && document.getElementById('page-plantilla').innerHTML.length>100) renderPlantilla();
 }
