@@ -15682,6 +15682,13 @@ function sesCargarActivaFb(cb){
   }, function(){ if(cb) cb(false); });
 }
 
+// ── Confirmar finalizar sesión ────────────────────────────────────────
+function sesFinalizarConfirm(){
+  if(!confirm('\u00bfFinalizar la sesi\u00f3n y moverla al historial? Ya no se podr\u00e1 editar como sesi\u00f3n activa (s\u00ed desde el historial).')) return;
+  sesFinalizar();
+}
+window.sesFinalizarConfirm = sesFinalizarConfirm;
+
 // ── Finalizar sesión: pasar al historial y limpiar sesion_activa ───────
 function sesFinalizar(){
   if(!sesData){ toast('No hay sesión activa.'); return; }
@@ -16136,7 +16143,7 @@ function renderSesion(){
   h += "<button class='btn-g' onclick='sesImprimir()'>PDF</button>";
   h += "<button class='btn' onclick='sesPNGDirecto()'>PNG</button>";
   h += "<button onclick='sesGuardarManual()' style='padding:8px 14px;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.4);border-radius:9px;color:#a5b4fc;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>💾 Guardar borrador</button>";
-  h += "<button onclick='(function(){ if(!confirm("¿Finalizar la sesión y moverla al historial? Ya no se podrá editar como sesión activa (sí desde el historial).")) return; sesFinalizar(); })()' style='padding:8px 14px;background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);border-radius:9px;color:#6ee7b7;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>✅ Finalizar sesión</button>";
+  h += "<button onclick='sesFinalizarConfirm()' style='padding:8px 14px;background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);border-radius:9px;color:#6ee7b7;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>&#9989; Finalizar sesi&#243;n</button>";
   h += "</div></div>";
 
   // ── REPETIR SESIÓN ANTERIOR ──
@@ -17837,15 +17844,16 @@ function histEditarSesion(id){
   histLoad();
   var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
   if(!snap){ toast('⚠️ Sesión no encontrada'); return; }
-  showModal("<div style='padding:20px 24px;max-width:380px;text-align:center;'>"
-    + "<div style='font-size:34px;margin-bottom:10px;'>✏️</div>"
-    + "<div style='color:#f1f5f9;font-weight:800;font-size:14px;margin-bottom:6px;'>Editar sesión del historial</div>"
-    + "<div style='color:#64748b;font-size:12px;margin-bottom:4px;'>Sesión <b style=\'color:#a5b4fc;\'>#"+snap.sesionNum+"</b> · "+snap.fecha+"</div>"
-    + "<div style='color:#64748b;font-size:11px;margin-bottom:16px;'>Se cargará en el módulo de sesión para editar. Al guardar como borrador o finalizar, se actualizará en el historial.</div>"
+  var _mHtml = "<div style='padding:20px 24px;max-width:380px;text-align:center;'>"
+    + "<div style='font-size:34px;margin-bottom:10px;'>&#9999;&#65039;</div>"
+    + "<div style='color:#f1f5f9;font-weight:800;font-size:14px;margin-bottom:6px;'>Editar sesi&#243;n del historial</div>"
+    + "<div style='color:#64748b;font-size:12px;margin-bottom:4px;'>Sesi&#243;n <b style='color:#a5b4fc'>#"+snap.sesionNum+"</b> &middot; "+snap.fecha+"</div>"
+    + "<div style='color:#64748b;font-size:11px;margin-bottom:16px;'>Se cargar&#225; en el m&#243;dulo de sesi&#243;n para editar. Al guardar como borrador o finalizar, se actualizar&#225; en el historial.</div>"
     + "<div style='display:flex;gap:8px;justify-content:center;'>"
-    + "<button onclick=\'closeModal();_histEditarOk(\""+id+"\")\'  style=\'background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:800;\'>✏️ Ir a editar</button>"
-    + "<button onclick=\'closeModal()\' style=\'background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:700;\'>Cancelar</button>"
-    + "</div></div>");
+    + "<button onclick='closeModal();_histEditarOk(\\'\"+ id +\"\\')'  style='background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:800;'>&#9999;&#65039; Ir a editar</button>"
+    + "<button onclick='closeModal()' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:700;'>Cancelar</button>"
+    + "</div></div>";
+  showModal(_mHtml);
 }
 function _histEditarOk(id){
   histLoad();
