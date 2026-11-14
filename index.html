@@ -482,7 +482,6 @@ function fbMonitorConexion() {
 
 function _fbActualizarBannerConexion() {
   var badge = document.getElementById('fb-sync-badge');
-  var banner = document.getElementById('bfc-offline-banner');
 
   // Badge en la barra superior
   if (badge) {
@@ -499,27 +498,6 @@ function _fbActualizarBannerConexion() {
     }
   }
 
-  // Banner flotante cuando está offline
-  if (!banner) {
-    banner = document.createElement('div');
-    banner.id = 'bfc-offline-banner';
-    banner.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 22px;border-radius:12px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:8px;box-shadow:0 8px 32px rgba(0,0,0,.4);transition:opacity .4s,transform .4s;pointer-events:none;';
-    document.body.appendChild(banner);
-  }
-  if (!FB_ONLINE) {
-    banner.innerHTML = '🔴 Sin conexión — los cambios se guardan localmente y se sincronizarán al reconectar';
-    banner.style.cssText += ';background:rgba(239,68,68,.92);color:#fff;border:1px solid rgba(239,68,68,.5);opacity:1;transform:translateX(-50%) translateY(0);';
-    banner.style.display = 'flex';
-  } else {
-    // Mostrar "Reconectado" brevemente
-    banner.innerHTML = '🟢 Conexión restaurada — datos sincronizados';
-    banner.style.cssText += ';background:rgba(52,211,153,.92);color:#fff;border:1px solid rgba(52,211,153,.5);opacity:1;transform:translateX(-50%) translateY(0);';
-    banner.style.display = 'flex';
-    setTimeout(function() {
-      if (banner) { banner.style.opacity = '0'; banner.style.transform = 'translateX(-50%) translateY(10px)'; }
-      setTimeout(function() { if (banner) banner.style.display = 'none'; }, 400);
-    }, 2500);
-  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -5728,22 +5706,8 @@ function renderProgramacion() {
     return "<span style='letter-spacing:1px;'>" + out + "</span>";
   }
 
-  // ── Próximo partido ──
-  var nextPartido = null;
+  // ── fecha hoy ──
   var todayStr = yy + '-' + padZ(mm+1) + '-' + padZ(todayD);
-  // Buscar en EVS
-  var evsSort = safeArr(EVS).filter(function(ev){ return ev.fecha >= todayStr && (ev.tipo||'').toLowerCase()==='partido'; }).sort(function(a,b){ return (a.fecha||'').localeCompare(b.fecha||''); });
-  if (evsSort.length) nextPartido = evsSort[0];
-
-  // Próximo entrenamiento (si no hay partido)
-  var nextEntreno = null;
-  if (!nextPartido) {
-    var entSort = safeArr(EVS).filter(function(ev){ return ev.fecha >= todayStr && (ev.tipo||'').toLowerCase()==='entrenamiento'; }).sort(function(a,b){ return (a.fecha||'').localeCompare(b.fecha||''); });
-    if (entSort.length) nextEntreno = entSort[0];
-  }
-
-  // Próximos 3 partidos
-  var proxPartidos3 = safeArr(EVS).filter(function(ev){ return ev.fecha >= todayStr && (ev.tipo||'').toLowerCase()==='partido'; }).sort(function(a,b){ return (a.fecha||'').localeCompare(b.fecha||''); }).slice(0,3);
 
   // ── Microciclo semana activa ──
   // Calcula lunes y domingo de la semana actual
@@ -5844,91 +5808,55 @@ function renderProgramacion() {
   // ── CARDS FILA SUPERIOR ──
   h += "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;padding:20px 28px;'>";
 
-  // Card: Hoy (clickeable → va a sesión)
-  h += "<div onclick=\"irA('sesion')\" style='background:linear-gradient(135deg,rgba(99,102,241,.18),rgba(99,102,241,.06));border:1px solid rgba(99,102,241,.35);border-radius:16px;padding:16px 18px;cursor:pointer;transition:border-color .2s,box-shadow .2s;' onmouseover=\"this.style.borderColor='rgba(99,102,241,.7)';this.style.boxShadow='0 0 0 3px rgba(99,102,241,.15)'\" onmouseout=\"this.style.borderColor='rgba(99,102,241,.35)';this.style.boxShadow='none'\">";
-  h += "<div style='font-size:9px;font-weight:800;color:#6366f1;text-transform:uppercase;letter-spacing:.10em;margin-bottom:8px;'>Hoy</div>";
-  h += "<div style='font-size:16px;font-weight:900;color:#f1f5f9;margin-bottom:4px;'>" + todayD + " de " + mesNombres[mm] + "</div>";
-  if (mcDiaHoy) {
-    var cargaC = cargaColor[(mcDiaHoy.carga||'').toLowerCase()] || '#94a3b8';
-    h += "<div style='display:flex;align-items:center;gap:8px;margin-bottom:6px;'>";
-    h += "<span style='font-size:13px;font-weight:900;color:#a5b4fc;'>" + (mcDiaHoy.rel||'—') + "</span>";
-    h += "<span style='font-size:9px;font-weight:800;padding:2px 8px;border-radius:6px;background:" + cargaC + "22;border:1px solid " + cargaC + "66;color:" + cargaC + ";text-transform:uppercase;'>" + (mcDiaHoy.carga||'—') + "</span>";
-    h += "</div>";
-  }
-  // CDEF de la sesión registrada hoy
+  // Card: Hoy — muestra código día + carga + estado sesión
   var sesHoy = null;
   for (var si2 = 0; si2 < SES_DB_RAW.length; si2++) {
     var sf = SES_DB_RAW[si2].fecha || SES_DB_RAW[si2].fechaSes;
     if (sf === todayStr) { sesHoy = SES_DB_RAW[si2]; break; }
   }
+  var _sesBg2   = sesHoy ? 'linear-gradient(135deg,rgba(16,185,129,.18),rgba(16,185,129,.06))' : 'linear-gradient(135deg,rgba(99,102,241,.18),rgba(99,102,241,.06))';
+  var _sesBord2 = sesHoy ? 'rgba(16,185,129,.5)' : 'rgba(99,102,241,.35)';
+  h += "<div onclick=\"irA('sesion')\" style='background:" + _sesBg2 + ";border:1px solid " + _sesBord2 + ";border-radius:16px;padding:16px 18px;cursor:pointer;transition:border-color .2s,box-shadow .2s;' onmouseover=\"this.style.borderColor='" + (sesHoy?'rgba(16,185,129,.8)':'rgba(99,102,241,.7)') + "';this.style.boxShadow='0 0 0 3px " + (sesHoy?'rgba(16,185,129,.15)':'rgba(99,102,241,.15)') + "'\" onmouseout=\"this.style.borderColor='" + _sesBord2 + "';this.style.boxShadow='none'\">";
+  h += "<div style='font-size:9px;font-weight:800;color:" + (sesHoy?'#10b981':'#6366f1') + ";text-transform:uppercase;letter-spacing:.10em;margin-bottom:8px;'>Hoy · " + todayD + " de " + mesNombres[mm] + "</div>";
+  // Código día + carga
+  if (mcDiaHoy) {
+    var cargaC = cargaColor[(mcDiaHoy.carga||'').toLowerCase()] || '#94a3b8';
+    h += "<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;'>";
+    h += "<span style='font-size:20px;font-weight:900;color:#a5b4fc;letter-spacing:-.5px;'>" + (mcDiaHoy.rel||'—') + "</span>";
+    h += "<span style='font-size:11px;font-weight:900;padding:3px 10px;border-radius:7px;background:" + cargaC + "30;border:1.5px solid " + cargaC + "88;color:" + cargaC + ";text-transform:uppercase;letter-spacing:.04em;'>" + (mcDiaHoy.carga||'—') + "</span>";
+    h += "</div>";
+    // Tipo de sesión del microciclo
+    if (mcDiaHoy.tipo && mcDiaHoy.tipo !== 'descanso') {
+      var _tcHoy = TC[(mcDiaHoy.tipo||'').toLowerCase()] || TC['entrenamiento'];
+      h += "<div style='font-size:10px;font-weight:700;color:" + _tcHoy.txt + ";margin-bottom:6px;'>" + (mcDiaHoy.tipo||'').charAt(0).toUpperCase() + (mcDiaHoy.tipo||'').slice(1) + (mcDiaHoy.contenido ? ' · <span style=\"color:#475569;font-weight:600;\">' + (mcDiaHoy.contenido.split('\\n')[0]||'').slice(0,40) + '</span>' : '') + "</div>";
+    }
+  }
+  // CDEF de la sesión registrada hoy
   if (sesHoy && sesHoy.cdefSel) {
-    h += "<div style='margin-top:4px;'>" + cdefHtml(sesHoy.cdefSel) + "</div>";
+    h += "<div style='margin-bottom:6px;'>" + cdefHtml(sesHoy.cdefSel) + "</div>";
   } else if (mcDiaHoy && mcDiaHoy.tipo === 'descanso') {
-    h += "<div style='font-size:11px;color:#64748b;font-weight:600;margin-top:4px;'>Descanso</div>";
+    h += "<div style='font-size:11px;color:#64748b;font-weight:600;margin-bottom:6px;'>Día de descanso</div>";
   }
   // Alerta carga alta
   if (mcDiaHoy && (mcDiaHoy.carga||'').toLowerCase() === 'muy alta') {
-    h += "<div style='margin-top:6px;font-size:9px;font-weight:800;color:#ef4444;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:3px 8px;'>⚠️ CARGA MUY ALTA</div>";
+    h += "<div style='margin-bottom:6px;font-size:9px;font-weight:800;color:#ef4444;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:3px 8px;'>⚠️ CARGA MUY ALTA</div>";
   } else if (mcDiaHoy && (mcDiaHoy.carga||'').toLowerCase() === 'alta') {
-    h += "<div style='margin-top:6px;font-size:9px;font-weight:800;color:#f97316;background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.25);border-radius:6px;padding:3px 8px;'>↑ CARGA ALTA</div>";
+    h += "<div style='margin-bottom:6px;font-size:9px;font-weight:800;color:#f97316;background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.25);border-radius:6px;padding:3px 8px;'>↑ CARGA ALTA</div>";
   }
-  // Botón acceso directo a sesión
-  var _sesLabel = sesHoy ? '📋 Ver sesión registrada →' : '➕ Registrar sesión de hoy →';
-  var _sesBg    = sesHoy ? 'rgba(16,185,129,.15)' : 'rgba(99,102,241,.12)';
-  var _sesCol   = sesHoy ? '#6ee7b7' : '#a5b4fc';
-  var _sesBord  = sesHoy ? 'rgba(16,185,129,.35)' : 'rgba(99,102,241,.3)';
-  h += "<div style='margin-top:10px;font-size:9px;font-weight:800;color:" + _sesCol + ";background:" + _sesBg + ";border:1px solid " + _sesBord + ";border-radius:7px;padding:5px 10px;text-align:center;'>" + _sesLabel + "</div>";
+  // Estado sesión — prominente
+  var _sesIcon  = sesHoy ? '✅' : '⬜';
+  var _sesLabel = sesHoy ? 'Sesión registrada' : 'Sesión pendiente';
+  var _sesCol2  = sesHoy ? '#6ee7b7' : '#94a3b8';
+  var _sesBgB   = sesHoy ? 'rgba(16,185,129,.15)' : 'rgba(100,116,139,.1)';
+  var _sesBordB = sesHoy ? 'rgba(16,185,129,.35)' : 'rgba(100,116,139,.2)';
+  h += "<div style='display:flex;align-items:center;gap:8px;padding:8px 10px;background:" + _sesBgB + ";border:1px solid " + _sesBordB + ";border-radius:9px;margin-top:4px;'>";
+  h += "<span style='font-size:14px;'>" + _sesIcon + "</span>";
+  h += "<div style='flex:1;'>";
+  h += "<div style='font-size:11px;font-weight:800;color:" + _sesCol2 + ";'>" + _sesLabel + "</div>";
+  if (sesHoy && sesHoy.cdefSel) h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>CDEF: " + sesHoy.cdefSel + (sesHoy.duracion ? ' · ' + sesHoy.duracion + ' min' : '') + "</div>";
+  else if (!sesHoy) h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>Ir a Sesión para registrar →</div>";
   h += "</div>";
-
-  // Card: Próximo partido / entrenamiento
-  h += "<div style='background:linear-gradient(135deg,rgba(59,130,246,.15),rgba(59,130,246,.05));border:1px solid rgba(59,130,246,.3);border-radius:16px;padding:16px 18px;'>";
-  if (nextPartido) {
-    var dpStr = nextPartido.fecha || '';
-    var dpParts = dpStr.split('-');
-    var dpObj = dpParts.length === 3 ? new Date(+dpParts[0], +dpParts[1]-1, +dpParts[2]) : null;
-    var diff = dpObj ? Math.round((dpObj - new Date(yy, mm, todayD)) / 86400000) : null;
-    var diffC = diff === null ? '#6366f1' : (diff === 0 ? '#22c55e' : diff <= 2 ? '#ef4444' : diff <= 5 ? '#eab308' : '#6366f1');
-    var rival0 = (nextPartido.titulo||'').replace(/^BFC\s*vs\s*/i,'').replace(/^Barranquilla\s*FC\s*vs\s*/i,'').trim() || nextPartido.titulo || '';
-    h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;'>";
-    h += "<div style='font-size:9px;font-weight:800;color:#3b82f6;text-transform:uppercase;letter-spacing:.10em;'>Próximo partido</div>";
-    if (diff !== null) h += "<div style='font-size:18px;font-weight:900;color:" + diffC + ";line-height:1;'>" + (diff===0?'¡HOY!':diff===1?'Mañana':diff+' días') + "</div>";
-    h += "</div>";
-    h += "<div style='font-size:16px;font-weight:900;color:#f1f5f9;margin-bottom:3px;'>vs " + rival0 + "</div>";
-    h += "<div style='font-size:11px;color:#93c5fd;font-weight:700;'>" + (nextPartido.fecha||'') + (nextPartido.hora?' · '+nextPartido.hora:'') + "</div>";
-    if (nextPartido.lugar) h += "<div style='font-size:10px;color:#475569;margin-top:2px;'>" + nextPartido.lugar + "</div>";
-    // Próximos 3 partidos (si hay más)
-    if (proxPartidos3.length > 1) {
-      h += "<div style='margin-top:10px;border-top:1px solid rgba(59,130,246,.2);padding-top:8px;'>";
-      h += "<div style='font-size:8px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px;'>Próximos</div>";
-      for (var pxi = 1; pxi < proxPartidos3.length; pxi++) {
-        var px = proxPartidos3[pxi];
-        var pxRival = (px.titulo||'').replace(/^BFC\s*vs\s*/i,'').replace(/^Barranquilla\s*FC\s*vs\s*/i,'').trim();
-        var pxParts = (px.fecha||'').split('-');
-        var pxObj = pxParts.length===3 ? new Date(+pxParts[0],+pxParts[1]-1,+pxParts[2]) : null;
-        var pxDiff = pxObj ? Math.round((pxObj - new Date(yy,mm,todayD))/86400000) : null;
-        h += "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;'>";
-        h += "<span style='font-size:9px;color:#cbd5e1;font-weight:700;'>vs " + pxRival + "</span>";
-        h += "<span style='font-size:9px;color:#64748b;'>" + (pxDiff!==null ? pxDiff+' días' : px.fecha||'') + "</span>";
-        h += "</div>";
-      }
-      h += "</div>";
-    }
-  } else if (nextEntreno) {
-    var enStr = nextEntreno.fecha || '';
-    var enParts = enStr.split('-');
-    var enObj = enParts.length === 3 ? new Date(+enParts[0], +enParts[1]-1, +enParts[2]) : null;
-    var enDiff = enObj ? Math.round((enObj - new Date(yy, mm, todayD)) / 86400000) : null;
-    h += "<div style='font-size:9px;font-weight:800;color:#6ee7b7;text-transform:uppercase;letter-spacing:.10em;margin-bottom:6px;'>Próximo entrenamiento</div>";
-    h += "<div style='font-size:14px;font-weight:900;color:#f1f5f9;margin-bottom:3px;'>" + (nextEntreno.titulo||'Sesión') + "</div>";
-    h += "<div style='font-size:11px;color:#6ee7b7;font-weight:700;'>" + enStr + (nextEntreno.hora?' · '+nextEntreno.hora:'') + "</div>";
-    if (enDiff !== null && enDiff >= 0) {
-      var enC = enDiff === 0 ? '#22c55e' : enDiff === 1 ? '#a3e635' : '#6ee7b7';
-      h += "<div style='margin-top:6px;font-size:18px;font-weight:900;color:" + enC + ";'>" + (enDiff===0?'¡HOY!':enDiff===1?'Mañana':enDiff+' días') + "</div>";
-    }
-  } else {
-    h += "<div style='font-size:9px;font-weight:800;color:#3b82f6;text-transform:uppercase;letter-spacing:.10em;margin-bottom:8px;'>Próximo partido</div>";
-    h += "<div style='font-size:13px;color:#475569;font-weight:600;'>Sin eventos programados</div>";
-  }
+  h += "</div>";
   h += "</div>";
 
   // Card: Disponibilidad superficial
@@ -6020,57 +5948,6 @@ function renderProgramacion() {
     }
   })();
 
-  // ── PRÓXIMOS EVENTOS ──
-  var _proxEvs = safeArr(EVS).filter(function(e){ return e.fecha >= todayStr; }).sort(function(a,b){ return a.fecha.localeCompare(b.fecha); }).slice(0,8);
-  var _tcEvs = {
-    'partido':       { bg:'rgba(59,130,246,.18)',  bord:'rgba(59,130,246,.5)',  txt:'#93c5fd',  icon:'⚽' },
-    'entrenamiento': { bg:'rgba(16,185,129,.15)',  bord:'rgba(16,185,129,.4)', txt:'#6ee7b7',  icon:'🏃' },
-    'recuperacion':  { bg:'rgba(234,179,8,.15)',   bord:'rgba(234,179,8,.4)',  txt:'#fde68a',  icon:'🛁' },
-    'descanso':      { bg:'rgba(100,116,139,.1)',  bord:'rgba(100,116,139,.25)', txt:'#94a3b8', icon:'💤' },
-    'viaje':         { bg:'rgba(168,85,247,.15)',  bord:'rgba(168,85,247,.4)', txt:'#d8b4fe',  icon:'✈️' },
-    'nota_staff':    { bg:'rgba(99,102,241,.1)',   bord:'rgba(99,102,241,.25)', txt:'#a5b4fc', icon:'📌' }
-  };
-  h += "<div style='padding:0 28px 20px;'>";
-  h += "<div style='background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:18px;'>";
-  h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;'>";
-  h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;'>📅 Próximos eventos</div>";
-  h += "<button onclick=\"irA('microciclo')\" style='font-size:9px;font-weight:800;color:#6366f1;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);border-radius:7px;padding:4px 10px;cursor:pointer;'>+ Agregar evento</button>";
-  h += "</div>";
-  if(_proxEvs.length){
-    h += "<div style='display:flex;flex-direction:column;gap:6px;'>";
-    _proxEvs.forEach(function(ev){
-      var tipo = (ev.tipo||'entrenamiento').toLowerCase();
-      var tc   = _tcEvs[tipo] || _tcEvs['entrenamiento'];
-      var evParts = (ev.fecha||'').split('-');
-      var evObj   = evParts.length===3 ? new Date(+evParts[0],+evParts[1]-1,+evParts[2]) : null;
-      var evDiff  = evObj ? Math.round((evObj - new Date(+todayStr.split('-')[0],+todayStr.split('-')[1]-1,+todayStr.split('-')[2]))/86400000) : null;
-      var diffLabel = evDiff===null?'':(evDiff===0?'<span style="color:#22c55e;font-weight:800;">HOY</span>':evDiff===1?'<span style="color:#a3e635;font-weight:700;">Mañana</span>':'<span style="color:#64748b;">En '+evDiff+' días</span>');
-      var mesCorto = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-      var dia  = evParts[2]?+evParts[2]:'?';
-      var mes  = evParts[1]?mesCorto[+evParts[1]-1]:'';
-      h += "<div style='display:flex;align-items:center;gap:12px;background:"+tc.bg+";border:1px solid "+tc.bord+";border-radius:10px;padding:10px 14px;'>";
-      h += "<div style='min-width:40px;text-align:center;'>";
-      h += "<div style='font-size:18px;font-weight:900;color:"+tc.txt+";line-height:1.1;'>"+dia+"</div>";
-      h += "<div style='font-size:9px;font-weight:700;color:#475569;text-transform:uppercase;'>"+mes+"</div>";
-      h += "</div>";
-      h += "<div style='font-size:20px;line-height:1;'>"+tc.icon+"</div>";
-      h += "<div style='flex:1;min-width:0;'>";
-      h += "<div style='font-size:13px;font-weight:800;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>"+escHtml(ev.titulo||tipo)+"</div>";
-      h += "<div style='font-size:10px;color:#64748b;margin-top:1px;'>"+(ev.hora?'🕐 '+ev.hora+' · ':'')+escHtml(ev.lugar||'')+(ev.carga?' · <span style="font-weight:700;color:'+tc.txt+';">'+ev.carga+'</span>':'')+"</div>";
-      h += "</div>";
-      h += "<div style='font-size:11px;white-space:nowrap;'>"+diffLabel+"</div>";
-      h += "</div>";
-    });
-    h += "</div>";
-  } else {
-    h += "<div style='text-align:center;padding:20px;'>";
-    h += "<div style='font-size:28px;margin-bottom:8px;'>📭</div>";
-    h += "<div style='font-size:13px;color:#475569;font-weight:600;'>Sin eventos próximos programados</div>";
-    h += "<div style='font-size:11px;color:#334155;margin-top:4px;'>Agrega partidos y sesiones en el Microciclo</div>";
-    h += "</div>";
-  }
-  h += "</div></div>";
-
   // ── CALENDARIO MENSUAL NAVEGABLE ──
   h += "<div style='padding:0 28px 28px;'>";
   h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:18px;'>";
@@ -6138,54 +6015,55 @@ function renderProgramacion() {
 
     h += "<div style='min-height:78px;padding:6px 7px;border-right:1px solid rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.04);background:" + cbg2 + ";box-shadow:inset 0 0 0 " + (esHoy2?'2':'1') + "px " + cbord2 + ";position:relative;cursor:pointer;' onclick='_progAbrirNotaDia(\"" + dStr2 + "\")'>";
 
-    // Número + rel
-    h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;'>";
-    h += "<span style='font-size:" + (esHoy2?'13':'11') + "px;font-weight:" + (esHoy2?'900':'700') + ";color:" + (esHoy2?'#a5b4fc':'#cbd5e1') + ";'>" + (esHoy2?'●':'') + dia2 + "</span>";
-    if (mc4 && mc4.rel) {
-      h += "<span style='font-size:8px;font-weight:800;padding:1px 5px;border-radius:4px;background:rgba(255,255,255,.08);color:#94a3b8;'>" + mc4.rel + "</span>";
-    }
-    h += "</div>";
-
-    // Resultado o contenido
-    if (rinf2) {
-      h += "<div style='font-size:11px;font-weight:900;color:" + rinf2.c + ";'>" + rinf2.r + " " + rinf2.g + "</div>";
-      if (res4 && res4.rival) h += "<div style='font-size:8px;color:rgba(255,255,255,.4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>vs " + (res4.rival||'').replace(/</g,'&lt;') + "</div>";
-    } else if (evs4vis.length) {
-      var ev0 = evs4vis[0];
-      var etq2 = tinf2 ? (tprin2==='partido'?'MD':tprin2.substring(0,3).toUpperCase()) : (ev0.tipo||'').toUpperCase().slice(0,3);
-      h += "<div style='font-size:9px;font-weight:700;color:" + (tinf2?tinf2.txt:'#94a3b8') + ";'>" + etq2 + "</div>";
-      if (ev0.titulo) {
-        var r02 = (ev0.titulo||'').replace(/^BFC\s*vs\s*/i,'').replace(/^Barranquilla\s*FC\s*vs\s*/i,'').trim();
-        h += "<div style='font-size:8px;color:rgba(255,255,255,.38);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>" + (r02||ev0.titulo).replace(/</g,'&lt;') + "</div>";
-      }
-    } else if (mc4 && mc4.tipo && mc4.tipo !== 'descanso') {
-      var etc3 = TC[mc4.tipo] ? mc4.tipo.substring(0,3).toUpperCase() : (mc4.tipo||'').toUpperCase().slice(0,3);
-      var cc3  = TC[mc4.tipo] ? TC[mc4.tipo].txt : '#94a3b8';
-      h += "<div style='font-size:9px;font-weight:700;color:" + cc3 + ";'>" + etc3 + "</div>";
-    }
-
-    // CDEF del día si hay sesión registrada
-    if (ses4 && ses4.cdefSel && !rinf2) {
-      h += "<div style='margin-top:2px;'>" + cdefHtml(ses4.cdefSel) + "</div>";
-    }
-
-    // Carga del microciclo
-    if (mc4 && mc4.carga && mc4.tipo !== 'descanso' && !rinf2) {
-      var cC3 = cargaColor[(mc4.carga||'').toLowerCase()] || '#64748b';
-      h += "<div style='position:absolute;bottom:4px;left:7px;font-size:7px;font-weight:800;color:" + cC3 + ";text-transform:uppercase;opacity:.8;'>" + mc4.carga + "</div>";
-    }
     // Nota staff del día
     var _notaDia = null;
     for (var _ni=0; _ni<safeArr(EVS).length; _ni++) {
       if (EVS[_ni].tipo==='nota_staff' && EVS[_ni].fecha===dStr2) { _notaDia=EVS[_ni]; break; }
     }
+
+    // ── FILA SUPERIOR: número día + nota dot ──
+    h += "<div style='display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:3px;'>";
+    h += "<span style='font-size:" + (esHoy2?'12':'10') + "px;font-weight:" + (esHoy2?'900':'700') + ";color:" + (esHoy2?'#a5b4fc':'#64748b') + ";'>" + (esHoy2?'●':'') + dia2 + "</span>";
     if (_notaDia) {
-      // Dot indicator top-right
-      h += "<div style='position:absolute;top:4px;right:5px;width:7px;height:7px;border-radius:50%;background:#a5b4fc;box-shadow:0 0 4px rgba(165,180,252,.6);' title='" + (_notaDia.titulo||'').replace(/'/g,'&#39;') + "'></div>";
-      // Show text only if no other content is filling the cell already
-      if (!rinf2 && !evs4vis.length && !mc4) {
-        h += "<div style='margin-top:3px;font-size:7px;color:#a5b4fc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3;'>" + (_notaDia.titulo||'').replace(/</g,'&lt;') + "</div>";
+      h += "<div style='width:6px;height:6px;border-radius:50%;background:#a5b4fc;box-shadow:0 0 4px rgba(165,180,252,.7);flex-shrink:0;' title='" + (_notaDia.titulo||'').replace(/'/g,'&#39;') + "'></div>";
+    }
+    h += "</div>";
+
+    // ── CÓDIGO DÍA MICROCICLO (rel) — prominente ──
+    if (mc4 && mc4.rel && !rinf2) {
+      h += "<div style='font-size:11px;font-weight:900;color:#a5b4fc;letter-spacing:-.3px;line-height:1;margin-bottom:2px;'>" + mc4.rel + "</div>";
+    }
+
+    // ── RESULTADO o ETIQUETA EVENTO ──
+    if (rinf2) {
+      h += "<div style='font-size:11px;font-weight:900;color:" + rinf2.c + ";margin-bottom:1px;'>" + rinf2.r + " " + rinf2.g + "</div>";
+      if (res4 && res4.rival) h += "<div style='font-size:7px;color:rgba(255,255,255,.38);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>vs " + (res4.rival||'').replace(/</g,'&lt;') + "</div>";
+    } else if (evs4vis.length) {
+      var ev0 = evs4vis[0];
+      var esPartidoCal = tprin2 === 'partido';
+      var etq2 = esPartidoCal ? 'MD' : (tprin2||'').substring(0,3).toUpperCase();
+      var etqCol = tinf2 ? tinf2.txt : '#94a3b8';
+      h += "<div style='display:inline-block;font-size:8px;font-weight:900;color:" + etqCol + ";background:rgba(255,255,255,.07);border-radius:4px;padding:1px 5px;margin-bottom:2px;'>" + etq2 + "</div>";
+      if (ev0.titulo && esPartidoCal) {
+        var r02 = (ev0.titulo||'').replace(/^BFC\s*vs\s*/i,'').replace(/^Barranquilla\s*FC\s*vs\s*/i,'').trim();
+        h += "<div style='font-size:7px;color:rgba(255,255,255,.45);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>vs " + (r02||ev0.titulo).replace(/</g,'&lt;') + "</div>";
       }
+    } else if (mc4 && mc4.tipo === 'descanso') {
+      h += "<div style='font-size:8px;color:#475569;font-weight:700;'>DESC</div>";
+    } else if (mc4 && mc4.tipo) {
+      var _tcMcCal = TC[(mc4.tipo||'').toLowerCase()];
+      if (_tcMcCal) h += "<div style='font-size:8px;font-weight:800;color:" + _tcMcCal.txt + ";opacity:.7;'>" + mc4.tipo.substring(0,3).toUpperCase() + "</div>";
+    }
+
+    // ── CARGA — pill de color en posición intermedia ──
+    if (mc4 && mc4.carga && mc4.tipo !== 'descanso' && !rinf2) {
+      var cC3 = cargaColor[(mc4.carga||'').toLowerCase()] || '#64748b';
+      h += "<div style='margin-top:3px;display:inline-block;font-size:7px;font-weight:900;color:" + cC3 + ";background:" + cC3 + "22;border:1px solid " + cC3 + "55;border-radius:4px;padding:1px 5px;text-transform:uppercase;letter-spacing:.03em;'>" + mc4.carga + "</div>";
+    }
+
+    // ── CDEF sesión registrada ──
+    if (ses4 && ses4.cdefSel && !rinf2) {
+      h += "<div style='margin-top:2px;'>" + cdefHtml(ses4.cdefSel) + "</div>";
     }
 
     h += "</div>";
@@ -6199,6 +6077,56 @@ function renderProgramacion() {
   }
   h += "</div>";
   h += "</div></div>"; // end card + padding
+
+  // ── PRÓXIMOS PARTIDOS (máx 3) — debajo del calendario ──
+  var _proxParts3 = safeArr(EVS).filter(function(e){ return (e.tipo||'').toLowerCase()==='partido' && e.fecha >= todayStr; }).sort(function(a,b){ return a.fecha.localeCompare(b.fecha); }).slice(0,3);
+  var mesCortoP = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  h += "<div style='padding:0 28px 20px;'>";
+  h += "<div style='background:rgba(59,130,246,.06);border:1.5px solid rgba(59,130,246,.2);border-radius:16px;padding:18px;'>";
+  h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;'>";
+  h += "<div style='display:flex;align-items:center;gap:8px;'><span style='font-size:16px;'>⚽</span><div style='font-size:9px;font-weight:800;color:#3b82f6;text-transform:uppercase;letter-spacing:.10em;'>Próximos partidos</div></div>";
+  h += "<button onclick=\"irA('microciclo')\" style='font-size:9px;font-weight:800;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.35);border-radius:7px;padding:4px 10px;cursor:pointer;'>+ Agregar</button>";
+  h += "</div>";
+  if(_proxParts3.length){
+    h += "<div style='display:flex;flex-direction:column;gap:8px;'>";
+    _proxParts3.forEach(function(ev, idx){
+      var evParts = (ev.fecha||'').split('-');
+      var evObj   = evParts.length===3 ? new Date(+evParts[0],+evParts[1]-1,+evParts[2]) : null;
+      var evDiff  = evObj ? Math.round((evObj - new Date(+todayStr.split('-')[0],+todayStr.split('-')[1]-1,+todayStr.split('-')[2]))/86400000) : null;
+      var dia     = evParts[2] ? +evParts[2] : '?';
+      var mes     = evParts[1] ? mesCortoP[+evParts[1]-1] : '';
+      var rival   = (ev.titulo||'').replace(/^BFC\s*vs\s*/i,'').replace(/^Barranquilla\s*FC\s*vs\s*/i,'').trim() || (ev.titulo||'Sin rival');
+      var esPrx   = idx === 0;
+      var urgCol  = evDiff===0?'#22c55e':evDiff===1?'#a3e635':evDiff!==null&&evDiff<=3?'#eab308':'#93c5fd';
+      var urgTxt  = evDiff===null?'':evDiff===0?'¡HOY!':evDiff===1?'Mañana':evDiff+' días';
+      var rowBg   = esPrx ? 'rgba(59,130,246,.2)' : 'rgba(59,130,246,.08)';
+      var rowBord = esPrx ? 'rgba(59,130,246,.55)' : 'rgba(59,130,246,.2)';
+      h += "<div style='display:flex;align-items:center;gap:14px;background:"+rowBg+";border:1px solid "+rowBord+";border-radius:12px;padding:12px 16px;'>";
+      h += "<div style='min-width:38px;text-align:center;background:rgba(59,130,246,.2);border-radius:9px;padding:5px 4px;'>";
+      h += "<div style='font-size:"+(esPrx?'20':'16')+"px;font-weight:900;color:#93c5fd;line-height:1;'>"+dia+"</div>";
+      h += "<div style='font-size:8px;font-weight:800;color:#3b82f6;text-transform:uppercase;'>"+mes+"</div>";
+      h += "</div>";
+      h += "<div style='flex:1;min-width:0;'>";
+      h += "<div style='font-size:"+(esPrx?'15':'13')+"px;font-weight:900;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>vs "+escHtml(rival)+"</div>";
+      var _subItems = [];
+      if(ev.hora) _subItems.push('🕐 '+ev.hora);
+      if(ev.lugar) _subItems.push('📍 '+escHtml(ev.lugar));
+      if(_subItems.length) h += "<div style='font-size:10px;color:#64748b;margin-top:2px;'>"+_subItems.join(' · ')+"</div>";
+      h += "</div>";
+      h += "<div style='text-align:right;'>";
+      h += "<div style='font-size:"+(esPrx?'18':'14')+"px;font-weight:900;color:"+urgCol+";white-space:nowrap;'>"+urgTxt+"</div>";
+      if(esPrx && evDiff!==null && evDiff>0) h += "<div style='font-size:8px;color:#475569;font-weight:700;'>días</div>";
+      h += "</div>";
+      h += "</div>";
+    });
+    h += "</div>";
+  } else {
+    h += "<div style='text-align:center;padding:16px;'>";
+    h += "<div style='font-size:11px;color:#475569;font-weight:600;'>Sin partidos programados próximamente</div>";
+    h += "<div style='font-size:10px;color:#334155;margin-top:3px;'>Agrégalos desde Microciclo</div>";
+    h += "</div>";
+  }
+  h += "</div></div>";
 
   // ── NOTA DEL DÍA (sincronizada a Firebase via EVS) ──
   // Buscar nota del día en EVS
@@ -6223,6 +6151,114 @@ function renderProgramacion() {
   h += "</div></div></div>";
 
   el.innerHTML = h;
+}
+
+// ================================================
+// MINI MODAL — click en día del calendario
+// ================================================
+function _progAbrirNotaDia(dateStr) {
+  // Recolectar info del día
+  var mcHistRaw = []; try{ mcHistRaw = JSON.parse(localStorage.getItem('bfc_mc_hist')||'[]')||[]; }catch(e){}
+  var SES_DB_RAW = []; try{ SES_DB_RAW = JSON.parse(localStorage.getItem('bfc_ses_hist')||'[]')||[]; }catch(e){}
+  var ipdbRaw = []; try{ ipdbRaw = JSON.parse(localStorage.getItem('BFC_IP_DB')||'[]')||[]; }catch(e){}
+
+  var mcDia = null, sesDia = null, resDia = null, evsDia = [], notaDia = null;
+  for(var mi=0;mi<mcHistRaw.length;mi++){
+    var mce=mcHistRaw[mi]; if(!mce.data) continue;
+    for(var di=0;di<mce.data.length;di++){ if(mce.data[di].fecha===dateStr){mcDia=mce.data[di];break;} }
+    if(mcDia) break;
+  }
+  for(var si=0;si<SES_DB_RAW.length;si++){
+    var sf=SES_DB_RAW[si].fecha||SES_DB_RAW[si].fechaSes;
+    if(sf===dateStr){sesDia=SES_DB_RAW[si];break;}
+  }
+  for(var ri=0;ri<ipdbRaw.length;ri++){ if(ipdbRaw[ri].fecha===dateStr){resDia=ipdbRaw[ri];break;} }
+  safeArr(EVS).forEach(function(ev){ if(ev.fecha===dateStr){ if(ev.tipo==='nota_staff') notaDia=ev; else evsDia.push(ev); } });
+
+  var mesN = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  var parts = dateStr.split('-');
+  var dLabel = (parts[2]?+parts[2]:'?') + ' ' + (parts[1]?mesN[+parts[1]-1]:'') + ' ' + (parts[0]||'');
+  var cargaColorM = {'alta':'#ef4444','media':'#eab308','baja':'#22c55e','muy alta':'#dc2626','baja-media':'#84cc16','media-alta':'#f97316','descanso':'#94a3b8','partido':'#3b82f6'};
+
+  var prev = document.getElementById('_calDiaModal');
+  if(prev) prev.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = '_calDiaModal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9000;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px);';
+  overlay.onclick = function(e){ if(e.target===overlay) overlay.remove(); };
+
+  var html = '';
+  html += "<div style='background:#0f1623;border:1.5px solid rgba(255,255,255,.12);border-radius:20px;width:100%;max-width:420px;padding:22px 24px;box-shadow:0 24px 64px rgba(0,0,0,.7);'>";
+  // Header
+  html += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;'>";
+  html += "<div>";
+  html += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;margin-bottom:3px;'>Día</div>";
+  html += "<div style='font-size:20px;font-weight:900;color:#f1f5f9;'>" + dLabel + "</div>";
+  if(mcDia && mcDia.rel) html += "<div style='font-size:13px;font-weight:800;color:#a5b4fc;margin-top:2px;'>" + mcDia.rel + (mcDia.carga ? ' · <span style=\"color:' + (cargaColorM[(mcDia.carga||'').toLowerCase()]||'#94a3b8') + ';\">' + mcDia.carga + '</span>' : '') + "</div>";
+  html += "</div>";
+  html += "<button onclick=\"document.getElementById('_calDiaModal').remove()\" style='background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:7px 12px;color:#94a3b8;font-size:16px;cursor:pointer;line-height:1;'>✕</button>";
+  html += "</div>";
+
+  // Info existente del día
+  var hayInfo = mcDia || sesDia || resDia || evsDia.length;
+  if(hayInfo){
+    html += "<div style='display:flex;flex-direction:column;gap:7px;margin-bottom:16px;'>";
+    // Eventos
+    evsDia.filter(function(e){return e.tipo!=='nota_staff';}).forEach(function(ev){
+      var tipo = (ev.tipo||'').toLowerCase();
+      var tcM = { partido:{bg:'rgba(59,130,246,.2)',bord:'rgba(59,130,246,.5)',txt:'#93c5fd'}, entrenamiento:{bg:'rgba(16,185,129,.15)',bord:'rgba(16,185,129,.4)',txt:'#6ee7b7'}, recuperacion:{bg:'rgba(234,179,8,.15)',bord:'rgba(234,179,8,.4)',txt:'#fde68a'}, viaje:{bg:'rgba(168,85,247,.15)',bord:'rgba(168,85,247,.4)',txt:'#d8b4fe'}, descanso:{bg:'rgba(100,116,139,.1)',bord:'rgba(100,116,139,.25)',txt:'#94a3b8'} };
+      var tc2 = tcM[tipo] || tcM.entrenamiento;
+      html += "<div style='background:"+tc2.bg+";border:1px solid "+tc2.bord+";border-radius:10px;padding:9px 12px;'>";
+      html += "<div style='font-size:9px;font-weight:800;color:"+tc2.txt+";text-transform:uppercase;letter-spacing:.06em;'>"+tipo+"</div>";
+      html += "<div style='font-size:13px;font-weight:800;color:#f1f5f9;'>" + (ev.titulo||'').replace(/</g,'&lt;') + "</div>";
+      if(ev.hora||ev.lugar) html += "<div style='font-size:10px;color:#64748b;margin-top:2px;'>"+(ev.hora?'🕐 '+ev.hora:'')+((ev.hora&&ev.lugar)?' · ':'')+((ev.lugar?'📍 '+ev.lugar:''))+"</div>";
+      html += "</div>";
+    });
+    // Sesión registrada
+    if(sesDia){
+      html += "<div style='background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);border-radius:10px;padding:9px 12px;display:flex;align-items:center;gap:10px;'>";
+      html += "<span style='font-size:18px;'>✅</span>";
+      html += "<div><div style='font-size:11px;font-weight:800;color:#6ee7b7;'>Sesión registrada</div>";
+      if(sesDia.cdefSel) html += "<div style='font-size:9px;color:#475569;margin-top:1px;'>CDEF: " + sesDia.cdefSel + (sesDia.duracion?' · '+sesDia.duracion+' min':'') + "</div>";
+      html += "</div></div>";
+    }
+    // Resultado partido
+    if(resDia && resDia.golesF!==undefined){
+      var gfM=+(resDia.golesF||0), gcM=+(resDia.golesC||0);
+      var resCol = gfM>gcM?'#22c55e':gfM<gcM?'#ef4444':'#eab308';
+      var resLetra = gfM>gcM?'V':gfM<gcM?'D':'E';
+      html += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:9px 12px;'>";
+      html += "<div style='font-size:9px;font-weight:800;color:#475569;margin-bottom:3px;'>RESULTADO</div>";
+      html += "<div style='font-size:16px;font-weight:900;color:"+resCol+";'>"+resLetra+" "+gfM+"-"+gcM+"</div>";
+      if(resDia.rival) html += "<div style='font-size:10px;color:#64748b;'>vs "+(resDia.rival||'').replace(/</g,'&lt;')+"</div>";
+      html += "</div>";
+    }
+    html += "</div>";
+  }
+
+  // Nota staff del día
+  var notaVal = notaDia ? (notaDia.titulo||'') : '';
+  html += "<div style='margin-bottom:16px;'>";
+  html += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;'>📌 Nota staff para este día</div>";
+  html += "<div style='display:flex;gap:8px;'>";
+  html += "<input type='text' id='_calNotaInp' value='" + notaVal.replace(/'/g,'&#39;').replace(/</g,'&lt;') + "' placeholder='Aviso o recordatorio para el staff…' maxlength='120' style='flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:8px 12px;font-size:12px;font-weight:600;color:#cbd5e1;outline:none;'>";
+  html += "<button onclick=\"(function(){ var v=document.getElementById('_calNotaInp').value.trim(); var dS='" + dateStr + "'; var idx=-1; for(var i=0;i<EVS.length;i++){if(EVS[i].tipo==='nota_staff'&&EVS[i].fecha===dS){idx=i;break;}} if(v){if(idx>=0){EVS[idx].titulo=v;}else{EVS.push({id:'ns_'+Date.now(),tipo:'nota_staff',fecha:dS,titulo:v,autor:'staff'});}} else {if(idx>=0) EVS.splice(idx,1);} guardar(); document.getElementById('_calDiaModal').remove(); renderProgramacion(); })()\" style='background:rgba(99,102,241,.3);border:1px solid rgba(99,102,241,.5);border-radius:9px;padding:8px 14px;color:#a5b4fc;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>Guardar</button>";
+  html += "</div></div>";
+
+  // Acciones rápidas
+  html += "<div style='display:flex;flex-wrap:wrap;gap:8px;border-top:1px solid rgba(255,255,255,.07);padding-top:14px;'>";
+  html += "<button onclick=\"document.getElementById('_calDiaModal').remove();irA('sesion')\" style='flex:1;min-width:110px;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);border-radius:9px;padding:9px 10px;color:#6ee7b7;font-size:10px;font-weight:800;cursor:pointer;'>📋 " + (sesDia?'Ver sesión':'Registrar sesión') + "</button>";
+  html += "<button onclick=\"document.getElementById('_calDiaModal').remove();irA('microciclo')\" style='flex:1;min-width:110px;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);border-radius:9px;padding:9px 10px;color:#a5b4fc;font-size:10px;font-weight:800;cursor:pointer;'>📅 Editar microciclo</button>";
+  if(!resDia && evsDia.some(function(e){return e.tipo==='partido';})){
+    html += "<button onclick=\"document.getElementById('_calDiaModal').remove();irA('informes')\" style='flex:1;min-width:110px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.3);border-radius:9px;padding:9px 10px;color:#93c5fd;font-size:10px;font-weight:800;cursor:pointer;'>⚽ Registrar resultado</button>";
+  }
+  html += "</div>";
+  html += "</div>";
+
+  overlay.innerHTML = html;
+  document.body.appendChild(overlay);
+  setTimeout(function(){ var inp=document.getElementById('_calNotaInp'); if(inp) inp.focus(); }, 100);
 }
 
 // ================================================
@@ -7065,6 +7101,8 @@ function renderDashboard() {
   // en los últimos 3 días que supera el umbral (por defecto: ACWR > 1.3
   // O UA 3d > 1800). Se puede configurar desde CI settings.
   (function(){
+    // Asegurar CI_DB actualizado (renderDashboard lo carga más adelante en línea 7206)
+    ciLoad();
     // Calcular próximo partido localmente (independiente de renderProgramacion)
     var todayStrAP = TODAY;
     var _proxPart = safeArr(EVS).filter(function(e){ return (e.tipo||'').toLowerCase()==='partido' && e.fecha >= todayStrAP; }).sort(function(a,b){ return a.fecha.localeCompare(b.fecha); })[0] || null;
@@ -22741,6 +22779,7 @@ function infTabPostPartido(){
 
   // ── DATOS FÍSICOS AUTO (desde CI_DB + CARGA del día del partido) ──
   if(state.fecha){
+    ciLoad(); // asegurar CI_DB actualizado
     var _ppFis = ppAutoFisicos(state.fecha, state.titulares||[]);
     if(_ppFis.jugadores>0){
       h += "<div class='card' style='margin-bottom:14px;border-left:4px solid #6366f1;'>";
@@ -22905,6 +22944,7 @@ function ppVerPDF(){
   }
   html+='</tbody></table>';
   // Sección de datos físicos auto
+  ciLoad(); // asegurar CI_DB actualizado antes de ppAutoFisicos
   var _pdfFis = ppAutoFisicos(state.fecha, state.titulares||[]);
   if(_pdfFis.jugadores>0){
     html+='<h2 style="font-size:13px;font-weight:900;border-bottom:2px solid #6366f1;padding-bottom:6px;margin-bottom:12px;">⚡ DATOS FÍSICOS DEL PARTIDO</h2>';
