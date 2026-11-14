@@ -12100,13 +12100,13 @@ var mcNumMicro = "";
 function mcInitData(){
   if(mcData) return;
   mcData = [
-    {tipo:"entrenamiento",rel:"+2",lugar:"",lugEnt:"",hRec:"",hLleg:"",hIng:"",hSal:"",obs:"",carga:"baja",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
-    {tipo:"entrenamiento",rel:"+1",lugar:"",lugEnt:"",hRec:"",hLleg:"",hIng:"",hSal:"",obs:"",carga:"baja",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
-    {tipo:"entrenamiento",rel:"-1",lugar:"",lugEnt:"",hRec:"",hLleg:"",hIng:"",hSal:"",obs:"",carga:"baja",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
-    {tipo:"partido",rel:"MD",lugar:"",lugEnt:"",hRec:"",hLleg:"",hIng:"",hSal:"",obs:"",carga:"partido",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
-    {tipo:"entrenamiento",rel:"+1",lugar:"",lugEnt:"",hRec:"",hLleg:"",hIng:"",hSal:"",obs:"",carga:"baja",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
-    {tipo:"descanso",rel:"DESCANSO",lugar:"",lugEnt:"",hRec:"",hLleg:"",hIng:"",hSal:"",obs:"",carga:"descanso",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
-    {tipo:"entrenamiento",rel:"-3",lugar:"",lugEnt:"",hRec:"",hLleg:"",hIng:"",hSal:"",obs:"",carga:"baja",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""}
+    {tipo:"entrenamiento",rel:"+2",lugar:"",lugEnt:"",hRec:"",hLleg:"",hPres:"",hIng:"",hSal:"",obs:"",carga:"baja",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
+    {tipo:"entrenamiento",rel:"+1",lugar:"",lugEnt:"",hRec:"",hLleg:"",hPres:"",hIng:"",hSal:"",obs:"",carga:"baja",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
+    {tipo:"entrenamiento",rel:"-1",lugar:"",lugEnt:"",hRec:"",hLleg:"",hPres:"",hIng:"",hSal:"",obs:"",carga:"baja",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
+    {tipo:"partido",rel:"MD",lugar:"",lugEnt:"",hRec:"",hLleg:"",hPres:"",hIng:"",hSal:"",obs:"",carga:"partido",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
+    {tipo:"entrenamiento",rel:"+1",lugar:"",lugEnt:"",hRec:"",hLleg:"",hPres:"",hIng:"",hSal:"",obs:"",carga:"baja",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
+    {tipo:"descanso",rel:"DESCANSO",lugar:"",lugEnt:"",hRec:"",hLleg:"",hPres:"",hIng:"",hSal:"",obs:"",carga:"descanso",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
+    {tipo:"entrenamiento",rel:"-3",lugar:"",lugEnt:"",hRec:"",hLleg:"",hPres:"",hIng:"",hSal:"",obs:"",carga:"baja",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""}
   ];
   // Inicializar fechas por defecto si están vacías
   if(!MC_FECHAS_ACTIVAS.length){
@@ -12294,6 +12294,7 @@ function mcRDatos(){
     if(d.tipo==="partido"){ var hp=document.getElementById("mc-horapart-"+i); if(hp&&d.hIng) hp.value=d.hIng; }
     mcSF("mc-hrec-"+i, d.hRec);
     mcSF("mc-hleg-"+i, d.hLleg);
+    mcSF("mc-hpres-"+i, d.hPres);
     mcSF("mc-hing-"+i, d.hIng);
     mcSF("mc-hsal-"+i, d.hSal);
     mcSF("mc-obs-"+i, d.obs);
@@ -12316,7 +12317,7 @@ function mcRDatos(){
     var dias0 = mcCalcularDias(fi, ff);
     MC_DIAS_ACTIVOS = dias0.map(function(d){ return d.nombre; });
     MC_FECHAS_ACTIVAS = dias0.map(function(d){ return d.fecha; });
-    while(mcData.length < dias0.length){ mcData.push({tipo:"entrenamiento",rel:"",lugar:"",lugEnt:"",hRec:"",hLleg:"",hIng:"",hSal:"",obs:"",carga:"baja",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:"",rival:"",jornada:"",estadio:"",localVisita:"local",horaPartido:""}); }
+    while(mcData.length < dias0.length){ mcData.push({tipo:"entrenamiento",rel:"",lugar:"",lugEnt:"",hRec:"",hLleg:"",hPres:"",hIng:"",hSal:"",obs:"",carga:"baja",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:"",rival:"",jornada:"",estadio:"",localVisita:"local",horaPartido:""}); }
     if(mcData.length > dias0.length) mcData = mcData.slice(0, dias0.length);
   }
   mcRenderGridLog();
@@ -12409,7 +12410,7 @@ function mcActualizarDias(){
   var plantillaDia = function(){
     return {
       tipo:"entrenamiento", rel:"+1",
-      lugar:"",lugEnt:"",hRec:"",hLleg:"",hIng:"",hSal:"",obs:"",
+      lugar:"",lugEnt:"",hRec:"",hLleg:"",hPres:"",hIng:"",hSal:"",obs:"",
       carga:"baja",activ:"",post:false,postDesc:"",
       lugTac:"",contenido:"",obsTac:"",
       rival:"",jornada:"",estadio:"",localVisita:"local",horaPartido:""
@@ -12461,7 +12462,7 @@ function mcRenderGridLog(){
   var relOpts = ["-6","-5","-4","-3","-2","-1","MD","+1","+2","+3"];
   
   for(var i=0; i<nDias; i++){
-    var d = mcData[i] || {tipo:"entrenamiento",rel:"",lugar:"",lugEnt:"",hRec:"",hLleg:"",hIng:"",hSal:"",obs:""};
+    var d = mcData[i] || {tipo:"entrenamiento",rel:"",lugar:"",lugEnt:"",hRec:"",hLleg:"",hPres:"",hIng:"",hSal:"",obs:""};
     var isDesc = d.tipo==="descanso";
     var isMDDay = d.tipo==="partido";
     var _relValG = (d.rel && d.rel !== "DESCANSO") ? d.rel : (isDesc ? "" : "MD");
@@ -12488,6 +12489,7 @@ function mcRenderGridLog(){
         + "<div style='margin:6px 0 2px;border-top:1px solid rgba(255,255,255,.08);padding-top:6px;'><div class='fld'><label style='font-size:9px;font-weight:800;color:#a5b4fc;letter-spacing:.06em;text-transform:uppercase;'>🏟 Lugar de entrenamiento</label><input type='text' class='inp' style='font-size:11px;border-color:rgba(165,180,252,.35);background:rgba(99,102,241,.06);' id='mc-lugent-"+i+"' value='"+(d.lugEnt||"")+"' placeholder='ej. Bombona - cancha 2'></div></div>"
         + "<div class='fld'><label>Inicio recorrido</label><input type='time' class='inp' style='font-size:11px;' id='mc-hrec-"+i+"' value='"+(d.hRec||"")+"'></div>"
         + "<div class='fld'><label>Llegada</label><input type='time' class='inp' style='font-size:11px;' id='mc-hleg-"+i+"' value='"+(d.hLleg||"")+"'></div>"
+        + "<div class='fld'><label>Presentación / Inicio</label><input type='time' class='inp' style='font-size:11px;' id='mc-hpres-"+i+"' value='"+(d.hPres||"")+"'></div>"
         + "<div class='fld'><label>Ingesta</label><input type='time' class='inp' style='font-size:11px;' id='mc-hing-"+i+"' value='"+(d.hIng||"")+"'></div>"
         + "<div class='fld'><label>Salida</label><input type='time' class='inp' style='font-size:11px;' id='mc-hsal-"+i+"' value='"+(d.hSal||"")+"'></div>"
         + "<div class='fld'><label>Observaciones</label><input type='text' class='inp' style='font-size:11px;' id='mc-obs-"+i+"' value='"+(d.obs||"")+"' placeholder='ej. Crioterapia'></div>"
@@ -12672,12 +12674,17 @@ function mcRenderHistorial(){
 function mcGuardarAlSistema(){
   mcSaveDatos(); mcSaveFisico(); mcSaveTactico();
   // Guardar el microciclo completo
+  // Inyectar fecha dentro de cada día del data para que el calendario pueda buscarlo por fecha
+  var mcDataConFecha = JSON.parse(JSON.stringify(mcData||[]));
+  mcDataConFecha.forEach(function(d, i){
+    if(MC_FECHAS_ACTIVAS[i]) d.fecha = MC_FECHAS_ACTIVAS[i];
+  });
   var mcRecord = {
     numero: mcNumMicro||'',
     fechas: MC_FECHAS_ACTIVAS.slice(),
     dias: MC_DIAS_ACTIVOS.slice(),
     dias_nombres: MC_DIAS_ACTIVOS.slice(),
-    data: JSON.parse(JSON.stringify(mcData||[])),
+    data: mcDataConFecha,
     savedAt: new Date().toISOString()
   };
   localStorage.setItem('bfc_mc_last', JSON.stringify(mcRecord));
@@ -12746,6 +12753,7 @@ function mcSaveDatos(){
     var le=mcGFsafe("mc-lugent-"+ii);  if(le!=null) d.lugEnt = le;
     var hr=mcGFsafe("mc-hrec-"+ii);    if(hr!=null) d.hRec   = hr;
     var hl=mcGFsafe("mc-hleg-"+ii);    if(hl!=null) d.hLleg  = hl;
+    var hp2=mcGFsafe("mc-hpres-"+ii);  if(hp2!=null) d.hPres = hp2;
     var hi=mcGFsafe("mc-hing-"+ii);    if(hi!=null) d.hIng   = hi;
     var hs=mcGFsafe("mc-hsal-"+ii);    if(hs!=null) d.hSal   = hs;
     var ob=mcGFsafe("mc-obs-"+ii);     if(ob!=null) d.obs    = ob;
@@ -12923,7 +12931,7 @@ function mcRPreview(){
       MC_DIAS_ACTIVOS = diasP.map(function(d){return d.nombre;});
       MC_FECHAS_ACTIVAS = diasP.map(function(d){return d.fecha;});
       mcFechaFin = ffp;
-      while(mcData.length < diasP.length){ mcData.push({tipo:"entrenamiento",rel:"",lugar:"",lugEnt:"",hRec:"",hLleg:"",hIng:"",hSal:"",obs:"",carga:"baja",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:"",rival:"",jornada:"",estadio:"",localVisita:"local",horaPartido:""}); }
+      while(mcData.length < diasP.length){ mcData.push({tipo:"entrenamiento",rel:"",lugar:"",lugEnt:"",hRec:"",hLleg:"",hPres:"",hIng:"",hSal:"",obs:"",carga:"baja",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:"",rival:"",jornada:"",estadio:"",localVisita:"local",horaPartido:""}); }
       if(mcData.length > diasP.length) mcData = mcData.slice(0, diasP.length);
     }
   }
@@ -13004,7 +13012,7 @@ function mcBadge(c){
 
 // PLANTILLA 1 LOGISTICA
 function mcPL1(semUP,rival,jornada,horaP,estadio){
-  var LBLS = ["LUGAR RECORRIDO","LUGAR ENTRENAMIENTO","INICIO RECORRIDO","HORA DE LLEGADA","PRESENTACION","INGESTA","SALIDA","OBSERVACIONES"];
+  var LBLS = ["LUGAR RECORRIDO","LUGAR ENTRENAMIENTO","INICIO RECORRIDO","HORA DE LLEGADA","PRESENTACIÓN / INICIO","INGESTA","SALIDA","OBSERVACIONES"];
   // Paleta oscura alineada con el sistema navy
   var NAV="#0f1623", NAV2="#162035", BORDER="rgba(255,255,255,.12)", TXTD="#e2e8f0", TXTS="rgba(255,255,255,.5)", CREAM="#162035", DARK="#131c28";
   var h = "<div style='font-family:Arial,sans-serif;background:"+DARK+";border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.08);box-shadow:0 4px 24px rgba(0,0,0,.4);'>";
@@ -13079,7 +13087,7 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
       else if(li===1) val=d.lugEnt||"";
       else if(li===2) val=fmtH(d.hRec);
       else if(li===3) val=fmtH(d.hLleg);
-      else if(li===4) val=fmtH(d.hRec);
+      else if(li===4) val=fmtH(d.hPres);
       else if(li===5) val=fmtH(d.hIng);
       else if(li===6) val=fmtH(d.hSal);
       else if(li===7) val=d.obs||"";
@@ -13214,7 +13222,7 @@ function mcEjemplo(){
     {tipo:"viaje",rel:"MD-1",lugar:"Aeropuerto",hRec:"08:00",hLleg:"",hIng:"",hSal:"",obs:"Vuelo 8:50 AM",carga:"baja",activ:"Movilidad en el hotel\nVideo motivacional DEF",post:false,postDesc:"",lugTac:"Aeropuerto",contenido:"Vuelo de ida\nVideo motivacional DEF",obsTac:""},
     {tipo:"partido",rel:"MD",lugar:"",lugEnt:"",hRec:"06:00",hLleg:"07:00",hIng:"17:00",hSal:"11:30",obs:"Crioterapia",carga:"partido",activ:"Crioterapia\nHidratacion",post:true,postDesc:"Crioterapia 15 min + Video post-partido",lugTac:"Estadio Pascual Guerrero",contenido:"Partido Oficial",obsTac:""},
     {tipo:"viaje",rel:"MD+1",lugar:"Aeropuerto",hRec:"08:55",hLleg:"",hIng:"",hSal:"",obs:"Vuelo regreso 8:55 AM",carga:"viaje",activ:"Vuelo de regreso",post:true,postDesc:"Restauracion en vuelo",lugTac:"Aeropuerto",contenido:"Vuelo de regreso",obsTac:""},
-    {tipo:"descanso",rel:"DESCANSO",lugar:"",lugEnt:"",hRec:"",hLleg:"",hIng:"",hSal:"",obs:"",carga:"descanso",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
+    {tipo:"descanso",rel:"DESCANSO",lugar:"",lugEnt:"",hRec:"",hLleg:"",hPres:"",hIng:"",hSal:"",obs:"",carga:"descanso",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
     {tipo:"entrenamiento",rel:"-3",lugar:"Bombona",hRec:"06:00",hLleg:"07:00",hIng:"07:20",hSal:"11:30",obs:"Crioterapia",carga:"media",activ:"Restauracion y compensacion 15 min\nActivacion",post:false,postDesc:"",lugTac:"Bombona",contenido:"Fundamentos colectivos ofensivos\nEstructura - intenciones - hombres clave",obsTac:"Presentacion post partido"}
   ];
   ejs.forEach(function(e,i){ Object.keys(e).forEach(function(k){ mcData[i][k]=e[k]; }); });
