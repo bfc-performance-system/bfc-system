@@ -763,13 +763,17 @@ function fbEscuchar() {
     if (d.neuro && JSON.stringify(d.neuro) !== JSON.stringify(NEURO)) { NEURO = d.neuro; rerender = true; }
     if (d.evs   && JSON.stringify(d.evs)   !== JSON.stringify(EVS))   {
       // Filtrar eventos fantasma "vs Rival" antes de aplicar al estado
-      EVS = safeArr(d.evs).filter(function(ev){
+      var evsRemoto = safeArr(d.evs).filter(function(ev){
         if(ev.tipo !== 'partido') return true;
         var t = (ev.titulo||'').trim().toLowerCase();
         if(t === 'bfc vs rival' || t.endsWith(' vs rival')) return false;
         if((ev.rival||'').trim().toLowerCase() === 'rival') return false;
         return true;
       });
+      // Merge: conservar items locales que el remoto no tiene (ej: nota recién guardada aún no sincronizada)
+      var idsRemoto = {}; evsRemoto.forEach(function(e){ idsRemoto[e.id]=true; });
+      var soloLocal = EVS.filter(function(e){ return e.id && !idsRemoto[e.id]; });
+      EVS = evsRemoto.concat(soloLocal);
       try{ localStorage.setItem('bfc_evs', JSON.stringify(EVS)); }catch(e){}
       rerender = true;
     }
@@ -6280,6 +6284,11 @@ function renderProgramacion() {
       h += "<div style='margin-top:2px;'>" + cdefHtml(ses4.cdefSel) + "</div>";
     }
 
+    // ── NOTA STAFF visible ──
+    if (_notaDia) {
+      h += "<div style='margin-top:3px;font-size:7px;font-weight:700;color:#a5b4fc;background:rgba(165,180,252,.1);border-radius:4px;padding:2px 5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;' title='" + (_notaDia.titulo||'').replace(/'/g,'&#39;') + "'>📌 " + (_notaDia.titulo||'').replace(/</g,'&lt;').substring(0,28) + ((_notaDia.titulo||'').length>28?'…':'') + "</div>";
+    }
+
     h += "</div>";
   }
 
@@ -6360,7 +6369,7 @@ function renderProgramacion() {
   h += "<div style='display:flex;gap:8px;align-items:center;'>";
   h += "<input type='text' id='_prog_nota_inp' value='" + notaValHoy.replace(/'/g,'&#39;').replace(/</g,'&lt;') + "' placeholder='Aviso para el cuerpo técnico hoy…' maxlength='120'";
   h += " style='flex:1;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:8px 12px;font-size:13px;font-weight:600;color:#cbd5e1;outline:none;'>";
-  h += "<button onclick=\"(function(){ var v=document.getElementById('_prog_nota_inp').value.trim(); var idx=-1; for(var i=0;i<EVS.length;i++){if(EVS[i].tipo==='nota_staff'&&EVS[i].fecha==='" + todayStr + "'){idx=i;break;}} if(v){if(idx>=0){EVS[idx].titulo=v;}else{EVS.push({id:'ns_'+Date.now(),tipo:'nota_staff',fecha:'" + todayStr + "',titulo:v,autor:'staff'});} } else { if(idx>=0) EVS.splice(idx,1); } guardar(); renderProgramacion(); })()\"";
+  h += "<button onclick=\"(function(){ var v=document.getElementById('_prog_nota_inp').value.trim(); var idx=-1; for(var i=0;i<EVS.length;i++){if(EVS[i].tipo==='nota_staff'&&EVS[i].fecha==='" + todayStr + "'){idx=i;break;}} if(v){if(idx>=0){EVS[idx].titulo=v;}else{EVS.push({id:'ns_'+Date.now(),tipo:'nota_staff',fecha:'" + todayStr + "',titulo:v,autor:'staff'});} } else { if(idx>=0) EVS.splice(idx,1); } try{localStorage.setItem('bfc_evs',JSON.stringify(EVS));}catch(e){} if(typeof fbGuardar==='function') fbGuardar(); renderProgramacion(); })()\"";
   h += " style='background:rgba(99,102,241,.3);border:1px solid rgba(99,102,241,.5);border-radius:9px;padding:8px 16px;color:#a5b4fc;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>Publicar</button>";
   h += "</div></div></div>";
 
@@ -13175,7 +13184,8 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
     var thBg = isMD ? NAV : CREAM;
     var thCol = isMD ? "#fff" : isDesc ? "#c9cdd4" : TXTD;
     var thBorder = isMD ? NAV : BORDER;
-    h += "<th style='padding:9px 6px;background:"+thBg+";font-size:11px;font-weight:800;color:"+thCol+";text-align:center;border-right:1px solid "+BORDER+";border-bottom:2px solid "+thBorder+";'>";
+    var thBorderBottom = (isMD||isDesc) ? "0" : "2px solid "+thBorder;
+    h += "<th style='padding:9px 6px;background:"+thBg+";font-size:11px;font-weight:800;color:"+thCol+";text-align:center;border-right:1px solid "+BORDER+";border-bottom:"+thBorderBottom+";'>";
     var fechaDia=MC_FECHAS_ACTIVAS[i]?parseInt(MC_FECHAS_ACTIVAS[i].slice(8)):"";
     h += (MC_DIAS_ACTIVOS[i]||MC_DIAS[i]).toUpperCase()+(fechaDia?"<br><span style='font-size:10px;font-weight:400;opacity:.6;'>"+fechaDia+"</span>":"");
     if(isMD && mcLogoRival) h += "<br><img src='"+mcLogoRival+"' style='width:26px;height:26px;object-fit:contain;margin-top:4px;'>";
@@ -13194,8 +13204,8 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
       // Descanso: rowspan sin líneas internas
       if(isDesc){
         if(li===0){ descDone.push(i);
-          h += "<td rowspan='"+LBLS.length+"' style='padding:6px;background:"+NAV+";text-align:center;vertical-align:middle;border-right:1px solid "+BORDER+";border-left:0;border-top:0;border-bottom:0;'>";
-          h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.18em;writing-mode:vertical-rl;text-orientation:mixed;transform:rotate(180deg);text-align:center;margin:auto;'>DESCANSO</div></td>";
+          h += "<td rowspan='"+LBLS.length+"' style='padding:6px;background:"+NAV+";text-align:center;vertical-align:middle;border:0;'>";
+          h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.18em;writing-mode:vertical-rl;text-orientation:mixed;text-align:center;margin:auto;'>DESCANSO</div></td>";
         }
         return;
       }
@@ -13209,7 +13219,7 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
           var logoHtml = mcLogoRival
             ? "<img src='"+mcLogoRival+"' style='width:28px;height:28px;object-fit:contain;display:block;margin:0 auto 4px;'>"
             : "<div style='font-size:22px;text-align:center;margin-bottom:4px;'>&#127942;</div>";
-          h += "<td rowspan='"+LBLS.length+"' style='padding:6px 4px;background:"+NAV+";text-align:center;vertical-align:middle;border-right:1px solid "+BORDER+";border-left:0;border-top:0;border-bottom:0;overflow:hidden;'>";
+          h += "<td rowspan='"+LBLS.length+"' style='padding:6px 4px;background:"+NAV+";text-align:center;vertical-align:middle;border:0;overflow:hidden;'>";
           h += "<div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;'>";
           h += logoHtml;
           if(rivalMD) h += "<div style='font-size:9px;font-weight:800;color:rgba(255,255,255,.9);word-break:break-word;overflow-wrap:break-word;max-width:100%;line-height:1.2;'>"+rivalMD+"</div>";
@@ -13266,7 +13276,7 @@ function mcPL2(sem2,rival,jornada,horaP,estadio){
     h += "<div style='font-size:10px;font-weight:800;color:"+dayCol+";text-align:center;text-transform:uppercase;padding:3px 6px;border-radius:99px;background:"+dayBg+";margin-bottom:4px;'>"+(MC_DIAS_ACTIVOS[i]||MC_DIAS[i])+"</div>";
     if(relLbl) h += "<div style='text-align:center;font-size:9px;font-weight:900;color:"+(isMD?"#fbbf24":"rgba(165,180,252,.85)")+";letter-spacing:.08em;margin-bottom:6px;'>"+relLbl+"</div>";
     if(isDesc){
-      h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.18em;writing-mode:vertical-rl;text-orientation:mixed;transform:rotate(180deg);text-align:center;margin:20px auto 0;'>DESCANSO</div>";
+      h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.18em;writing-mode:vertical-rl;text-orientation:mixed;text-align:center;margin:20px auto 0;'>DESCANSO</div>";
     } else if(isViaje){
       h += "<div style='font-size:11px;font-weight:700;color:"+TXTS+";text-align:center;margin-bottom:4px;'>"+(d.lugar||"Aeropuerto")+"</div>";
       h += "<div style='text-align:center;font-size:26px;margin:8px 0;'>&#9992;&#65039;</div>";
@@ -13310,7 +13320,7 @@ function mcPL3(sem2,rival,jornada,horaP,estadio){
     h += "<div style='font-size:10px;font-weight:800;color:#fff;text-align:center;text-transform:uppercase;padding:3px 6px;border-radius:6px;background:"+dayBg+";margin-bottom:4px;'>"+(MC_DIAS_ACTIVOS[i]||MC_DIAS[i])+"</div>";
     if(relLbl3) h += "<div style='text-align:center;font-size:9px;font-weight:900;color:"+(isMD?"#fbbf24":"rgba(165,180,252,.85)")+";letter-spacing:.08em;margin-bottom:6px;'>"+relLbl3+"</div>";
     if(isDesc){
-      h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.18em;writing-mode:vertical-rl;text-orientation:mixed;transform:rotate(180deg);text-align:center;margin:20px auto 0;'>DESCANSO</div>";
+      h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.18em;writing-mode:vertical-rl;text-orientation:mixed;text-align:center;margin:20px auto 0;'>DESCANSO</div>";
     } else if(isViaje){
       h += "<div style='font-size:11px;font-weight:700;color:"+TXTS+";text-align:center;'>"+(d.lugar||"Aeropuerto")+"</div>";
       h += "<div style='text-align:center;font-size:26px;margin:8px 0;'>&#9992;&#65039;</div>";
