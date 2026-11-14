@@ -777,18 +777,24 @@ function fbEscuchar() {
       try{ localStorage.setItem('bfc_evs', JSON.stringify(EVS)); }catch(e){}
       rerender = true;
     }
-    if (d.jdb   && JSON.stringify(d.jdb)   !== JSON.stringify(JDB))   {
-      // Merge fotos: preferir la foto que viene de Firebase (ya comprimida) si existe.
-      // Si Firebase no trae foto para un jugador, conservar la que haya en localStorage local.
+    if (d.jdb) {
+      // Merge fotos: combinar datos de Firebase con fotos locales
+      // Firebase puede no tener fotos grandes (excluidas por límite de tamaño)
       var _localJDB=[]; try{ var _ljs=localStorage.getItem('bfc_jdb'); if(_ljs) _localJDB=JSON.parse(_ljs)||[]; }catch(e){}
-      JDB = safeArr(d.jdb).map(function(fJ){
-        if(!fJ.foto){
-          var lc=_localJDB.find(function(x){ return x.id===fJ.id; });
-          if(lc&&lc.foto) fJ.foto=lc.foto; // fallback: foto local si Firebase no tiene
-        }
+      var _localJDBMap={}; _localJDB.forEach(function(j){ if(j.id) _localJDBMap[j.id]=j; });
+      var _newJDB = safeArr(d.jdb).map(function(fJ){
+        var lc = _localJDBMap[fJ.id];
+        // Preferir foto de Firebase si existe; si no, usar foto local
+        if(!fJ.foto && lc && lc.foto) fJ.foto = lc.foto;
         return fJ;
       });
-      rerender = true;
+      // Solo actualizar si hay cambio real (ignorando diferencias de foto que son solo locales)
+      var _jdbSinFoto = function(arr){ return JSON.stringify(safeArr(arr).map(function(j){ var c=Object.assign({},j); delete c.foto; return c; })); };
+      if (_jdbSinFoto(d.jdb) !== _jdbSinFoto(JDB)) {
+        JDB = _newJDB;
+        try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){} // ← guardar en localStorage con fotos
+        rerender = true;
+      }
     }
     if (d.sdb   && JSON.stringify(d.sdb)   !== JSON.stringify(SDB))   { SDB   = d.sdb;   rerender = true; }
     // disp_db — solo aplica si viene con ts más reciente que el guardado local
@@ -810,17 +816,27 @@ function fbEscuchar() {
     if (d.ejercicios && JSON.stringify(d.ejercicios) !== JSON.stringify(EJERCICIOS_DB)) { EJERCICIOS_DB = d.ejercicios; try{ localStorage.setItem('BFC_EJERCICIOS', JSON.stringify(EJERCICIOS_DB)); }catch(e){} rerender = true; }
     if (d.notif && JSON.stringify(d.notif) !== JSON.stringify(NOTIF_DB))        { NOTIF_DB  = d.notif;     try{ localStorage.setItem('BFC_NOTIF', JSON.stringify(NOTIF_DB)); }catch(e){} rerender = true; notifActualizarBadge(); }
     // Claves adicionales — escribir directamente a localStorage
-    // mc_hist: usar 'in' para detectar null/vacío (Firebase elimina arrays vacíos → null)
+    // mc_hist: merge por _hkey — el registro con savedAt más reciente gana por clave, nunca se pierde uno del otro dispositivo
     if ('mc_hist' in d) {
-      var _localMcTs = 0; try{ var _lmct=localStorage.getItem('bfc_mc_hist_ts'); if(_lmct) _localMcTs=parseInt(_lmct)||0; }catch(e){}
-      var _remoteMcTs = d.mc_hist_ts || 0;
-      if (_remoteMcTs >= _localMcTs) {
-        var _mcHistRemoto = safeArr(d.mc_hist); // null → []
-        var _mcHistLocal = []; try{ var _lmh=localStorage.getItem('bfc_mc_hist'); if(_lmh) _mcHistLocal=JSON.parse(_lmh)||[]; }catch(e){}
-        if (JSON.stringify(_mcHistRemoto) !== JSON.stringify(_mcHistLocal)) {
-          try{ localStorage.setItem('bfc_mc_hist', JSON.stringify(_mcHistRemoto)); localStorage.setItem('bfc_mc_hist_ts', String(_remoteMcTs)); }catch(e){}
-          rerender = true;
-        }
+      var _mcHistRemoto = safeArr(d.mc_hist); // null → []
+      var _mcHistLocal = []; try{ var _lmh=localStorage.getItem('bfc_mc_hist'); if(_lmh) _mcHistLocal=JSON.parse(_lmh)||[]; }catch(e){}
+      // Merge: combinar por _hkey, el más reciente (savedAt) gana
+      var _mcMapa = {};
+      _mcHistLocal.forEach(function(r){ if(r._hkey) _mcMapa[r._hkey] = r; });
+      _mcHistRemoto.forEach(function(r){
+        if(!r._hkey) return;
+        var local = _mcMapa[r._hkey];
+        // El remoto gana si no existe local, o si tiene savedAt más reciente
+        if(!local || (r.savedAt||0) >= (local.savedAt||0)) _mcMapa[r._hkey] = r;
+      });
+      // También incluir registros locales que no están en remoto (recién guardados, aún no subidos)
+      var _mcMerged = Object.keys(_mcMapa).map(function(k){ return _mcMapa[k]; });
+      // Ordenar por savedAt desc
+      _mcMerged.sort(function(a,b){ return (b.savedAt||0)-(a.savedAt||0); });
+      if (JSON.stringify(_mcMerged) !== JSON.stringify(_mcHistLocal)) {
+        var _newTs = Date.now();
+        try{ localStorage.setItem('bfc_mc_hist', JSON.stringify(_mcMerged)); localStorage.setItem('bfc_mc_hist_ts', String(_newTs)); }catch(e){}
+        rerender = true;
       }
     }
     if (d.mc_last)   { try{ localStorage.setItem('bfc_mc_last', JSON.stringify(d.mc_last)); }catch(e){} }
@@ -2964,7 +2980,10 @@ function plantillaGuardarEdicion(jid){
     comprimirFotoParaFirebase(_fotoNueva, function(fotoComprimida) {
       console.log('[BFC-FOTO] Foto comprimida:', fotoComprimida.length, 'chars. Guardando en jugador idx:', idx);
       arr[idx].foto = fotoComprimida;
+      try{ localStorage.setItem('bfc_jdb', JSON.stringify(arr)); }catch(e){} // guardar foto en localStorage inmediatamente
       _finalizarGuardadoEdicion();
+      // Llamar fbGuardarFotos explícitamente para asegurar sync de fotos a Firebase
+      setTimeout(function(){ if(typeof fbGuardarFotos==='function') fbGuardarFotos(); }, 1200);
     });
   } else {
     _finalizarGuardadoEdicion();
