@@ -762,9 +762,16 @@ function fbEscuchar() {
     if (d.neuro && JSON.stringify(d.neuro) !== JSON.stringify(NEURO)) { NEURO = d.neuro; rerender = true; }
     if (d.evs   && JSON.stringify(d.evs)   !== JSON.stringify(EVS))   { EVS   = d.evs;   rerender = true; }
     if (d.jdb   && JSON.stringify(d.jdb)   !== JSON.stringify(JDB))   {
-      // Restaurar fotos locales que Firebase no guarda (evita perder fotos al sincronizar)
+      // Merge fotos: preferir la foto que viene de Firebase (ya comprimida) si existe.
+      // Si Firebase no trae foto para un jugador, conservar la que haya en localStorage local.
       var _localJDB=[]; try{ var _ljs=localStorage.getItem('bfc_jdb'); if(_ljs) _localJDB=JSON.parse(_ljs)||[]; }catch(e){}
-      JDB = safeArr(d.jdb).map(function(fJ){ var lc=_localJDB.find(function(x){ return x.id===fJ.id; }); if(lc&&lc.foto) fJ.foto=lc.foto; return fJ; });
+      JDB = safeArr(d.jdb).map(function(fJ){
+        if(!fJ.foto){
+          var lc=_localJDB.find(function(x){ return x.id===fJ.id; });
+          if(lc&&lc.foto) fJ.foto=lc.foto; // fallback: foto local si Firebase no tiene
+        }
+        return fJ;
+      });
       rerender = true;
     }
     if (d.sdb   && JSON.stringify(d.sdb)   !== JSON.stringify(SDB))   { SDB   = d.sdb;   rerender = true; }
@@ -798,6 +805,16 @@ function fbEscuchar() {
       if (_remotePdTs >= _localPdTs) {
         _plantillaDisp = d.plantilla_disp||{};
         try{ localStorage.setItem('BFC_PLANTILLA_DISP', JSON.stringify(_plantillaDisp)); localStorage.setItem('BFC_PLANTILLA_DISP_TS', String(_remotePdTs)); }catch(e){}
+        rerender = true;
+      }
+    }
+    // cancha_pos — posiciones manuales de fichas en vista de cancha
+    if (d.cancha_pos) {
+      var _cpStr = JSON.stringify(d.cancha_pos);
+      var _localCpStr = ''; try{ _localCpStr = localStorage.getItem('BFC_CANCHA_POS')||''; }catch(e){}
+      if (_cpStr !== _localCpStr) {
+        _canchaPos = d.cancha_pos;
+        try{ localStorage.setItem('BFC_CANCHA_POS', _cpStr); }catch(e){}
         rerender = true;
       }
     }
@@ -892,8 +909,8 @@ function fbGuardar() {
     var _fbGpsCat = []; try{ var _r4=localStorage.getItem('BFC_GPS_CAT'); if(_r4) _fbGpsCat=JSON.parse(_r4)||[]; }catch(e){}
     var _fbCamposExtra = []; try{ var _r6=localStorage.getItem('BFC_BD_CAMPOS_EXTRA'); if(_r6) _fbCamposExtra=JSON.parse(_r6)||[]; }catch(e){}
     var _fbPerfCfg = {}; try{ var _r7=localStorage.getItem('BFC_PERF_VARS_CFG'); if(_r7) _fbPerfCfg=JSON.parse(_r7)||{}; }catch(e){}
-    // Strip foto (base64) de JDB antes de enviar a Firebase para evitar exceder el límite de 10MB
-    var jdbSinFotos = (JDB||[]).map(function(j){ var c=Object.assign({},j); delete c.foto; return c; });
+    // Incluir fotos solo si ya están comprimidas (≤20000 chars ≈ 15KB). Las originales se excluyen.
+    var jdbSinFotos = (JDB||[]).map(function(j){ var c=Object.assign({},j); if(c.foto && c.foto.length > 20000) delete c.foto; return c; });
     // ⚠️  disp_db y plantilla_disp NO están en este payload — se manejan con .update() aislado
     var payload = {
       pl: PL, carga: CARGA, bien: BIEN, neuro: NEURO, evs: EVS,
@@ -963,8 +980,8 @@ function fbForzarSync() {
   var _fbPlantDisp={}; try{ var _e=localStorage.getItem('BFC_PLANTILLA_DISP'); if(_e) _fbPlantDisp=JSON.parse(_e)||{}; }catch(e){}
   var _fbCamposExtra=[]; try{ var _f=localStorage.getItem('BFC_BD_CAMPOS_EXTRA'); if(_f) _fbCamposExtra=JSON.parse(_f)||[]; }catch(e){}
   var _fbPerfCfg={}; try{ var _g=localStorage.getItem('BFC_PERF_VARS_CFG'); if(_g) _fbPerfCfg=JSON.parse(_g)||{}; }catch(e){}
-  // Strip foto (base64) de JDB para no exceder el límite de Firebase
-  var jdbSinFotosForzar = (JDB||[]).map(function(j){ var c=Object.assign({},j); delete c.foto; return c; });
+  // Incluir fotos solo si ya están comprimidas (≤20000 chars ≈ 15KB). Las originales se excluyen.
+  var jdbSinFotosForzar = (JDB||[]).map(function(j){ var c=Object.assign({},j); if(c.foto && c.foto.length > 20000) delete c.foto; return c; });
   var _forzarTs = Date.now();
   var _forzarDispTs = 0; try{ var _fdt=localStorage.getItem('BFC_DISP_TS'); if(_fdt) _forzarDispTs=parseInt(_fdt)||0; }catch(e){}
   var _forzarPdTs = 0; try{ var _fpdt=localStorage.getItem('BFC_PLANTILLA_DISP_TS'); if(_fpdt) _forzarPdTs=parseInt(_fpdt)||0; }catch(e){}
@@ -983,6 +1000,7 @@ function fbForzarSync() {
     perf_vars_cfg: _fbPerfCfg,
     disp_ts: _forzarDispTs || _forzarTs,
     plantilla_disp_ts: _forzarPdTs || _forzarTs,
+    cancha_pos: _canchaPos || {},
     ts: _forzarTs
   };
   showToast('⏫ Subiendo todos los datos...');
@@ -1077,6 +1095,16 @@ function comprimirFotoParaFirebase(base64, cb) {
     img.onerror = function(){ cb(base64); }; // fallback: usar original si falla
     img.src = base64;
   } catch(e) { cb(base64); }
+}
+
+// ── Sincronizar posiciones manuales de cancha a Firebase ──
+function fbGuardarCanchaPos() {
+  if (!fbDB) return;
+  clearTimeout(window._FB_CANCHAPOS_TIMEOUT);
+  window._FB_CANCHAPOS_TIMEOUT = setTimeout(function() {
+    var _cp = {}; try{ var _r=localStorage.getItem('BFC_CANCHA_POS'); if(_r) _cp=JSON.parse(_r)||{}; }catch(e){}
+    fbDB.ref('bfc').update({ cancha_pos: _cp }).catch(function(e){ console.warn('[BFC] Error sync cancha_pos:', e.message); });
+  }, 600);
 }
 
 // ── Sincronizar fotos de JDB a Firebase de forma aislada (solo toca jdb) ──
@@ -1601,10 +1629,12 @@ try{ var _cpRaw=localStorage.getItem('BFC_CANCHA_POS'); if(_cpRaw) _canchaPos=JS
 function _canchaSavePos(jid, x, y){
   _canchaPos[jid] = {x: Math.round(x*100)/100, y: Math.round(y*100)/100};
   try{ localStorage.setItem('BFC_CANCHA_POS', JSON.stringify(_canchaPos)); }catch(e){}
+  if(typeof fbGuardarCanchaPos === 'function') fbGuardarCanchaPos();
 }
 function canchaResetPos(){
   _canchaPos = {};
   try{ localStorage.removeItem('BFC_CANCHA_POS'); }catch(e){}
+  if(typeof fbGuardarCanchaPos === 'function') fbGuardarCanchaPos();
   renderPlantilla();
 }
 // ── Drag & drop de fichas en cancha ────────────────────────────────────────
