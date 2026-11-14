@@ -905,6 +905,8 @@ function fbEscuchar() {
       try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
       rerender = true;
     }
+    // sesion_activa — no reenderizar automáticamente para no pisar ediciones locales
+    // El listener separado (sesEscucharFb) maneja esto con lógica de ts
     // Sincronizar también a localStorage como caché local
     fbVolcarALocalStorage();
     if (rerender) {
@@ -13288,12 +13290,12 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
   var nCols = mcData.length || 7;
   var TOTAL_ROWS = LBLS.length + 1; // +1 for header row
 
-  var h = "<div style='font-family:Arial,sans-serif;background:"+DARK+";border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.08);box-shadow:0 4px 24px rgba(0,0,0,.4);'>";
+  var h = "<div style='font-family:Arial,sans-serif;background:"+DARK+";border-radius:14px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.4);'>";
   // Header
   h += "<div style='padding:18px 20px 14px;text-align:center;position:relative;background:"+NAV+";border-bottom:3px solid "+NAV2+";'>";
-  h += "<img src='"+MC_LOGO+"' style='position:absolute;right:14px;top:50%;transform:translateY(-50%);width:46px;height:46px;object-fit:contain;'>";
+  h += "<img src='"+MC_LOGO+"' style='position:absolute;right:14px;top:50%;transform:translateY(-50%);width:46px;height:46px;object-fit:contain;border-radius:50%;border:2px solid rgba(99,102,241,.7);'>";
   h += "<div style='font-size:28px;font-weight:900;color:#fff;font-style:italic;letter-spacing:.02em;line-height:1;'>MICROCICLO</div>";
-  h += "<div style='font-size:11px;font-weight:600;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.12em;margin-top:6px;'>INFORMACIÓN LOGÍSTICA</div>";
+  h += "<div style='font-size:11px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:.12em;margin-top:6px;'>INFORMACIÓN LOGÍSTICA</div>";
   h += "<div style='margin-top:8px;display:inline-block;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:99px;padding:3px 16px;font-size:10px;color:rgba(255,255,255,.5);letter-spacing:.08em;'>"+semUP+"</div>";
   h += "</div>";
 
@@ -13401,9 +13403,9 @@ function mcPL2(sem2,rival,jornada,horaP,estadio){
   var NAV="#0f1623", NAV2="#162035", BORDER="rgba(255,255,255,.1)", TXTD="#e2e8f0", TXTS="rgba(255,255,255,.55)", DARK="#131c28";
   var h = "<div style='font-family:Arial,sans-serif;background:"+DARK+";border-radius:14px;border:1px solid rgba(255,255,255,.08);overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.4);'>";
   h += "<div style='background:"+NAV+";padding:14px 20px;text-align:center;border-bottom:3px solid "+NAV2+";position:relative;'>";
-  h += "<img src='"+MC_LOGO+"' style='position:absolute;right:14px;top:50%;transform:translateY(-50%);width:46px;height:46px;object-fit:contain;'>";
+  h += "<img src='"+MC_LOGO+"' style='position:absolute;right:14px;top:50%;transform:translateY(-50%);width:46px;height:46px;object-fit:contain;border-radius:50%;border:2px solid rgba(99,102,241,.7);'>";
   h += "<div style='font-size:28px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.02em;line-height:1;'>PROGRAMACI&Oacute;N SEMANAL</div>";
-  h += "<div style='font-size:12px;font-weight:600;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.08em;margin-top:4px;'>ENTRENAMIENTO COMPLEMENTARIO</div>";
+  h += "<div style='font-size:12px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:.08em;margin-top:4px;'>ENTRENAMIENTO COMPLEMENTARIO</div>";
 
   h += "</div><div style='display:grid;grid-template-columns:repeat("+(mcData.length||7)+",1fr);background:"+DARK+";'>";
   mcData.forEach(function(d,i){
@@ -13447,9 +13449,9 @@ function mcPL3(sem2,rival,jornada,horaP,estadio){
   var NAV="#0f1623", NAV2="#162035", BORDER="rgba(255,255,255,.1)", TXTD="#e2e8f0", TXTS="rgba(255,255,255,.55)", DARK="#131c28";
   var h = "<div style='font-family:Arial,sans-serif;background:"+DARK+";border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.08);box-shadow:0 4px 24px rgba(0,0,0,.4);'>";
   h += "<div style='background:"+NAV+";padding:14px 20px;text-align:center;border-bottom:3px solid "+NAV2+";position:relative;'>";
-  h += "<img src='"+MC_LOGO+"' style='position:absolute;right:14px;top:50%;transform:translateY(-50%);width:46px;height:46px;object-fit:contain;'>";
+  h += "<img src='"+MC_LOGO+"' style='position:absolute;right:14px;top:50%;transform:translateY(-50%);width:46px;height:46px;object-fit:contain;border-radius:50%;border:2px solid rgba(99,102,241,.7);'>";
   h += "<div style='font-size:28px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.02em;line-height:1;'>PROGRAMACI&Oacute;N SEMANAL</div>";
-  h += "<div style='font-size:12px;font-weight:600;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.08em;margin-top:4px;'>PLANIFICACIÓN TÁCTICA</div>";
+  h += "<div style='font-size:12px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:.08em;margin-top:4px;'>PLANIFICACIÓN TÁCTICA</div>";
 
   h += "</div><div style='display:grid;grid-template-columns:repeat("+(mcData.length||7)+",1fr);background:"+DARK+";'>";
   mcData.forEach(function(d,i){
@@ -13480,7 +13482,11 @@ function mcPL3(sem2,rival,jornada,horaP,estadio){
     }
     h += "</div>";
   });
-  h += "</div><div style='background:"+NAV+";padding:8px;text-align:center;font-size:10px;color:rgba(255,255,255,.4);border-top:1px solid "+BORDER+";letter-spacing:.06em;'>"+sem2+"</div></div>";
+  var _fechaGen3 = new Date().toLocaleDateString('es-CO',{day:'numeric',month:'long',year:'numeric'});
+  h += "</div><div style='background:"+NAV+";padding:10px 16px;text-align:center;border-top:2px solid rgba(99,102,241,.5);'>"
+    + "<div style='font-size:11px;font-weight:700;color:#fff;letter-spacing:.03em;'>Barranquilla FC &nbsp;&middot;&nbsp; Documento generado el "+_fechaGen3+"</div>"
+    + "<div style='font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.05em;'>"+sem2+"</div>"
+    + "</div></div>";
   return h;
 }
 
@@ -15168,9 +15174,16 @@ function mcGetPlantillasHTML(){
   var estadio  = primerP.estadio  || (pIdx>=0 && document.getElementById('mc-estadio-'+pIdx)  ? document.getElementById('mc-estadio-'+pIdx).value  : "") || "";
   var semUP    = mcSemStr(MC_FECHAS_ACTIVAS[0]||"",true);
   var sem2     = mcSemStr(MC_FECHAS_ACTIVAS[0]||"",false);
-  return "<div style='display:flex;flex-direction:column;gap:24px;padding:16px;background:#131c28;'>"
+  var SEP = "<div style='height:4px;background:linear-gradient(90deg,transparent,rgba(99,102,241,.65) 15%,rgba(99,102,241,.65) 85%,transparent);border-radius:2px;margin:0 8px;'></div>";
+  return "<div style='display:flex;flex-direction:column;gap:0;padding:16px;background:#131c28;'>"
     + mcPL1(semUP,rival,jornada,horaP,estadio)
+    + "<div style='height:20px;background:#131c28;'></div>"
+    + SEP
+    + "<div style='height:20px;background:#131c28;'></div>"
     + mcPL2(sem2,rival,jornada,horaP,estadio)
+    + "<div style='height:20px;background:#131c28;'></div>"
+    + SEP
+    + "<div style='height:20px;background:#131c28;'></div>"
     + mcPL3(sem2,rival,jornada,horaP,estadio)
     + "</div>";
 }
@@ -15250,23 +15263,25 @@ function mcPDFModal(){
 }
 
 function mcPNGModal(){
-  var area = document.getElementById('mc-plantillas-modal');
-  if(!area){ alert('No hay plantillas para descargar.'); return; }
+  // Usamos un div temporal con el HTML completo (igual que mcDescargaDirectaPNG)
+  // para que los separadores y el pie de página queden incluidos
+  if(!document.getElementById('mc-plantillas-modal')){ alert('No hay plantillas para descargar.'); return; }
   function doCapture(){
+    var tmp = document.createElement('div');
+    tmp.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1100px;background:#131c28;';
+    tmp.innerHTML = mcGetPlantillasHTML();
+    document.body.appendChild(tmp);
     toast('Generando imagen...');
-    // Ocultar todos los botones "Descargar solo esta" para que no aparezcan en el PNG
-    var btnsIndiv = area.querySelectorAll('button[onclick*="mcPNGIndividual"]');
-    btnsIndiv.forEach(function(b){ b.style.visibility='hidden'; });
-    html2canvas(area, {scale:3, useCORS:true, allowTaint:true, backgroundColor:'#131c28', logging:false,
-      width:area.scrollWidth, height:area.scrollHeight})
+    html2canvas(tmp, {scale:3, useCORS:true, allowTaint:true, backgroundColor:'#131c28', logging:false,
+      width:tmp.scrollWidth, height:tmp.scrollHeight})
       .then(function(canvas){
-        btnsIndiv.forEach(function(b){ b.style.visibility=''; });
+        document.body.removeChild(tmp);
         var a = document.createElement('a');
         a.download = 'BFC_Microciclo_'+(mcNumMicro||'semana').replace(/\s/g,'_')+'.png';
         a.href = canvas.toDataURL('image/png');
         a.click();
         toast('✅ Imagen descargada');
-      }).catch(function(e){ btnsIndiv.forEach(function(b){ b.style.visibility=''; }); alert('Error generando imagen: '+e.message); });
+      }).catch(function(e){ document.body.removeChild(tmp); alert('Error generando imagen: '+e.message); });
   }
   if(typeof html2canvas === 'undefined'){
     toast('Cargando librería...');
@@ -15583,8 +15598,136 @@ function reporteSemanal(){
 // MÓDULO SESIÓN DE ENTRENAMIENTO
 // ================================================
 var sesData = null;
+var _sesSyncTimeout = null;      // debounce auto-sync sesión activa
+var _sesLastSyncTs  = 0;         // timestamp del último sync exitoso
+var _sesEscuchando  = false;     // listener sesion_activa ya activo
+
+// ── Auto-sync sesión activa a Firebase (debounce 3s) ──────────────────
+function sesSyncFb(){
+  if(!window.fbDB) return;
+  if(!sesData) return;
+  clearTimeout(_sesSyncTimeout);
+  _sesSyncTimeout = setTimeout(function(){
+    // Marcar badge como "guardando"
+    var badge = document.getElementById('ses-sync-badge');
+    if(badge){ badge.textContent='💾 Guardando…'; badge.style.color='#fbbf24'; }
+    var payload = Object.assign({}, sesData, {
+      _ts: Date.now(),
+      _fecha: sesData.fecha || new Date().toISOString().slice(0,10)
+    });
+    window.fbDB.ref('bfc/sesion_activa').set(payload)
+      .then(function(){
+        _sesLastSyncTs = Date.now();
+        var badge2 = document.getElementById('ses-sync-badge');
+        if(badge2){ badge2.textContent='🟢 Guardado'; badge2.style.color='#34d399'; }
+        setTimeout(function(){
+          var b3=document.getElementById('ses-sync-badge');
+          if(b3&&b3.textContent==='🟢 Guardado'){ b3.textContent='🟢 En progreso'; b3.style.color='#34d399'; }
+        }, 2500);
+      })
+      .catch(function(e){
+        var badge2 = document.getElementById('ses-sync-badge');
+        if(badge2){ badge2.textContent='⚠️ Error sync'; badge2.style.color='#f87171'; }
+        console.warn('[BFC] Error sync sesion_activa:', e.message);
+      });
+  }, 3000);
+}
+
+// ── Escuchar cambios en sesion_activa desde otros dispositivos ─────────
+function sesEscucharFb(){
+  if(!window.fbDB || _sesEscuchando) return;
+  _sesEscuchando = true;
+  window.fbDB.ref('bfc/sesion_activa').on('value', function(snap){
+    var d = snap.val();
+    if(!d) return;
+    // Solo aplicar si viene de otro dispositivo (ts > nuestro último sync)
+    // y es del día de hoy
+    var hoyISO = new Date().toISOString().slice(0,10);
+    if((d._fecha||'') !== hoyISO) return;
+    if((d._ts||0) <= _sesLastSyncTs) return;
+    // Aplicar datos remotos: actualizar sesData sin pisar con una versión vieja
+    if(!sesData){ sesData = {}; }
+    var camposSeguros = ['sesionNum','morfociclo','tiempo','codigo','cdefSel','cdefNota',
+      'ses-tac','ses-tec','ses-fis','ses-psi','objtacof','objtacdef','objtecof','objtecdef',
+      'objfisof','objfisdef','objpsiof','objpsidef',
+      'faseFinal','observaciones','videoLink',
+      'rolDT','rolAT1','rolAT2','rolPF','rolVA',
+      'tareas','materialItems','jugadoresActivos','jugadoresExtra','jugadoresQuitados',
+      '_idsConocidos'];
+    camposSeguros.forEach(function(k){ if(k in d) sesData[k] = d[k]; });
+    _sesLastSyncTs = d._ts || Date.now();
+    // Re-renderizar si la página de sesión está activa
+    var pg = document.getElementById('page-sesion');
+    if(pg && pg.classList.contains('on')){
+      if(typeof renderSesion==='function') setTimeout(renderSesion, 100);
+    }
+    var badge = document.getElementById('ses-sync-badge');
+    if(badge){ badge.textContent='🔄 Actualizado'; badge.style.color='#60a5fa';
+      setTimeout(function(){ var b=document.getElementById('ses-sync-badge'); if(b) b.textContent='🟢 En progreso'; b.style.color='#34d399'; }, 2000); }
+  });
+}
+
+// ── Cargar sesión activa de hoy desde Firebase (al abrir el módulo) ────
+function sesCargarActivaFb(cb){
+  if(!window.fbDB){ if(cb) cb(false); return; }
+  window.fbDB.ref('bfc/sesion_activa').once('value', function(snap){
+    var d = snap.val();
+    if(!d){ if(cb) cb(false); return; }
+    var hoyISO = new Date().toISOString().slice(0,10);
+    if((d._fecha||d.fecha||'') !== hoyISO){ if(cb) cb(false); return; }
+    // Hay una sesión activa de hoy → cargarla
+    sesData = d;
+    delete sesData._ts; delete sesData._fecha;
+    if(cb) cb(true);
+  }, function(){ if(cb) cb(false); });
+}
+
+// ── Finalizar sesión: pasar al historial y limpiar sesion_activa ───────
+function sesFinalizar(){
+  if(!sesData){ toast('No hay sesión activa.'); return; }
+  sesSave();
+  guardarEnHistorial();
+  // Limpiar sesion_activa en Firebase
+  if(window.fbDB){
+    window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
+  }
+  // Limpiar sesData para nueva sesión
+  sesData = null;
+  _sesLastSyncTs = 0;
+  if(typeof renderSesion==='function') renderSesion();
+  toast('✅ Sesión finalizada y guardada en historial');
+  fbAuditLog('sesion','Sesión finalizada y movida al historial');
+}
+window.sesFinalizar = sesFinalizar;
 
 function sesInit(){
+  if(sesData) return;
+  // Intentar cargar sesión activa de hoy desde Firebase (asíncrono)
+  // Si existe, se cargará y renderizará. Si no, se inicializa en blanco abajo.
+  if(window.fbDB && !window._sesInitFbPendiente){
+    window._sesInitFbPendiente = true;
+    sesCargarActivaFb(function(cargado){
+      window._sesInitFbPendiente = false;
+      if(cargado){
+        // Escuchar cambios de otros dispositivos
+        if(typeof sesEscucharFb==='function') sesEscucharFb();
+        if(typeof renderSesion==='function') renderSesion();
+        if(typeof toast==='function') toast('📲 Sesión en progreso cargada desde Firebase');
+        return;
+      }
+      // No había sesión activa de hoy: init en blanco y empezar a escuchar
+      if(!sesData) _sesInitBlanco();
+      if(typeof sesEscucharFb==='function') sesEscucharFb();
+    });
+    // Poner un sesData provisional para que renderSesion no falle mientras espera
+    if(!sesData) _sesInitBlanco();
+    return;
+  }
+  _sesInitBlanco();
+  if(typeof sesEscucharFb==='function') sesEscucharFb();
+}
+
+function _sesInitBlanco(){
   if(sesData) return;
   var plantelBase = JDB.length>0 ? JDB : PL;
   var idsActivos = plantelBase.map(function(p){return p.id;});
@@ -15671,6 +15814,8 @@ function sesSave(){
     if(n||c) matItems.push({nombre:n, cantidad:c});
   });
   if(matItems.length) sesData.materialItems = matItems;
+  // Auto-sync a Firebase (debounce 3s) — colaboración multi-dispositivo
+  if(typeof sesSyncFb==='function') sesSyncFb();
 }
 
 function gEl(id){ var e=document.getElementById(id); return e?e.value:""; }
@@ -15979,12 +16124,19 @@ function renderSesion(){
   var h = "";
   // ── HEADER ──
   h += "<div class='ph'>";
-  h += "<div><div class='ph-title'>Sesión de entrenamiento</div><div class='ph-sub'>Planilla de sesión — lista para imprimir</div></div>";
-  h += "<div style='display:flex;gap:8px;flex-wrap:wrap;'>";
+  h += "<div>";
+  h += "<div class='ph-title'>Sesión de entrenamiento</div>";
+  h += "<div class='ph-sub' style='display:flex;align-items:center;gap:10px;'>";
+  h += "Planilla de sesión — lista para imprimir";
+  h += "<span id='ses-sync-badge' style='font-size:10px;font-weight:700;padding:2px 10px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.25);letter-spacing:.03em;'>📝 En progreso</span>";
+  h += "</div></div>";
+  h += "<div style='display:flex;gap:8px;flex-wrap:wrap;align-items:center;'>";
   h += "<button class='btn' onclick='sesAddTarea()'>+ Tarea nueva</button>";
   h += "<button class='btn-y' onclick='sesVerPreview()'>👁 Vista previa</button>";
   h += "<button class='btn-g' onclick='sesImprimir()'>PDF</button>";
   h += "<button class='btn' onclick='sesPNGDirecto()'>PNG</button>";
+  h += "<button onclick='sesGuardarManual()' style='padding:8px 14px;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.4);border-radius:9px;color:#a5b4fc;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>💾 Guardar borrador</button>";
+  h += "<button onclick='(function(){ if(!confirm("¿Finalizar la sesión y moverla al historial? Ya no se podrá editar como sesión activa (sí desde el historial).")) return; sesFinalizar(); })()' style='padding:8px 14px;background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);border-radius:9px;color:#6ee7b7;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>✅ Finalizar sesión</button>";
   h += "</div></div>";
 
   // ── REPETIR SESIÓN ANTERIOR ──
@@ -16002,32 +16154,55 @@ function renderSesion(){
 
   // ── COLUMNA IZQUIERDA: Lista de jugadores ──
   h += "<div>";
-  // Sincronizar jugadoresActivos con plantel si no está inicializado
+  // Sincronizar jugadoresActivos con plantel:
+  // — Si no existe, inicializar con todos
+  // — Si ya existe, agregar jugadores nuevos del plantel que no estén en la lista
+  //   (sin borrar los que se quitaron manualmente)
   if(!sesData.jugadoresActivos){
     sesData.jugadoresActivos = plantelAll.map(function(p){return p.id;});
+  } else {
+    // Agregar jugadores nuevos del plantel que no estén en la lista todavía.
+    // Los que están ausentes (quitados manualmente) no están en jugadoresActivos,
+    // pero sí existen en plantelAll desde antes — sólo agregamos IDs que nunca
+    // estuvieron: comparamos con la unión de activos + todos los plantelAll previos.
+    var _idsConocidos = sesData._idsConocidos || [];
+    plantelAll.forEach(function(p){
+      var yaConocido = _idsConocidos.indexOf(p.id) >= 0;
+      var yaActivo   = sesData.jugadoresActivos.indexOf(p.id) >= 0;
+      if(!yaConocido && !yaActivo){
+        // Jugador nuevo en el plantel → agregarlo a activos automáticamente
+        sesData.jugadoresActivos.push(p.id);
+      }
+    });
+    // Actualizar lista de IDs conocidos para próximas ejecuciones
+    sesData._idsConocidos = plantelAll.map(function(p){ return p.id; });
   }
   if(!sesData.jugadoresExtra) sesData.jugadoresExtra = [];
 
-  // ── Clasificar jugadores según disponibilidad ──
+  // ── Clasificar jugadores según disponibilidad para la SESIÓN ──
+  // Regla: en la sesión importa quién ESTÁ EN LA SEDE ese día (ingesta, refrigerios, etc.)
+  // → TODOS van en la lista: disponibles, readaptación, rehabilitación, recuperación, restricción
+  // → El ÚNICO que NO aparece es el que el entrenador marcó "No disponible" en Plantilla (override táctico)
+  //   o el que se quitó manualmente con el botón ✕
   var hoyStr = TODAY;
   var plantelBase = JDB.length>0 ? JDB : PL;
-  // Disponibles: en jugadoresActivos Y disponible según DISP_DB/_plantillaDisp
-  // No disponibles / lesionados: en jugadoresActivos pero DISP_DB / _plantillaDisp los marca
   var dispArr = []; var noDispArr = [];
   plantelBase.forEach(function(p){
     var estaActivo = sesData.jugadoresActivos.indexOf(p.id) >= 0;
-    if(!estaActivo) return; // quitado manualmente — se muestra en "Ausentes"
+    if(!estaActivo) return; // quitado manualmente con ✕ — aparece en "Ausentes"
     var dispEst = dispGetEstado(p.id, hoyStr);
     var ovTac = _plantillaDisp[p.id]||null;
-    // Normalizar override táctico viejo formato
     if(typeof ovTac === 'string'){
       ovTac = (ovTac==='ok') ? {estado:'disponible'} : (ovTac==='auto' ? null : {estado:'no_disponible'});
     }
-    var estFinal = (ovTac && ovTac.estado) ? ovTac.estado : (dispEst ? dispEst.estado : 'disponible');
-    if(estFinal==='disponible'){
-      dispArr.push(p);
+    // Solo el override táctico "no_disponible" lo saca de la sesión
+    var noDispTactico = ovTac && ovTac.estado === 'no_disponible';
+    if(noDispTactico){
+      noDispArr.push({jugador:p, estFinal:'no_disponible', dispEst:dispEst, ovTac:ovTac});
     } else {
-      noDispArr.push({jugador:p, estFinal:estFinal, dispEst:dispEst});
+      // Incluye disponibles, readaptación, rehabilitación, baja, recuperación, restricción
+      var estMed = (dispEst && dispEst.estado) ? dispEst.estado : 'disponible';
+      dispArr.push({jugador:p, estMed:estMed, dispEst:dispEst});
     }
   });
   var extras = sesData.jugadoresExtra||[];
@@ -16042,21 +16217,31 @@ function renderSesion(){
   if(quitados.length) h += "<button onclick='sesRestaurarTodos()' style='font-size:9px;padding:2px 7px;border-radius:4px;border:none;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;'>Restaurar</button>";
   h += "</div></div>";
 
-  // ── DISPONIBLES ──
+  // ── EN SEDE (disponibles + lesionados presentes) ──
+  // Badge por estado médico
+  var SES_MED_BADGE = {
+    rehabilitacion: "<span style='display:inline-block;font-size:7px;font-weight:800;padding:1px 4px;border-radius:4px;background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.35);margin-left:3px;vertical-align:middle;'>REHAB</span>",
+    baja:           "<span style='display:inline-block;font-size:7px;font-weight:800;padding:1px 4px;border-radius:4px;background:rgba(239,68,68,.12);color:#f87171;border:1px solid rgba(239,68,68,.3);margin-left:3px;vertical-align:middle;'>BAJA</span>",
+    readaptacion:   "<span style='display:inline-block;font-size:7px;font-weight:800;padding:1px 4px;border-radius:4px;background:rgba(96,165,250,.15);color:#60a5fa;border:1px solid rgba(96,165,250,.35);margin-left:3px;vertical-align:middle;'>READAP</span>",
+    recuperacion:   "<span style='display:inline-block;font-size:7px;font-weight:800;padding:1px 4px;border-radius:4px;background:rgba(251,146,60,.12);color:#fb923c;border:1px solid rgba(251,146,60,.3);margin-left:3px;vertical-align:middle;'>RECUP</span>",
+    restriccion:    "<span style='display:inline-block;font-size:7px;font-weight:800;padding:1px 4px;border-radius:4px;background:rgba(245,158,11,.12);color:#fbbf24;border:1px solid rgba(245,158,11,.3);margin-left:3px;vertical-align:middle;'>REST</span>"
+  };
   h += "<div style='padding:4px 8px 2px 8px;background:rgba(34,197,94,.08);border-bottom:1px solid rgba(34,197,94,.18);'>";
-  h += "<span style='font-size:8px;font-weight:800;color:#22c55e;letter-spacing:.08em;text-transform:uppercase;'>✅ Disponibles ("+dispArr.length+")</span>";
+  h += "<span style='font-size:8px;font-weight:800;color:#22c55e;letter-spacing:.08em;text-transform:uppercase;'>✅ En sede hoy ("+dispArr.length+")</span>";
   h += "</div>";
   h += "<table style='width:100%;border-collapse:collapse;font-size:11px;'><tbody>";
   var jugNum = 0;
-  dispArr.sort(function(a,b){ return posIdx(a.pos||a.posicion||'OTROS') - posIdx(b.pos||b.posicion||'OTROS'); });
-  dispArr.forEach(function(p,i){
+  dispArr.sort(function(a,b){ return posIdx((a.jugador.pos||a.jugador.posicion||'OTROS')) - posIdx((b.jugador.pos||b.jugador.posicion||'OTROS')); });
+  dispArr.forEach(function(item,i){
+    var p = item.jugador;
     jugNum++;
     var ap = (p.apellido || p.nombre || '').toUpperCase().split(' ')[0];
     var bg = i%2===0 ? '#fff' : '#f8fafc';
     var nota = p.notaSesion||'';
+    var badgeHtml = SES_MED_BADGE[item.estMed] || '';
     h += "<tr style='background:"+bg+";border-bottom:1px solid #f0f0f0;'>";
     h += "<td style='padding:3px 5px;font-size:9px;font-weight:800;color:#1a1a1a;text-align:center;width:20px;'>"+jugNum+"</td>";
-    h += "<td style='padding:3px 5px;font-size:10px;font-weight:600;color:#111;'>"+ap+"</td>";
+    h += "<td style='padding:3px 5px;font-size:10px;font-weight:600;color:#111;'>"+ap+badgeHtml+"</td>";
     h += "<td style='padding:2px 4px;'><input type='text' value='"+nota+"' data-pid='"+p.id+"' onchange='sesGuardarNota(this)' style='width:100%;font-size:9px;border:none;border-bottom:1px solid #ddd;background:transparent;padding:2px;color:var(--text-2);outline:none;text-align:center;' placeholder='nota...'></td>";
     h += "<td style='padding:2px 4px;text-align:center;width:18px;'><button onclick='trigSQJ(this)' data-pid='"+p.id+"' style='font-size:11px;background:none;border:none;color:#ef4444;cursor:pointer;' title='Quitar de esta sesión'>✕</button></td>";
     h += "</tr>";
@@ -16075,22 +16260,22 @@ function renderSesion(){
   });
   h += "</tbody></table>";
 
-  // ── NO DISPONIBLES / LESIONADOS ──
+  // ── NO VIENEN HOY (coach marcó no_disponible) ──
   if(noDispArr.length){
-    var DISP_EST_ICONS = {rehabilitacion:'🏥',baja:'🔴',readaptacion:'🔁',recuperacion:'🟠',restriccion:'🟡',no_disponible:'❌'};
     h += "<div style='padding:4px 8px 2px 8px;background:rgba(239,68,68,.08);border-top:2px solid rgba(239,68,68,.2);border-bottom:1px solid rgba(239,68,68,.18);'>";
-    h += "<span style='font-size:8px;font-weight:800;color:#f87171;letter-spacing:.08em;text-transform:uppercase;'>❌ No disponibles / Lesionados ("+noDispArr.length+")</span>";
+    h += "<span style='font-size:8px;font-weight:800;color:#f87171;letter-spacing:.08em;text-transform:uppercase;'>🚫 No vienen hoy ("+noDispArr.length+")</span>";
     h += "</div>";
     h += "<table style='width:100%;border-collapse:collapse;font-size:11px;'><tbody>";
     noDispArr.forEach(function(item,i){
       var p = item.jugador;
       var ap = (p.apellido || p.nombre || '').toUpperCase().split(' ')[0];
       var bg = i%2===0 ? '#fff5f5' : '#fff';
-      var icon = DISP_EST_ICONS[item.estFinal] || '❌';
-      h += "<tr style='background:"+bg+";border-bottom:1px solid #fecaca;opacity:.75;'>";
-      h += "<td style='padding:3px 5px;font-size:11px;text-align:center;width:20px;'>"+icon+"</td>";
-      h += "<td style='padding:3px 5px;font-size:10px;font-weight:600;color:#dc2626;'>"+ap+"</td>";
-      h += "<td style='padding:3px 5px;font-size:8px;color:#9ca3af;text-align:center;' colspan='2'>"+item.estFinal+"</td>";
+      // Observación del entrenador si existe
+      var obs = (item.ovTac && item.ovTac.obs) ? item.ovTac.obs : '';
+      h += "<tr style='background:"+bg+";border-bottom:1px solid #fecaca;'>";
+      h += "<td style='padding:3px 5px;font-size:11px;text-align:center;width:20px;'>🚫</td>";
+      h += "<td style='padding:3px 5px;font-size:10px;font-weight:700;color:#dc2626;'>"+ap+"</td>";
+      h += "<td style='padding:3px 5px;font-size:8px;color:#9ca3af;' colspan='2'>"+(obs ? "<span title='"+escHtml(obs)+"' style='cursor:help;'>"+escHtml(obs.substring(0,28))+(obs.length>28?'…':'')+"</span>" : "")+"</td>";
       h += "</tr>";
     });
     h += "</tbody></table>";
@@ -17570,11 +17755,19 @@ function guardarEnHistorial(){
   histLoad();
   // Fecha en formato ISO yyyy-mm-dd (compatible con calendario de Programación)
   var fechaISO = sesData.fecha || new Date().toISOString().slice(0,10);
-  var existe = HISTORIAL_DB.findIndex(function(s){
-    return (s.fecha || s.fechaSes || '') === fechaISO && s.sesionNum === sesData.sesionNum;
-  });
+  // Si venimos de _histEditarOk, buscar por ID para actualizar la sesión original
+  var existe = -1;
+  if(sesData._editandoHistId){
+    existe = HISTORIAL_DB.findIndex(function(s){ return s.id===sesData._editandoHistId; });
+  }
+  if(existe < 0){
+    existe = HISTORIAL_DB.findIndex(function(s){
+      return (s.fecha || s.fechaSes || '') === fechaISO && s.sesionNum === sesData.sesionNum;
+    });
+  }
+  var _snapPrev = existe>=0 ? HISTORIAL_DB[existe] : {};
   var snapshot = {
-    id: 'ses_'+Date.now(),
+    id: (_snapPrev.id) || 'ses_'+Date.now(),
     fecha: fechaISO,
     fechaSes: fechaISO,
     sesionNum: sesData.sesionNum||'',
@@ -17586,23 +17779,32 @@ function guardarEnHistorial(){
     jugadores: (JDB.length>0?JDB:PL).filter(function(p){
       return !sesData.jugadoresQuitados || sesData.jugadoresQuitados.indexOf(p.id)<0;
     }).map(function(p){ return (p.apellido||p.nombre||'').toUpperCase(); }),
+    jugadoresActivos: sesData.jugadoresActivos||[],
+    jugadoresExtra:   sesData.jugadoresExtra||[],
     tareas: (sesData.tareas||[]).map(function(t){
-      return {titulo:t.titulo||'', tiempo:t.tiempo||'', objetivo:t.objetivo||'', descripcion:t.descripcion||''};
+      return {titulo:t.titulo||'', tiempo:t.tiempo||'', objetivo:t.objetivo||'',
+              descripcion:t.descripcion||'', img:t.img||null, zonaData:t.zonaData||null, videoLink:t.videoLink||''};
     }),
+    materialItems: sesData.materialItems||[],
     objtacof: sesData.objtacof||'', objtacdef: sesData.objtacdef||'',
     objtecof: sesData.objtecof||'', objtecdef: sesData.objtecdef||'',
     objfisof: sesData.objfisof||'', objfisdef: sesData.objfisdef||'',
+    objpsiof: sesData.objpsiof||'', objpsidef: sesData.objpsidef||'',
+    rolDT: sesData.rolDT||'', rolAT1: sesData.rolAT1||'',
+    rolAT2: sesData.rolAT2||'', rolPF: sesData.rolPF||'', rolVA: sesData.rolVA||'',
     faseFinal: sesData.faseFinal||'',
     observaciones: sesData.observaciones||'',
     videoLink: sesData.videoLink||'',
-    datosFisicos: {
+    // Preservar datos físicos GPS si ya existían en el historial
+    datosFisicos: _snapPrev.datosFisicos || {
       distTotal: '', distAlta: '', distMedia: '',
       velMax: '', velMedia: '',
       acelTotal: '', desacelTotal: '',
       cargaInterna: '', tiempoEfectivo: '',
       notas: ''
     },
-    guardadoEn: new Date().toLocaleString('es-CO')
+    guardadoEn: new Date().toLocaleString('es-CO'),
+    ultimaEdicion: new Date().toLocaleString('es-CO')
   };
   if(existe >= 0){
     snapshot.id = HISTORIAL_DB[existe].id;
@@ -17630,6 +17832,60 @@ function guardarEnHistorial(){
     localStorage.setItem('bfc_ses_hist', JSON.stringify(sesHist));
   } catch(e) {}
 }
+
+function histEditarSesion(id){
+  histLoad();
+  var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
+  if(!snap){ toast('⚠️ Sesión no encontrada'); return; }
+  showModal("<div style='padding:20px 24px;max-width:380px;text-align:center;'>"
+    + "<div style='font-size:34px;margin-bottom:10px;'>✏️</div>"
+    + "<div style='color:#f1f5f9;font-weight:800;font-size:14px;margin-bottom:6px;'>Editar sesión del historial</div>"
+    + "<div style='color:#64748b;font-size:12px;margin-bottom:4px;'>Sesión <b style=\'color:#a5b4fc;\'>#"+snap.sesionNum+"</b> · "+snap.fecha+"</div>"
+    + "<div style='color:#64748b;font-size:11px;margin-bottom:16px;'>Se cargará en el módulo de sesión para editar. Al guardar como borrador o finalizar, se actualizará en el historial.</div>"
+    + "<div style='display:flex;gap:8px;justify-content:center;'>"
+    + "<button onclick=\'closeModal();_histEditarOk(\""+id+"\")\'  style=\'background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:800;\'>✏️ Ir a editar</button>"
+    + "<button onclick=\'closeModal()\' style=\'background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:700;\'>Cancelar</button>"
+    + "</div></div>");
+}
+function _histEditarOk(id){
+  histLoad();
+  var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
+  if(!snap){ toast('⚠️ Sesión no encontrada'); return; }
+  // Cargar sesión del historial como sesión activa para editar
+  sesData = {
+    fecha:        snap.fecha||'',
+    sesionNum:    snap.sesionNum||'',
+    morfociclo:   snap.morfociclo||'',
+    numJugadores: snap.numJugadores||0,
+    tiempo:       snap.tiempo||snap.duracion||'',
+    codigo:       snap.cdefSel||'',
+    cdefSel:      snap.cdefSel||'',
+    cdefNota:     snap.cdefNota||'',
+    objtacof:     snap.objtacof||'', objtacdef: snap.objtacdef||'',
+    objtecof:     snap.objtecof||'', objtecdef: snap.objtecdef||'',
+    objfisof:     snap.objfisof||'', objfisdef: snap.objfisdef||'',
+    objpsiof:     snap.objpsiof||'', objpsidef: snap.objpsidef||'',
+    faseFinal:    snap.faseFinal||'',
+    observaciones: snap.observaciones||'',
+    videoLink:    snap.videoLink||'',
+    rolDT: snap.rolDT||'', rolAT1: snap.rolAT1||'',
+    rolAT2: snap.rolAT2||'', rolPF: snap.rolPF||'', rolVA: snap.rolVA||'',
+    tareas: (snap.tareas||[]).map(function(t){
+      return {titulo:t.titulo||'',objetivo:t.objetivo||'',descripcion:t.descripcion||'',
+              tiempo:t.tiempo||'',img:t.img||null,zonaData:t.zonaData||null,videoLink:t.videoLink||''};
+    }),
+    materialItems: snap.materialItems||[{nombre:"Balones",cantidad:""},{nombre:"Petos",cantidad:""},{nombre:"Platillos",cantidad:""}],
+    jugadoresActivos: snap.jugadoresActivos||(JDB.length>0?JDB:PL).map(function(p){return p.id;}),
+    jugadoresExtra: snap.jugadoresExtra||[],
+    _editandoHistId: id   // ← marca que estamos editando un registro del historial
+  };
+  // Guardar como sesión activa en Firebase para que otros la vean
+  if(typeof sesSyncFb==='function') sesSyncFb();
+  if(typeof sesEscucharFb==='function') sesEscucharFb();
+  irA('sesion');
+  setTimeout(function(){ renderSesion(); toast('✏️ Editando sesión del historial — usá "Finalizar sesión" para actualizar'); }, 150);
+}
+window.histEditarSesion = histEditarSesion;
 
 function histEliminar(id){
   showModal("<div style='padding:20px 24px;max-width:320px;text-align:center;'><div style='font-size:34px;margin-bottom:10px;'>🗑️</div><div style='color:#f1f5f9;font-weight:800;font-size:14px;margin-bottom:6px;'>¿Eliminar esta sesión?</div><div style='color:#64748b;font-size:12px;margin-bottom:18px;'>Se eliminará del historial permanentemente.</div><div style='display:flex;gap:8px;justify-content:center;'><button onclick='closeModal();_histEliminarOk(\""+id+"\")' style='background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.35);color:#f87171;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:800;'>Eliminar</button><button onclick='closeModal()' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:700;'>Cancelar</button></div></div>");
@@ -17829,13 +18085,15 @@ function renderHistorial(){
       h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-md);padding:0;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.05);'>";
       // Header de la sesión
       h += "<div style='background:#1a1a1a;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;'>";
-      h += "<div style='display:flex;align-items:center;gap:12px;'>";
+      h += "<div style='display:flex;align-items:center;gap:12px;flex-wrap:wrap;'>";
       h += "<div style='background:#8B0000;color:#fff;font-size:10px;font-weight:800;padding:3px 10px;border-radius:3px;'>SESIÓN "+(snap.sesionNum||'—')+"</div>";
       h += "<div style='color:#fff;font-size:13px;font-weight:700;'>"+snap.fecha+"</div>";
       if(snap.morfociclo) h += "<div style='color:rgba(255,255,255,.6);font-size:11px;'>Microciclo "+snap.morfociclo+"</div>";
+      if(snap.ultimaEdicion) h += "<div style='color:rgba(99,102,241,.8);font-size:9px;font-weight:700;padding:2px 7px;background:rgba(99,102,241,.12);border-radius:99px;border:1px solid rgba(99,102,241,.25);'>✏️ Editado: "+snap.ultimaEdicion+"</div>";
       h += "</div>";
       h += "<div style='display:flex;gap:6px;'>";
       h += "<button onclick=\"histVerPDF('"+snap.id+"')\" style='background:rgba(16,185,129,.15);color:#6ee7b7;border:1px solid rgba(16,185,129,.35);border-radius:4px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;'>👁 Ver</button>";
+      h += "<button onclick=\"histEditarSesion('"+snap.id+"')\" style='background:rgba(99,102,241,.2);color:#a5b4fc;border:1px solid rgba(99,102,241,.4);border-radius:4px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;'>✏️ Editar</button>";
       h += "<button onclick=\"histUsarPlantilla('"+snap.id+"')\" style='background:rgba(245,200,0,.2);color:#fcd34d;border:1px solid rgba(245,200,0,.35);border-radius:4px;padding:4px 10px;font-size:10px;cursor:pointer;font-weight:700;'>📋 Plantilla</button>";
       h += "<button onclick=\"histCargarSesion('"+snap.id+"')\" style='background:#8B0000;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:10px;cursor:pointer;'>🔄 Reutilizar</button>";
       h += "<button onclick=\"histEliminar('"+snap.id+"')\" style='background:rgba(255,50,50,.15);color:#fca5a5;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;'>✕</button>";
