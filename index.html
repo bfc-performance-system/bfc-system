@@ -584,7 +584,7 @@ function fbAuditLog(modulo, accion) {
 }
 
 function fbAuditMostrar() {
-  if (!fbDB) { showToast('⚠️ Firebase no conectado'); return; }
+  if (!fbDB) { toast('⚠️ Firebase no conectado'); return; }
   fbDB.ref('bfc_audit').orderByChild('ts').limitToLast(50).once('value', function(snap) {
     var datos = snap.val() || {};
     var entradas = Object.values(datos).sort(function(a,b){ return b.ts - a.ts; });
@@ -657,7 +657,7 @@ function _fbHacerBackup(origen) {
 
 function fbBackupManual() {
   _fbHacerBackup('manual');
-  showToast('💾 Backup manual guardado en este dispositivo');
+  toast('💾 Backup manual guardado en este dispositivo');
 }
 
 function fbVerBackups() {
@@ -699,9 +699,9 @@ function fbVerBackups() {
 function fbRestaurarBackup(key) {
   try {
     var d = localStorage.getItem(key);
-    if (!d) { showToast('⚠️ Backup no encontrado'); return; }
+    if (!d) { toast('⚠️ Backup no encontrado'); return; }
     var o = JSON.parse(d);
-    if (!o) { showToast('⚠️ Backup inválido'); return; }
+    if (!o) { toast('⚠️ Backup inválido'); return; }
     // Restaurar variables
     if (o.pl)            PL = safeArr(o.pl);
     if (o.carga)         CARGA = safeArr(o.carga);
@@ -723,12 +723,12 @@ function fbRestaurarBackup(key) {
     // Subir a Firebase
     fbGuardar();
     fbVolcarALocalStorage();
-    showToast('✅ Backup restaurado — datos del ' + (o.fecha||'backup'));
+    toast('✅ Backup restaurado — datos del ' + (o.fecha||'backup'));
     setTimeout(function() {
       try { var pg = document.querySelector('.page.on'); var pgId = pg && pg.id ? pg.id.replace('page-','') : null; if(pgId) irA(pgId); } catch(e){}
     }, 500);
   } catch(e) {
-    showToast('❌ Error al restaurar: ' + e.message);
+    toast('❌ Error al restaurar: ' + e.message);
   }
 }
 
@@ -743,7 +743,7 @@ function _fbEstimarTamanoPayload(payload) {
     if (mb > 7) {
       console.warn('[BFC Firebase] ⚠️ Payload grande: ' + mb.toFixed(2) + ' MB (límite 10MB)');
       if (mb > 9) {
-        showToast('⚠️ Datos muy grandes (' + mb.toFixed(1) + ' MB). Considera limpiar historial antiguo.');
+        toast('⚠️ Datos muy grandes (' + mb.toFixed(1) + ' MB). Considera limpiar historial antiguo.');
       }
     }
     return mb;
@@ -823,6 +823,11 @@ function fbEscuchar() {
     if (d.perf_vars_cfg)  { try{ localStorage.setItem('BFC_PERF_VARS_CFG', JSON.stringify(d.perf_vars_cfg)); }catch(e){} }
     if (d.pp_db) { PP_DB = safeArr(d.pp_db); try{ localStorage.setItem('BFC_POSTPARTIDO_DB', JSON.stringify(PP_DB)); }catch(e){} rerender = true; }
     if (d.lesiones_db) { LESIONES_DB = safeArr(d.lesiones_db); try{ localStorage.setItem('bfc_lesiones', JSON.stringify(LESIONES_DB)); }catch(e){} rerender = true; }
+    if (d.manual_jug && JSON.stringify(d.manual_jug) !== JSON.stringify(_plantillaManual)) {
+      _plantillaManual = safeArr(d.manual_jug);
+      try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
+      rerender = true;
+    }
     // Sincronizar también a localStorage como caché local
     fbVolcarALocalStorage();
     if (rerender) {
@@ -929,6 +934,7 @@ function fbGuardar() {
       perf_vars_cfg: _fbPerfCfg,
       pp_db: (function(){ var r=[]; try{ var s=localStorage.getItem('BFC_POSTPARTIDO_DB'); if(s) r=JSON.parse(s)||[]; }catch(e){} return r; })(),
       lesiones_db: safeArr(LESIONES_DB),
+      manual_jug: safeArr(_plantillaManual),
       ts: Date.now()
     };
     // Estimar tamaño antes de enviar
@@ -973,7 +979,7 @@ function fbVolcarALocalStorage() {
 
 // Forzar sincronización inmediata (sin debounce) — sube TODO y luego descarga Firebase
 function fbForzarSync() {
-  if (!fbDB) { showToast('⚠️ Firebase no está conectado'); return; }
+  if (!fbDB) { toast('⚠️ Firebase no está conectado'); return; }
   clearTimeout(FB_SYNC_TIMEOUT);
   // Leer datos localStorage
   var _fbMcHist=[]; try{ var _a=localStorage.getItem('bfc_mc_hist'); if(_a) _fbMcHist=JSON.parse(_a)||[]; }catch(e){}
@@ -1001,15 +1007,16 @@ function fbForzarSync() {
     plantilla_disp: _fbPlantDisp,
     campos_extra: _fbCamposExtra,
     perf_vars_cfg: _fbPerfCfg,
+    manual_jug: safeArr(_plantillaManual),
     disp_ts: _forzarDispTs || _forzarTs,
     plantilla_disp_ts: _forzarPdTs || _forzarTs,
     cancha_pos: _canchaPos || {},
     ts: _forzarTs
   };
-  showToast('⏫ Subiendo todos los datos...');
+  toast('⏫ Subiendo todos los datos...');
   fbDB.ref('bfc').set(payload)
     .then(function() {
-      showToast('✅ Sincronización completa — recargando datos...');
+      toast('✅ Sincronización completa — recargando datos...');
       var badge = document.getElementById('fb-sync-badge');
       if (badge) { badge.textContent = '🟢 Sync'; badge.style.color='#34d399'; }
       // Forzar re-lectura de Firebase
@@ -1054,7 +1061,7 @@ function fbForzarSync() {
       if (d.pp_db) { PP_DB = safeArr(d.pp_db); try{ localStorage.setItem('BFC_POSTPARTIDO_DB', JSON.stringify(PP_DB)); }catch(e){} }
       if (d.lesiones_db) { LESIONES_DB = safeArr(d.lesiones_db); try{ localStorage.setItem('bfc_lesiones', JSON.stringify(LESIONES_DB)); }catch(e){} }
       fbVolcarALocalStorage();
-      showToast('🔄 Datos actualizados — recargando pantalla...');
+      toast('🔄 Datos actualizados — recargando pantalla...');
       // Re-renderizar la página activa tras la sincronización forzada
       setTimeout(function(){
         try {
@@ -1066,7 +1073,7 @@ function fbForzarSync() {
     })
     .catch(function(e) {
       console.warn('[BFC Firebase] Error en forzarSync:', e.message);
-      showToast('❌ Error: ' + e.message);
+      toast('❌ Error: ' + e.message);
     });
 }
 </script>
@@ -2431,6 +2438,7 @@ function plantillaConfirmarManual(){
   var jug = {id:'manual_'+Date.now(), nombre:n, pos:pos, numero:num, tag:tag, _esManual:true};
   _plantillaManual.push(jug);
   try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
+  if(typeof fbGuardar==='function') fbGuardar();
   closeModal();
   renderPlantilla();
   toast(n+' agregado a la sesión ('+tag+')');
@@ -2439,12 +2447,14 @@ function plantillaConfirmarManual(){
 function plantillaEliminarManual(id){
   _plantillaManual = _plantillaManual.filter(function(j){ return j.id!==id; });
   try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
+  if(typeof fbGuardar==='function') fbGuardar();
   renderPlantilla();
 }
 
 function plantillaLimpiarManual(){
   _plantillaManual = [];
   try{ localStorage.removeItem('BFC_MANUAL_JUG'); }catch(e){}
+  if(typeof fbGuardar==='function') fbGuardar();
   renderPlantilla();
   toast('Jugadores manuales eliminados de la sesión');
 }
@@ -14283,7 +14293,7 @@ function fbMostrarConfig() {
   h += "<div style='font-size:12px;font-weight:700;color:#a5b4fc;margin-bottom:8px;'>👤 Tu nombre en el sistema</div>";
   h += "<div style='display:flex;gap:8px;align-items:center;'>";
   h += "<input id='fb-cfg-nombre' type='text' value='"+escHtml(BFC_USER_NAME)+"' placeholder='Ej: Profe García' style='flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--text-1);outline:none;'>";
-  h += "<button class='btn-y' style='padding:8px 16px;white-space:nowrap;' onclick=\"var n=document.getElementById('fb-cfg-nombre').value.trim();if(n){BFC_USER_NAME=n;try{localStorage.setItem('bfc_user_name',n);}catch(e){}fbAuditLog('config','Nombre de usuario cambiado a: '+n);showToast('✅ Nombre guardado: '+n);}else{showToast('❌ Escribe un nombre');}\">Guardar</button>";
+  h += "<button class='btn-y' style='padding:8px 16px;white-space:nowrap;' onclick=\"var n=document.getElementById('fb-cfg-nombre').value.trim();if(n){BFC_USER_NAME=n;try{localStorage.setItem('bfc_user_name',n);}catch(e){}fbAuditLog('config','Nombre de usuario cambiado a: '+n);toast('✅ Nombre guardado: '+n);}else{toast('❌ Escribe un nombre');}\">Guardar</button>";
   h += "</div>";
   h += "<p style='font-size:11px;color:var(--text-2);margin-top:6px;'>Aparece en el historial de cambios y en el indicador de presencia en tiempo real.</p>";
   h += "</div>";
