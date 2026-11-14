@@ -778,21 +778,35 @@ function fbEscuchar() {
       rerender = true;
     }
     if (d.jdb) {
-      // Merge fotos: combinar datos de Firebase con fotos locales
-      // Firebase puede no tener fotos grandes (excluidas por límite de tamaño)
       var _localJDB=[]; try{ var _ljs=localStorage.getItem('bfc_jdb'); if(_ljs) _localJDB=JSON.parse(_ljs)||[]; }catch(e){}
       var _localJDBMap={}; _localJDB.forEach(function(j){ if(j.id) _localJDBMap[j.id]=j; });
+      // Merge: datos vienen de Firebase, fotos de localStorage (Firebase no las guarda en jdb)
       var _newJDB = safeArr(d.jdb).map(function(fJ){
         var lc = _localJDBMap[fJ.id];
-        // Preferir foto de Firebase si existe; si no, usar foto local
-        if(!fJ.foto && lc && lc.foto) fJ.foto = lc.foto;
+        if(lc && lc.foto) fJ.foto = lc.foto; // siempre preservar foto local
         return fJ;
       });
-      // Solo actualizar si hay cambio real (ignorando diferencias de foto que son solo locales)
+      // Aplicar si cambió algo (datos O fotos)
       var _jdbSinFoto = function(arr){ return JSON.stringify(safeArr(arr).map(function(j){ var c=Object.assign({},j); delete c.foto; return c; })); };
-      if (_jdbSinFoto(d.jdb) !== _jdbSinFoto(JDB)) {
+      var datosRemotoCambiaron = _jdbSinFoto(d.jdb) !== _jdbSinFoto(JDB);
+      if (datosRemotoCambiaron) {
         JDB = _newJDB;
-        try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){} // ← guardar en localStorage con fotos
+        try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){}
+        rerender = true;
+      }
+    }
+    // fotos — nodo separado bfc/fotos para evitar conflicto de tamaño con jdb
+    if (d.fotos && typeof d.fotos === 'object') {
+      var _localJDB2=[]; try{ var _ljs2=localStorage.getItem('bfc_jdb'); if(_ljs2) _localJDB2=JSON.parse(_ljs2)||[]; }catch(e){}
+      var _fotosCambiaron = false;
+      _localJDB2 = _localJDB2.map(function(j){
+        var fotoRemota = d.fotos[j.id];
+        if(fotoRemota && fotoRemota !== j.foto){ j.foto = fotoRemota; _fotosCambiaron = true; }
+        return j;
+      });
+      if(_fotosCambiaron){
+        JDB = _localJDB2;
+        try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){}
         rerender = true;
       }
     }
@@ -975,12 +989,11 @@ function fbGuardar() {
     var _fbGpsCat = []; try{ var _r4=localStorage.getItem('BFC_GPS_CAT'); if(_r4) _fbGpsCat=JSON.parse(_r4)||[]; }catch(e){}
     var _fbCamposExtra = []; try{ var _r6=localStorage.getItem('BFC_BD_CAMPOS_EXTRA'); if(_r6) _fbCamposExtra=JSON.parse(_r6)||[]; }catch(e){}
     var _fbPerfCfg = {}; try{ var _r7=localStorage.getItem('BFC_PERF_VARS_CFG'); if(_r7) _fbPerfCfg=JSON.parse(_r7)||{}; }catch(e){}
-    // Incluir fotos: leer desde localStorage (fuente de verdad más reciente) y filtrar las grandes
+    // jdb sin fotos — las fotos van en nodo separado bfc/fotos via fbGuardarFotos()
     var _jdbParaFb = []; try{ var _rjdb=localStorage.getItem('bfc_jdb'); if(_rjdb) _jdbParaFb=JSON.parse(_rjdb)||[]; }catch(e){}
-    if(_jdbParaFb.length === 0) _jdbParaFb = safeArr(JDB); // fallback a variable global
-    var jdbSinFotos = _jdbParaFb.map(function(j){ var c=Object.assign({},j); if(c.foto && c.foto.length > 55000) delete c.foto; return c; });
-    var _fotosEnPayload = jdbSinFotos.filter(function(j){ return !!j.foto; }).length;
-    console.log('[BFC-FOTO] fbGuardar: jugadores en jdb:', jdbSinFotos.length, '| con foto:', _fotosEnPayload);
+    if(_jdbParaFb.length === 0) _jdbParaFb = safeArr(JDB);
+    var jdbSinFotos = _jdbParaFb.map(function(j){ var c=Object.assign({},j); delete c.foto; return c; });
+    console.log('[BFC-FOTO] fbGuardar: jugadores en jdb (sin fotos):', jdbSinFotos.length);
     // ⚠️  disp_db y plantilla_disp NO están en este payload — se manejan con .update() aislado
     var payload = {
       pl: PL, carga: CARGA, bien: BIEN, neuro: NEURO, evs: EVS.filter(function(ev){ if(ev.tipo!=='partido') return true; var t=(ev.titulo||'').trim().toLowerCase(); if(t==='bfc vs rival'||t.endsWith(' vs rival')) return false; if((ev.rival||'').trim().toLowerCase()==='rival') return false; return true; }),
@@ -1205,22 +1218,23 @@ function fbGuardarCanchaPos() {
   }, 600);
 }
 
-// ── Sincronizar fotos de JDB a Firebase de forma aislada (solo toca jdb) ──
+// ── Sincronizar fotos a Firebase en nodo separado bfc/fotos (id → base64) ──
+// Al estar separado del payload principal, nunca hay conflicto de tamaño
 function fbGuardarFotos() {
   if (!fbDB) return;
   clearTimeout(window._FB_FOTOS_TIMEOUT);
   window._FB_FOTOS_TIMEOUT = setTimeout(function() {
-    // Leer SIEMPRE desde localStorage (tiene el estado más reciente, incluida la foto recién guardada)
     var _jdbLocal = []; try{ var _r=localStorage.getItem('bfc_jdb'); if(_r) _jdbLocal=JSON.parse(_r)||[]; }catch(e){}
     var fuente = _jdbLocal.length > 0 ? _jdbLocal : safeArr(JDB);
-    var jdbConFotos = fuente.map(function(j){
-      var c = Object.assign({}, j);
-      // Solo incluir la foto si ya es una miniatura comprimida (≤55000 chars ≈ 40KB)
-      if (c.foto && c.foto.length > 55000) delete c.foto;
-      return c;
+    // Construir mapa id → foto (solo fotos comprimidas ≤55000 chars)
+    var fotosMap = {};
+    fuente.forEach(function(j){
+      if(j.id && j.foto && j.foto.length <= 55000) fotosMap[j.id] = j.foto;
     });
-    console.log('[BFC-FOTO] fbGuardarFotos: subiendo', jdbConFotos.length, 'jugadores,', jdbConFotos.filter(function(j){return !!j.foto;}).length, 'con foto');
-    fbDB.ref('bfc').update({ jdb: jdbConFotos }).catch(function(e){ console.warn('[BFC] Error sync fotos:', e.message); });
+    var total = Object.keys(fotosMap).length;
+    console.log('[BFC-FOTO] fbGuardarFotos: subiendo', total, 'fotos al nodo bfc/fotos');
+    if(total === 0) return;
+    fbDB.ref('bfc/fotos').update(fotosMap).catch(function(e){ console.warn('[BFC] Error sync fotos:', e.message); });
   }, 800);
 }
 var EJERCICIOS_DB = [];
@@ -13177,8 +13191,10 @@ function mcBadge(c){
 // PLANTILLA 1 LOGISTICA
 function mcPL1(semUP,rival,jornada,horaP,estadio){
   var LBLS = ["LUGAR RECORRIDO","LUGAR ENTRENAMIENTO","INICIO RECORRIDO","HORA DE LLEGADA","PRESENTACIÓN / INICIO","INGESTA","SALIDA","OBSERVACIONES"];
-  // Paleta oscura alineada con el sistema navy
   var NAV="#0f1623", NAV2="#162035", BORDER="rgba(255,255,255,.12)", TXTD="#e2e8f0", TXTS="rgba(255,255,255,.5)", CREAM="#162035", DARK="#131c28";
+  var nCols = mcData.length || 7;
+  var TOTAL_ROWS = LBLS.length + 1; // +1 for header row
+
   var h = "<div style='font-family:Arial,sans-serif;background:"+DARK+";border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.08);box-shadow:0 4px 24px rgba(0,0,0,.4);'>";
   // Header
   h += "<div style='padding:18px 20px 14px;text-align:center;position:relative;background:"+NAV+";border-bottom:3px solid "+NAV2+";'>";
@@ -13187,48 +13203,62 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
   h += "<div style='font-size:11px;font-weight:600;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.12em;margin-top:6px;'>INFORMACIÓN LOGÍSTICA</div>";
   h += "<div style='margin-top:8px;display:inline-block;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:99px;padding:3px 16px;font-size:10px;color:rgba(255,255,255,.5);letter-spacing:.08em;'>"+semUP+"</div>";
   h += "</div>";
-  // Tabla
-  var nCols = mcData.length || 7;
-  var colW = Math.max(60, Math.floor((100-13)/nCols));
-  h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:separate;border-spacing:0;min-width:650px;table-layout:fixed;'>";
-  h += "<colgroup><col style='width:110px;'>";
-  mcData.forEach(function(){ h += "<col style='width:"+colW+"px;'>"; });
-  h += "</colgroup>";
-  h += "<tr><th style='width:110px;padding:8px 10px;background:"+CREAM+";border-right:1px solid "+BORDER+";border-bottom:2px solid "+BORDER+";'><span style='font-size:9px;font-weight:800;color:rgba(255,255,255,.75);letter-spacing:.12em;text-transform:uppercase;'>DÍA</span></th>";
+
+  // CSS Grid — 1 label col + nCols day cols, TOTAL_ROWS rows
+  // grid-template-columns: 110px repeat(nCols, 1fr)
+  h += "<div style='overflow-x:auto;'>";
+  h += "<div style='display:grid;grid-template-columns:110px repeat("+nCols+",1fr);grid-template-rows:repeat("+TOTAL_ROWS+",auto);min-width:650px;'>";
+
+  // ── Row 1: header cells ──────────────────────────────────────────────────
+  // Label header (row 1, col 1)
+  h += "<div style='grid-row:1;grid-column:1;padding:8px 10px;background:"+CREAM+";border-right:1px solid "+BORDER+";border-bottom:2px solid "+BORDER+";'>";
+  h += "<span style='font-size:9px;font-weight:800;color:rgba(255,255,255,.75);letter-spacing:.12em;text-transform:uppercase;'>DÍA</span></div>";
+
+  // Day headers (row 1, cols 2…nCols+1)
   mcData.forEach(function(d,i){
     var isMD=d.tipo==="partido", isDesc=d.tipo==="descanso";
     var thBg = isMD ? NAV : CREAM;
     var thCol = isMD ? "#fff" : isDesc ? "#c9cdd4" : TXTD;
-    var thBorder = isMD ? NAV : BORDER;
-    var thBorderBottom = (isMD||isDesc) ? "0" : "2px solid "+thBorder;
-    var thBorderRight = (isMD||isDesc) ? "0" : "1px solid "+BORDER;
-    h += "<th style='padding:9px 6px;background:"+thBg+";font-size:11px;font-weight:800;color:"+thCol+";text-align:center;border-right:"+thBorderRight+";border-bottom:"+thBorderBottom+";'>";
+    var br = (i < nCols-1) ? "border-right:1px solid "+BORDER+";" : "";
+    h += "<div style='grid-row:1;grid-column:"+(i+2)+";padding:9px 6px;background:"+thBg+";font-size:11px;font-weight:800;color:"+thCol+";text-align:center;"+br+"border-bottom:2px solid "+BORDER+";'>";
     var fechaDia=MC_FECHAS_ACTIVAS[i]?parseInt(MC_FECHAS_ACTIVAS[i].slice(8)):"";
     h += (MC_DIAS_ACTIVOS[i]||MC_DIAS[i]).toUpperCase()+(fechaDia?"<br><span style='font-size:10px;font-weight:400;opacity:.6;'>"+fechaDia+"</span>":"");
     if(isMD && mcLogoRival) h += "<br><img src='"+mcLogoRival+"' style='width:26px;height:26px;object-fit:contain;margin-top:4px;'>";
-    h += "</th>";
+    h += "</div>";
   });
-  h += "</tr>";
-  var descDone=[], mdDone=[];
+
+  // ── Rows 2…TOTAL_ROWS: label cells + data cells ──────────────────────────
   LBLS.forEach(function(lbl,li){
+    var gridRow = li + 2; // rows start at 2
     var isLugEntRow = li===1;
     var rowBg = isLugEntRow ? "#1a1f35" : (li%2===0 ? DARK : NAV2);
     var lblBg = isLugEntRow ? "#0f1b3d" : NAV;
     var lblCol = isLugEntRow ? "#a5b4fc" : TXTS;
-    h += "<tr><td style='padding:6px 10px;background:"+lblBg+";font-size:9px;font-weight:"+(isLugEntRow?"800":"700")+";color:"+lblCol+";text-transform:uppercase;letter-spacing:.06em;border-right:1px solid "+BORDER+";border-bottom:1px solid "+BORDER+";white-space:nowrap;'>"+(isLugEntRow?"🏟 ":"")+lbl+"</td>";
+    var isLastRow = li === LBLS.length-1;
+
+    // Label cell (col 1)
+    var lblBB = isLastRow ? "" : "border-bottom:1px solid "+BORDER+";";
+    h += "<div style='grid-row:"+gridRow+";grid-column:1;padding:6px 10px;background:"+lblBg+";font-size:9px;font-weight:"+(isLugEntRow?"800":"700")+";color:"+lblCol+";text-transform:uppercase;letter-spacing:.06em;border-right:1px solid "+BORDER+";"+lblBB+"white-space:nowrap;display:flex;align-items:center;'>"+(isLugEntRow?"🏟 ":"")+lbl+"</div>";
+
+    // Data cells (cols 2…nCols+1)
     mcData.forEach(function(d,i){
       var isDesc=d.tipo==="descanso", isMD=d.tipo==="partido";
-      // Descanso: rowspan sin líneas internas
+      var gridCol = i + 2;
+      var br = (i < nCols-1) ? "border-right:1px solid "+BORDER+";" : "";
+      var bb = isLastRow ? "" : "border-bottom:1px solid "+BORDER+";";
+
       if(isDesc){
-        if(li===0){ descDone.push(i);
-          h += "<td rowspan='"+LBLS.length+"' style='padding:6px;background:"+NAV+";text-align:center;vertical-align:middle;border:3px solid #131c28;'>";
-          h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:10px;line-height:1.35;text-align:center;margin:auto;letter-spacing:.05em;'>D<br>E<br>S<br>C<br>A<br>N<br>S<br>O</div></td>";
+        // DESCANSO: only emit cell for first label row, span all label rows
+        if(li===0){
+          h += "<div style='grid-row:2 / "+(TOTAL_ROWS+1)+";grid-column:"+gridCol+";background:"+NAV+";display:flex;align-items:center;justify-content:center;"+(i < nCols-1 ? "border-right:1px solid "+BORDER+";" : "")+"'>";
+          h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:10px;line-height:1.35;text-align:center;letter-spacing:.05em;'>D<br>E<br>S<br>C<br>A<br>N<br>S<br>O</div></div>";
         }
         return;
       }
-      // Partido: rowspan con copa + rival + nombre centrado, sin líneas internas
+
       if(isMD){
-        if(li===0){ mdDone.push(i);
+        // PARTIDO: only emit cell for first label row, span all label rows
+        if(li===0){
           var horaPartidoMD = fmtH(d.horaPartido||d.hIng||horaP);
           var rivalMD = d.rival||rival||"";
           var jornadaMD = d.jornada||jornada||"";
@@ -13236,18 +13266,20 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
           var logoHtml = mcLogoRival
             ? "<img src='"+mcLogoRival+"' style='width:28px;height:28px;object-fit:contain;display:block;margin:0 auto 4px;'>"
             : "<div style='font-size:22px;text-align:center;margin-bottom:4px;'>&#127942;</div>";
-          h += "<td rowspan='"+LBLS.length+"' style='padding:6px 4px;background:"+NAV+";text-align:center;vertical-align:middle;border:3px solid #131c28;overflow:hidden;'>";
-          h += "<div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;'>";
+          h += "<div style='grid-row:2 / "+(TOTAL_ROWS+1)+";grid-column:"+gridCol+";background:"+NAV+";display:flex;align-items:center;justify-content:center;overflow:hidden;"+(i < nCols-1 ? "border-right:1px solid "+BORDER+";" : "")+"'>";
+          h += "<div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 4px;'>";
           h += logoHtml;
-          if(rivalMD) h += "<div style='font-size:9px;font-weight:800;color:rgba(255,255,255,.9);word-break:break-word;overflow-wrap:break-word;max-width:100%;line-height:1.2;'>"+rivalMD+"</div>";
+          if(rivalMD) h += "<div style='font-size:9px;font-weight:800;color:rgba(255,255,255,.9);word-break:break-word;overflow-wrap:break-word;max-width:100%;line-height:1.2;text-align:center;'>"+rivalMD+"</div>";
           if(jornadaMD) h += "<div style='font-size:8px;font-weight:600;color:#fbbf24;'>"+jornadaMD+"</div>";
           if(horaPartidoMD) h += "<div style='font-size:11px;font-weight:900;color:#fff;'>"+horaPartidoMD+"</div>";
           h += "<div style='font-size:8px;color:rgba(255,255,255,.4);'>"+localVMD+"</div>";
-          if(d.obs) h += "<div style='font-size:8px;color:rgba(255,255,255,.4);font-style:italic;word-break:break-word;max-width:100%;'>"+d.obs+"</div>";
-          h += "</div></td>";
+          if(d.obs) h += "<div style='font-size:8px;color:rgba(255,255,255,.4);font-style:italic;word-break:break-word;max-width:100%;text-align:center;'>"+d.obs+"</div>";
+          h += "</div></div>";
         }
         return;
       }
+
+      // Normal cell
       var val="";
       if(li===0) val=d.lugar||"";
       else if(li===1) val=d.lugEnt||"";
@@ -13261,16 +13293,11 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
       var cellCol = isLugEnt ? (val?"#c7d2fe":"rgba(165,180,252,.3)") : (val?TXTD:TXTS);
       var cellFw  = isLugEnt&&val ? "800" : val ? "600" : "400";
       var cellFs  = isLugEnt ? "12px" : "11px";
-      // Si la siguiente columna es DESCANSO o PARTIDO, suprimir border-right (el rowspan lo cubre)
-      var nextD = mcData[i+1];
-      var nextIsSpecial = nextD && (nextD.tipo==="descanso"||nextD.tipo==="partido");
-      var cellBR = nextIsSpecial ? "border-right:0;" : "border-right:1px solid "+BORDER+";";
-      h += "<td style='padding:6px;background:"+rowBg+";font-size:"+cellFs+";font-weight:"+cellFw+";color:"+cellCol+";text-align:center;"+cellBR+"border-bottom:1px solid "+BORDER+";font-family:Arial,sans-serif;'>"+(val||"<span style='color:rgba(165,180,252,.15);'>—</span>")+"</td>";
+      h += "<div style='grid-row:"+gridRow+";grid-column:"+gridCol+";padding:6px;background:"+rowBg+";font-size:"+cellFs+";font-weight:"+cellFw+";color:"+cellCol+";text-align:center;"+br+bb+"display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;'>"+(val||"<span style='color:rgba(165,180,252,.15);'>—</span>")+"</div>";
     });
-    h += "</tr>";
   });
-  h += "</table></div>";
-  // Footer: limpio (la fecha ya aparece en el encabezado de la tabla)
+
+  h += "</div></div>"; // close grid + overflow wrapper
   h += "<div style='padding:4px;border-top:1px solid "+BORDER+";background:"+NAV+";'></div>";
   h += "</div>";
   return h;
