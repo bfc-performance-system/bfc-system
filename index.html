@@ -1188,6 +1188,21 @@ function cargar() {
   try { PRUEBAS = JSON.parse(localStorage.getItem("bfc_pruebas") || "[]"); } catch(e) { PRUEBAS = []; }
   if(!Array.isArray(PRUEBAS)) PRUEBAS = [];
   try { EVS  = safeArr(JSON.parse(localStorage.getItem("bfc_evs")  || "[]")); } catch(e) { EVS=[]; }
+  // Limpiar eventos fantasma "vs Rival" generados por microciclos sin rival definido
+  (function(){
+    var antes = EVS.length;
+    EVS = EVS.filter(function(ev){
+      if(ev.tipo !== 'partido') return true;
+      var t = (ev.titulo||'').trim().toLowerCase();
+      var r = (ev.rival||'').trim().toLowerCase();
+      // Eliminar si el título es "bfc vs rival" o si el rival es "rival" (sin nombre real)
+      if(t === 'bfc vs rival' || r === 'rival' || t.endsWith(' vs rival')) return false;
+      return true;
+    });
+    if(EVS.length !== antes){
+      try{ localStorage.setItem('bfc_evs', JSON.stringify(EVS)); }catch(e){}
+    }
+  })();
   try { JDB = JSON.parse(localStorage.getItem("bfc_jdb") || "[]"); if(!Array.isArray(JDB)) JDB=[]; } catch(e) { JDB = []; }
   // Si el JDB guardado tiene pocos jugadores (demo viejo o datos corruptos), limpiarlo para que se cargue el demo de 33
   if (JDB.length > 0 && JDB.length < 1) { JDB = []; try{ localStorage.removeItem("bfc_jdb"); }catch(e){} }
@@ -12692,12 +12707,19 @@ function mcGuardarAlSistema(){
   mcHistGuardar(mcRecord);
 
   // Sincronizar partidos de mcData → EVS
+  // Solo crear eventos si tienen un rival real (no vacío ni placeholder "Rival")
   var cambios = 0;
   (mcData||[]).forEach(function(d, i){
     if(d.tipo !== 'partido') return;
     var fecha = (MC_FECHAS_ACTIVAS||[])[i] || '';
     if(!fecha) return;
-    var rival  = d.rival || 'Rival';
+    var rival = (d.rival||'').trim();
+    // Si no hay rival real, eliminar el evento existente en esa fecha (si lo hay) y no crear uno nuevo
+    if(!rival || rival.toLowerCase() === 'rival'){
+      var existeIdx = EVS.findIndex(function(ev){ return ev.tipo==='partido' && ev.fecha===fecha && (ev.id||'').indexOf('mc_')===0; });
+      if(existeIdx >= 0) EVS.splice(existeIdx, 1);
+      return;
+    }
     var titulo = 'BFC vs ' + rival;
     var lugar  = d.estadio || d.lugar || '';
     var hora   = d.horaPartido || d.hIng || '';
