@@ -1057,6 +1057,42 @@ function fbForzarSync() {
 var PL=[], CARGA=[], BIEN=[], NEURO=[], EVS=[], JDB=[], SDB=[];
 // Helper: always returns an array, never null/undefined
 function safeArr(v){ return Array.isArray(v) ? v : []; }
+
+// ── Comprimir foto a base64 de tamaño reducido para guardar en Firebase ──
+// Redimensiona a máximo 90x90px y calidad 0.6 → ~5-12KB por foto (cabe en Firebase)
+function comprimirFotoParaFirebase(base64, cb) {
+  try {
+    var img = new Image();
+    img.onload = function() {
+      var MAX = 90;
+      var w = img.width, h = img.height;
+      var scale = Math.min(MAX / w, MAX / h, 1);
+      var cw = Math.round(w * scale), ch = Math.round(h * scale);
+      var canvas = document.createElement('canvas');
+      canvas.width = cw; canvas.height = ch;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, cw, ch);
+      cb(canvas.toDataURL('image/jpeg', 0.60));
+    };
+    img.onerror = function(){ cb(base64); }; // fallback: usar original si falla
+    img.src = base64;
+  } catch(e) { cb(base64); }
+}
+
+// ── Sincronizar fotos de JDB a Firebase de forma aislada (solo toca jdb) ──
+function fbGuardarFotos() {
+  if (!fbDB) return;
+  clearTimeout(window._FB_FOTOS_TIMEOUT);
+  window._FB_FOTOS_TIMEOUT = setTimeout(function() {
+    var jdbConFotos = safeArr(JDB).map(function(j){
+      var c = Object.assign({}, j);
+      // Solo incluir la foto si ya es una miniatura comprimida (<15KB en base64 ≈ ~20000 chars)
+      if (c.foto && c.foto.length > 20000) delete c.foto;
+      return c;
+    });
+    fbDB.ref('bfc').update({ jdb: jdbConFotos }).catch(function(e){ console.warn('[BFC] Error sync fotos:', e.message); });
+  }, 800);
+}
 var EJERCICIOS_DB = [];
 var HISTORIAL_DB = [];
 var NOTIF_DB = []; // Centro de notificaciones
@@ -2781,19 +2817,34 @@ function plantillaGuardarEdicion(jid){
   arr[idx].eps      = g('eps');
   if(g('estatura')) arr[idx].estatura = parseFloat(g('estatura'))||arr[idx].estatura;
   arr[idx].pierna   = g('pierna');
-  // Foto: si se seleccionó una nueva, usar base64; si no, conservar la anterior
-  if(window._efFotoBase64){ arr[idx].foto = window._efFotoBase64; window._efFotoBase64 = null; }
 
-  if(!enManual){
-    if(safeArr(JDB).length>0){ JDB = plantelAll; try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){} }
-    else { PL = plantelAll; try{ localStorage.setItem('bfc_pl', JSON.stringify(PL)); }catch(e){} }
-  } else {
-    try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
+  // Capturar foto nueva y limpiar variable global
+  var _fotoNueva = window._efFotoBase64 || null;
+  window._efFotoBase64 = null;
+
+  function _finalizarGuardadoEdicion() {
+    if(!enManual){
+      if(safeArr(JDB).length>0){ JDB = plantelAll; try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){} }
+      else { PL = plantelAll; try{ localStorage.setItem('bfc_pl', JSON.stringify(PL)); }catch(e){} }
+    } else {
+      try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
+    }
+    // Datos generales del jugador (fbGuardar excluye fotos grandes; fbGuardarFotos las sube comprimidas)
+    if(typeof fbGuardar === 'function') fbGuardar();
+    if(typeof fbGuardarFotos === 'function') fbGuardarFotos();
+    renderPlantilla();
+    plantillaMostrarJugador(jid);
   }
-  // Sincronizar con Firebase para que los cambios (incluida la foto) sean visibles en todos los dispositivos
-  if(typeof fbGuardar === 'function') fbGuardar();
-  renderPlantilla();
-  plantillaMostrarJugador(jid);
+
+  if(_fotoNueva) {
+    // Comprimir foto a 90x90px antes de guardar para que quepa en Firebase y se vea en todos los dispositivos
+    comprimirFotoParaFirebase(_fotoNueva, function(fotoComprimida) {
+      arr[idx].foto = fotoComprimida;
+      _finalizarGuardadoEdicion();
+    });
+  } else {
+    _finalizarGuardadoEdicion();
+  }
 }
 
 
