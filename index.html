@@ -975,8 +975,10 @@ function fbGuardar() {
     var _fbGpsCat = []; try{ var _r4=localStorage.getItem('BFC_GPS_CAT'); if(_r4) _fbGpsCat=JSON.parse(_r4)||[]; }catch(e){}
     var _fbCamposExtra = []; try{ var _r6=localStorage.getItem('BFC_BD_CAMPOS_EXTRA'); if(_r6) _fbCamposExtra=JSON.parse(_r6)||[]; }catch(e){}
     var _fbPerfCfg = {}; try{ var _r7=localStorage.getItem('BFC_PERF_VARS_CFG'); if(_r7) _fbPerfCfg=JSON.parse(_r7)||{}; }catch(e){}
-    // Incluir fotos solo si ya están comprimidas (≤55000 chars ≈ 40KB). Las originales grandes se excluyen.
-    var jdbSinFotos = (JDB||[]).map(function(j){ var c=Object.assign({},j); if(c.foto && c.foto.length > 55000) delete c.foto; return c; });
+    // Incluir fotos: leer desde localStorage (fuente de verdad más reciente) y filtrar las grandes
+    var _jdbParaFb = []; try{ var _rjdb=localStorage.getItem('bfc_jdb'); if(_rjdb) _jdbParaFb=JSON.parse(_rjdb)||[]; }catch(e){}
+    if(_jdbParaFb.length === 0) _jdbParaFb = safeArr(JDB); // fallback a variable global
+    var jdbSinFotos = _jdbParaFb.map(function(j){ var c=Object.assign({},j); if(c.foto && c.foto.length > 55000) delete c.foto; return c; });
     var _fotosEnPayload = jdbSinFotos.filter(function(j){ return !!j.foto; }).length;
     console.log('[BFC-FOTO] fbGuardar: jugadores en jdb:', jdbSinFotos.length, '| con foto:', _fotosEnPayload);
     // ⚠️  disp_db y plantilla_disp NO están en este payload — se manejan con .update() aislado
@@ -1208,12 +1210,16 @@ function fbGuardarFotos() {
   if (!fbDB) return;
   clearTimeout(window._FB_FOTOS_TIMEOUT);
   window._FB_FOTOS_TIMEOUT = setTimeout(function() {
-    var jdbConFotos = safeArr(JDB).map(function(j){
+    // Leer SIEMPRE desde localStorage (tiene el estado más reciente, incluida la foto recién guardada)
+    var _jdbLocal = []; try{ var _r=localStorage.getItem('bfc_jdb'); if(_r) _jdbLocal=JSON.parse(_r)||[]; }catch(e){}
+    var fuente = _jdbLocal.length > 0 ? _jdbLocal : safeArr(JDB);
+    var jdbConFotos = fuente.map(function(j){
       var c = Object.assign({}, j);
       // Solo incluir la foto si ya es una miniatura comprimida (≤55000 chars ≈ 40KB)
       if (c.foto && c.foto.length > 55000) delete c.foto;
       return c;
     });
+    console.log('[BFC-FOTO] fbGuardarFotos: subiendo', jdbConFotos.length, 'jugadores,', jdbConFotos.filter(function(j){return !!j.foto;}).length, 'con foto');
     fbDB.ref('bfc').update({ jdb: jdbConFotos }).catch(function(e){ console.warn('[BFC] Error sync fotos:', e.message); });
   }, 800);
 }
@@ -3003,6 +3009,12 @@ function plantillaGuardarEdicion(jid){
       setTimeout(function(){ if(typeof fbGuardarFotos==='function') fbGuardarFotos(); }, 1200);
     });
   } else {
+    // Sin foto nueva: preservar la foto que ya tenga el jugador (puede venir de Firebase o localStorage)
+    // Buscar la foto actual en JDB antes de sobreescribir
+    var _fotoActual = null;
+    var _jActual = safeArr(JDB).find(function(x){ return x.id===jid; });
+    if(_jActual && _jActual.foto) _fotoActual = _jActual.foto;
+    if(_fotoActual && !arr[idx].foto) arr[idx].foto = _fotoActual; // restaurar si se perdió
     _finalizarGuardadoEdicion();
   }
 }
@@ -13247,7 +13259,11 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
       var cellCol = isLugEnt ? (val?"#c7d2fe":"rgba(165,180,252,.3)") : (val?TXTD:TXTS);
       var cellFw  = isLugEnt&&val ? "800" : val ? "600" : "400";
       var cellFs  = isLugEnt ? "12px" : "11px";
-      h += "<td style='padding:6px;background:"+rowBg+";font-size:"+cellFs+";font-weight:"+cellFw+";color:"+cellCol+";text-align:center;border-right:1px solid "+BORDER+";border-bottom:1px solid "+BORDER+";font-family:Arial,sans-serif;'>"+(val||"<span style='color:rgba(165,180,252,.15);'>—</span>")+"</td>";
+      // Si la siguiente columna es DESCANSO o PARTIDO, suprimir border-right (el rowspan lo cubre)
+      var nextD = mcData[i+1];
+      var nextIsSpecial = nextD && (nextD.tipo==="descanso"||nextD.tipo==="partido");
+      var cellBR = nextIsSpecial ? "border-right:0;" : "border-right:1px solid "+BORDER+";";
+      h += "<td style='padding:6px;background:"+rowBg+";font-size:"+cellFs+";font-weight:"+cellFw+";color:"+cellCol+";text-align:center;"+cellBR+"border-bottom:1px solid "+BORDER+";font-family:Arial,sans-serif;'>"+(val||"<span style='color:rgba(165,180,252,.15);'>—</span>")+"</td>";
     });
     h += "</tr>";
   });
