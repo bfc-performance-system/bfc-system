@@ -14623,6 +14623,7 @@ function renderHistorialMc(){
       });
       h += "</div></div>";
       h += "<div style='display:flex;gap:8px;flex-shrink:0;'>";
+      h += "<button onclick=\"mcHistVerPreview('"+hkey+"');\" style='padding:8px 16px;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.35);color:#6ee7b7;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer;'>👁 Ver</button>";
       h += "<button onclick=\"mcHistEditar('"+hkey+"');irA('microciclo')\" style='padding:8px 16px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer;'>✏️ Editar</button>";
       h += "<button onclick=\"mcHistDuplicar('"+hkey+"');irA('microciclo')\" style='padding:8px 16px;background:rgba(245,200,0,.1);border:1px solid rgba(245,200,0,.3);color:#fcd34d;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer;'>📋 Duplicar</button>";
       h += "<button onclick=\"mcHistEliminar('"+hkey+"');renderHistorialMc()\" style='padding:8px 10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#f87171;border-radius:9px;font-size:11px;cursor:pointer;'>🗑</button>";
@@ -17614,7 +17615,7 @@ function renderHistorial(){
       if(snap.morfociclo) h += "<div style='color:rgba(255,255,255,.6);font-size:11px;'>Microciclo "+snap.morfociclo+"</div>";
       h += "</div>";
       h += "<div style='display:flex;gap:6px;'>";
-      h += "<button onclick=\"histVerPDF('"+snap.id+"')\" style='background:rgba(255,255,255,.1);color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:10px;cursor:pointer;'>📄 Ver PDF</button>";
+      h += "<button onclick=\"histVerPDF('"+snap.id+"')\" style='background:rgba(16,185,129,.15);color:#6ee7b7;border:1px solid rgba(16,185,129,.35);border-radius:4px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;'>👁 Ver</button>";
       h += "<button onclick=\"histUsarPlantilla('"+snap.id+"')\" style='background:rgba(245,200,0,.2);color:#fcd34d;border:1px solid rgba(245,200,0,.35);border-radius:4px;padding:4px 10px;font-size:10px;cursor:pointer;font-weight:700;'>📋 Plantilla</button>";
       h += "<button onclick=\"histCargarSesion('"+snap.id+"')\" style='background:#8B0000;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:10px;cursor:pointer;'>🔄 Reutilizar</button>";
       h += "<button onclick=\"histEliminar('"+snap.id+"')\" style='background:rgba(255,50,50,.15);color:#fca5a5;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;'>✕</button>";
