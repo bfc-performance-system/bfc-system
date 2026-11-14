@@ -768,7 +768,16 @@ function fbEscuchar() {
       rerender = true;
     }
     if (d.sdb   && JSON.stringify(d.sdb)   !== JSON.stringify(SDB))   { SDB   = d.sdb;   rerender = true; }
-    if (d.disp_db && JSON.stringify(d.disp_db) !== JSON.stringify(DISP_DB)) { DISP_DB = safeArr(d.disp_db); try{ localStorage.setItem('BFC_DISP', JSON.stringify(DISP_DB)); }catch(e){} rerender = true; }
+    // disp_db — solo aplica si viene con ts más reciente que el guardado local
+    if (d.disp_db && JSON.stringify(d.disp_db) !== JSON.stringify(DISP_DB)) {
+      var _localDispTs = 0; try{ var _ldt=localStorage.getItem('BFC_DISP_TS'); if(_ldt) _localDispTs=parseInt(_ldt)||0; }catch(e){}
+      var _remoteDispTs = d.disp_ts || 0;
+      if (_remoteDispTs >= _localDispTs) {
+        DISP_DB = safeArr(d.disp_db);
+        try{ localStorage.setItem('BFC_DISP', JSON.stringify(DISP_DB)); localStorage.setItem('BFC_DISP_TS', String(_remoteDispTs)); }catch(e){}
+        rerender = true;
+      }
+    }
     if (d.expedientes_db && JSON.stringify(d.expedientes_db) !== JSON.stringify(EXPEDIENTES_DB)) { EXPEDIENTES_DB = safeArr(d.expedientes_db); try{ localStorage.setItem('BFC_EXPEDIENTES', JSON.stringify(EXPEDIENTES_DB)); }catch(e){} rerender = true; }
     if (d.novedades_db && JSON.stringify(d.novedades_db) !== JSON.stringify(NOVEDADES_DB)) { NOVEDADES_DB = safeArr(d.novedades_db); try{ localStorage.setItem('BFC_NOV', JSON.stringify(NOVEDADES_DB)); }catch(e){} rerender = true; }
     if (d.bien_extra && JSON.stringify(d.bien_extra) !== JSON.stringify(BIEN_EXTRA)) { BIEN_EXTRA = d.bien_extra; rerender = true; }
@@ -782,7 +791,16 @@ function fbEscuchar() {
     if (d.mc_last)   { try{ localStorage.setItem('bfc_mc_last', JSON.stringify(d.mc_last)); }catch(e){} }
     if (d.ip_db)     { IP_DB = safeArr(d.ip_db); try{ localStorage.setItem('BFC_IP_DB', JSON.stringify(IP_DB)); }catch(e){} }
     if (d.gps_cat)   { try{ localStorage.setItem('BFC_GPS_CAT', JSON.stringify(d.gps_cat)); }catch(e){} rerender = true; }
-    if (d.plantilla_disp) { _plantillaDisp = d.plantilla_disp||{}; try{ localStorage.setItem('BFC_PLANTILLA_DISP', JSON.stringify(_plantillaDisp)); }catch(e){} rerender = true; }
+    // plantilla_disp — solo aplica si viene con ts más reciente que el guardado local
+    if (d.plantilla_disp) {
+      var _localPdTs = 0; try{ var _lpdt=localStorage.getItem('BFC_PLANTILLA_DISP_TS'); if(_lpdt) _localPdTs=parseInt(_lpdt)||0; }catch(e){}
+      var _remotePdTs = d.plantilla_disp_ts || 0;
+      if (_remotePdTs >= _localPdTs) {
+        _plantillaDisp = d.plantilla_disp||{};
+        try{ localStorage.setItem('BFC_PLANTILLA_DISP', JSON.stringify(_plantillaDisp)); localStorage.setItem('BFC_PLANTILLA_DISP_TS', String(_remotePdTs)); }catch(e){}
+        rerender = true;
+      }
+    }
     if (d.campos_extra)   { _bdCamposExtra = safeArr(d.campos_extra); try{ localStorage.setItem('BFC_BD_CAMPOS_EXTRA', JSON.stringify(_bdCamposExtra)); }catch(e){} rerender = true; }
     if (d.perf_vars_cfg)  { try{ localStorage.setItem('BFC_PERF_VARS_CFG', JSON.stringify(d.perf_vars_cfg)); }catch(e){} }
     if (d.pp_db) { PP_DB = safeArr(d.pp_db); try{ localStorage.setItem('BFC_POSTPARTIDO_DB', JSON.stringify(PP_DB)); }catch(e){} rerender = true; }
@@ -832,7 +850,37 @@ function fbEscuchar() {
   });
 }
 
+// ── Guardar disponibilidad médica de forma aislada (nunca pisada por fbGuardar general) ──
+// Se llama SOLO desde dispSave() — usa .update() para tocar únicamente disp_db.
+function fbGuardarDisp() {
+  if (!fbDB) return;
+  clearTimeout(window._FB_DISP_TIMEOUT);
+  window._FB_DISP_TIMEOUT = setTimeout(function() {
+    var ts = Date.now();
+    var payload = { disp_db: safeArr(DISP_DB), disp_ts: ts };
+    try{ localStorage.setItem('BFC_DISP_TS', String(ts)); }catch(e){}
+    fbDB.ref('bfc').update(payload).catch(function(e){ console.warn('[BFC] Error sync disp:', e.message); });
+  }, 600);
+}
+
+// ── Guardar disponibilidad táctica (plantilla) de forma aislada ──
+// Se llama SOLO desde plantillaGuardarDisp() — usa .update() para tocar únicamente plantilla_disp.
+function fbGuardarPlantillaDisp() {
+  if (!fbDB) return;
+  clearTimeout(window._FB_PLANTDISP_TIMEOUT);
+  window._FB_PLANTDISP_TIMEOUT = setTimeout(function() {
+    var ts = Date.now();
+    var _pd = {}; try{ var _r=localStorage.getItem('BFC_PLANTILLA_DISP'); if(_r) _pd=JSON.parse(_r)||{}; }catch(e){}
+    var payload = { plantilla_disp: _pd, plantilla_disp_ts: ts };
+    try{ localStorage.setItem('BFC_PLANTILLA_DISP_TS', String(ts)); }catch(e){}
+    fbDB.ref('bfc').update(payload).catch(function(e){ console.warn('[BFC] Error sync plantilla_disp:', e.message); });
+  }, 600);
+}
+
 // Guardar en Firebase (debounced 800ms para no saturar escrituras)
+// NOTA: disp_db y plantilla_disp NO van aquí — tienen sus propias funciones
+// de escritura aislada (fbGuardarDisp / fbGuardarPlantillaDisp) para evitar
+// que un guardado general desde otro dispositivo pise estados médicos/tácticos.
 function fbGuardar() {
   if (!fbDB) return;
   clearTimeout(FB_SYNC_TIMEOUT);
@@ -842,22 +890,21 @@ function fbGuardar() {
     var _fbMcLast = null; try{ var _r2=localStorage.getItem('bfc_mc_last'); if(_r2) _fbMcLast=JSON.parse(_r2); }catch(e){}
     var _fbIpDb = []; try{ var _r3=localStorage.getItem('BFC_IP_DB'); if(_r3) _fbIpDb=JSON.parse(_r3)||[]; }catch(e){}
     var _fbGpsCat = []; try{ var _r4=localStorage.getItem('BFC_GPS_CAT'); if(_r4) _fbGpsCat=JSON.parse(_r4)||[]; }catch(e){}
-    var _fbPlantDisp = {}; try{ var _r5=localStorage.getItem('BFC_PLANTILLA_DISP'); if(_r5) _fbPlantDisp=JSON.parse(_r5)||{}; }catch(e){}
     var _fbCamposExtra = []; try{ var _r6=localStorage.getItem('BFC_BD_CAMPOS_EXTRA'); if(_r6) _fbCamposExtra=JSON.parse(_r6)||[]; }catch(e){}
     var _fbPerfCfg = {}; try{ var _r7=localStorage.getItem('BFC_PERF_VARS_CFG'); if(_r7) _fbPerfCfg=JSON.parse(_r7)||{}; }catch(e){}
     // Strip foto (base64) de JDB antes de enviar a Firebase para evitar exceder el límite de 10MB
     var jdbSinFotos = (JDB||[]).map(function(j){ var c=Object.assign({},j); delete c.foto; return c; });
+    // ⚠️  disp_db y plantilla_disp NO están en este payload — se manejan con .update() aislado
     var payload = {
       pl: PL, carga: CARGA, bien: BIEN, neuro: NEURO, evs: EVS,
       jdb: jdbSinFotos, sdb: SDB, pruebas: PRUEBAS||[], ci_db: CI_DB||[],
       historial: HISTORIAL_DB||[], ejercicios: EJERCICIOS_DB||[],
-      notif: NOTIF_DB||[], disp_db: safeArr(DISP_DB),
+      notif: NOTIF_DB||[],
       expedientes_db: safeArr(EXPEDIENTES_DB),
       novedades_db: safeArr(NOVEDADES_DB),
       bien_extra: BIEN_EXTRA||[],
       mc_hist: _fbMcHist, mc_last: _fbMcLast,
       ip_db: _fbIpDb, gps_cat: _fbGpsCat,
-      plantilla_disp: _fbPlantDisp,
       campos_extra: _fbCamposExtra,
       perf_vars_cfg: _fbPerfCfg,
       pp_db: (function(){ var r=[]; try{ var s=localStorage.getItem('BFC_POSTPARTIDO_DB'); if(s) r=JSON.parse(s)||[]; }catch(e){} return r; })(),
@@ -866,7 +913,7 @@ function fbGuardar() {
     };
     // Estimar tamaño antes de enviar
     _fbEstimarTamanoPayload(payload);
-    fbDB.ref('bfc').set(payload)
+    fbDB.ref('bfc').update(payload)
       .then(function() {
         var badge = document.getElementById('fb-sync-badge');
         if (badge) { badge.textContent = '🟢 Sync'; badge.style.color='#34d399'; badge.style.background='rgba(52,211,153,.1)'; badge.style.borderColor='rgba(52,211,153,.3)'; }
@@ -918,6 +965,9 @@ function fbForzarSync() {
   var _fbPerfCfg={}; try{ var _g=localStorage.getItem('BFC_PERF_VARS_CFG'); if(_g) _fbPerfCfg=JSON.parse(_g)||{}; }catch(e){}
   // Strip foto (base64) de JDB para no exceder el límite de Firebase
   var jdbSinFotosForzar = (JDB||[]).map(function(j){ var c=Object.assign({},j); delete c.foto; return c; });
+  var _forzarTs = Date.now();
+  var _forzarDispTs = 0; try{ var _fdt=localStorage.getItem('BFC_DISP_TS'); if(_fdt) _forzarDispTs=parseInt(_fdt)||0; }catch(e){}
+  var _forzarPdTs = 0; try{ var _fpdt=localStorage.getItem('BFC_PLANTILLA_DISP_TS'); if(_fpdt) _forzarPdTs=parseInt(_fpdt)||0; }catch(e){}
   var payload = {
     pl: PL, carga: CARGA, bien: BIEN, neuro: NEURO, evs: EVS,
     jdb: jdbSinFotosForzar, sdb: SDB, pruebas: PRUEBAS||[], ci_db: CI_DB||[],
@@ -931,7 +981,9 @@ function fbForzarSync() {
     plantilla_disp: _fbPlantDisp,
     campos_extra: _fbCamposExtra,
     perf_vars_cfg: _fbPerfCfg,
-    ts: Date.now()
+    disp_ts: _forzarDispTs || _forzarTs,
+    plantilla_disp_ts: _forzarPdTs || _forzarTs,
+    ts: _forzarTs
   };
   showToast('⏫ Subiendo todos los datos...');
   fbDB.ref('bfc').set(payload)
@@ -1595,7 +1647,7 @@ function plantillaGuardarDisp(pid, val, obs){
   try{ localStorage.setItem('BFC_PLANTILLA_DISP', JSON.stringify(_plantillaDisp)); }catch(e){}
   // NOTA: NO se escribe en DISP_DB — la Plantilla no tiene autoridad clínica.
   // Solo el área médica/rendimiento (Disponibilidad) toca DISP_DB.
-  fbGuardar(); // sincronizar disponibilidad táctica a Firebase
+  fbGuardarPlantillaDisp(); // sincronizar disponibilidad táctica de forma aislada
   renderPlantilla();
 }
 
@@ -20029,7 +20081,7 @@ function escHtml(s){
 var DISP_DB = [];
 var NOVEDADES_DB = [];
 
-function dispSave(){ try{ localStorage.setItem('BFC_DISP', JSON.stringify(DISP_DB)); }catch(e){} fbGuardar(); }
+function dispSave(){ try{ localStorage.setItem('BFC_DISP', JSON.stringify(DISP_DB)); }catch(e){} fbGuardarDisp(); }
 function dispLoad(){ try{ var d=localStorage.getItem('BFC_DISP'); if(d) DISP_DB=safeArr(JSON.parse(d)); }catch(e){} }
 function novSave(){ try{ localStorage.setItem('BFC_NOV', JSON.stringify(NOVEDADES_DB)); }catch(e){} fbGuardar(); }
 
