@@ -12701,85 +12701,15 @@ function mcHistVerPreview(hkey){
   var hist = mcHistLoad();
   var rec = null;
   for(var i=0;i<hist.length;i++){ if(hist[i]._hkey===hkey){ rec=hist[i]; break; } }
-  if(!rec){ if(typeof toast==='function') toast('❌ Microciclo no encontrado'); return; }
-
-  var TIPO_LABELS = { desc:'DESCANSO', partido:'MD', ent:'ENTRENAMIENTO', rec:'RECUPERACIÓN', via:'VIAJE', libre:'LIBRE' };
-  var TIPO_COLORS = { desc:'#64748b', partido:'#f59e0b', ent:'#22c55e', rec:'#38bdf8', via:'#a78bfa', libre:'#94a3b8' };
-  var CARGA_COLORS = { alta:'#ef4444', media:'#f59e0b', baja:'#22c55e', 'baja-media':'#86efac', 'media-alta':'#fca5a5' };
-
-  var fechas = rec.fechas || [];
-  var data   = rec.data   || [];
-  var savedAtStr = '';
-  if(rec.savedAt){ try{ savedAtStr = new Date(rec.savedAt).toLocaleString('es-CO',{dateStyle:'medium',timeStyle:'short'}); }catch(e){ savedAtStr=rec.savedAt; } }
-
-  // Resumen de tipos de día
-  var cntEnt=0, cntDesc=0, cntPart=0, cntOtro=0;
-  data.forEach(function(d){ var t=d.tipo||''; if(t==='ent') cntEnt++; else if(t==='desc'||t==='libre') cntDesc++; else if(t==='partido') cntPart++; else if(t) cntOtro++; });
-
-  var html = "<div style='max-width:900px;width:92vw;max-height:85vh;overflow-y:auto;padding:0;border-radius:14px;background:#111827;color:#f1f5f9;'>";
-
-  // Cabecera
-  html += "<div style='background:linear-gradient(135deg,#1e3a5f,#1e293b);padding:18px 24px;border-radius:14px 14px 0 0;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;'>";
-  html += "<div>";
-  html += "<div style='font-size:11px;font-weight:700;color:#38bdf8;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;'>Microciclo</div>";
-  html += "<div style='font-size:22px;font-weight:800;color:#f1f5f9;'>#"+escHtml(String(rec.numero||''))+"</div>";
-  if(fechas.length){ html += "<div style='font-size:12px;color:#94a3b8;margin-top:2px;'>📅 "+escHtml(fechas[0])+(fechas.length>1?' — '+escHtml(fechas[fechas.length-1]):'')+" · "+fechas.length+" día"+(fechas.length!==1?'s':'')+"</div>"; }
-  if(savedAtStr){ html += "<div style='font-size:11px;color:#64748b;margin-top:2px;'>💾 "+escHtml(savedAtStr)+"</div>"; }
-  html += "</div>";
-  // Chips resumen
-  html += "<div style='display:flex;gap:6px;flex-wrap:wrap;align-items:center;'>";
-  if(cntEnt)  html += "<span style='background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.35);color:#86efac;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:700;'>"+cntEnt+"× entrenamiento</span>";
-  if(cntDesc) html += "<span style='background:rgba(100,116,139,.15);border:1px solid rgba(100,116,139,.35);color:#94a3b8;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:700;'>"+cntDesc+"× descanso</span>";
-  if(cntPart) html += "<span style='background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.35);color:#fcd34d;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:700;'>"+cntPart+"× partido</span>";
-  if(cntOtro) html += "<span style='background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.35);color:#c4b5fd;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:700;'>"+cntOtro+"× otro</span>";
-  html += "</div></div>";
-
-  // Tabla de días
-  html += "<div style='padding:16px 20px;'>";
-  html += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;font-size:12px;'>";
-  html += "<thead><tr style='background:rgba(255,255,255,.04);'>";
-  ["Día","Fecha","Tipo","Carga","Lugar Recorrido","Lugar Entreno","Ini. Recorrido","Llegada","Presentación","Ingesta","Salida","Observaciones"].forEach(function(col){
-    html += "<th style='padding:8px 10px;text-align:left;color:#94a3b8;font-weight:600;font-size:11px;border-bottom:1px solid rgba(255,255,255,.08);white-space:nowrap;'>"+col+"</th>";
-  });
-  html += "</tr></thead><tbody>";
-
-  var DIAS_NOMBRES = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
-  fechas.forEach(function(fecha, idx){
-    var d = data[idx] || {};
-    var tipo = d.tipo || '';
-    var tipoLabel = TIPO_LABELS[tipo] || tipo.toUpperCase() || '—';
-    var tipoColor = TIPO_COLORS[tipo] || '#64748b';
-    var carga = (d.carga||'').toLowerCase();
-    var cargaColor = CARGA_COLORS[carga] || '#94a3b8';
-    var diaNombre = '';
-    try{ var dow = new Date(fecha+'T12:00:00').getDay(); diaNombre = DIAS_NOMBRES[(dow+6)%7]; }catch(e){}
-    var rowBg = idx%2===0 ? 'rgba(255,255,255,.01)' : 'rgba(255,255,255,.025)';
-    html += "<tr style='background:"+rowBg+";border-bottom:1px solid rgba(255,255,255,.04);'>";
-    html += "<td style='padding:8px 10px;font-weight:700;color:#f1f5f9;'>"+escHtml(diaNombre)+"</td>";
-    html += "<td style='padding:8px 10px;color:#94a3b8;white-space:nowrap;'>"+escHtml(fecha)+"</td>";
-    html += "<td style='padding:8px 10px;'><span style='background:"+tipoColor+"22;color:"+tipoColor+";border:1px solid "+tipoColor+"55;border-radius:5px;padding:2px 7px;font-size:11px;font-weight:700;'>"+escHtml(tipoLabel)+"</span></td>";
-    html += "<td style='padding:8px 10px;'>"+(carga?"<span style='background:"+cargaColor+"22;color:"+cargaColor+";border:1px solid "+cargaColor+"55;border-radius:5px;padding:2px 7px;font-size:11px;font-weight:600;'>"+escHtml((d.carga||'').toUpperCase())+"</span>":'<span style="color:#475569;">—</span>')+"</td>";
-    html += "<td style='padding:8px 10px;color:#cbd5e1;'>"+escHtml(d.lRec||'—')+"</td>";
-    html += "<td style='padding:8px 10px;color:#cbd5e1;'>"+escHtml(d.lEnt||'—')+"</td>";
-    html += "<td style='padding:8px 10px;color:#cbd5e1;'>"+escHtml(d.hRec||'—')+"</td>";
-    html += "<td style='padding:8px 10px;color:#cbd5e1;'>"+escHtml(d.hLleg||'—')+"</td>";
-    html += "<td style='padding:8px 10px;color:#cbd5e1;'>"+escHtml(d.hPres||'—')+"</td>";
-    html += "<td style='padding:8px 10px;color:#cbd5e1;'>"+escHtml(d.hIng||'—')+"</td>";
-    html += "<td style='padding:8px 10px;color:#cbd5e1;'>"+escHtml(d.hSal||'—')+"</td>";
-    html += "<td style='padding:8px 10px;color:#94a3b8;max-width:160px;'>"+escHtml(d.obs||'—')+"</td>";
-    html += "</tr>";
-  });
-
-  html += "</tbody></table></div></div>";
-
-  // Botones de acción al pie
-  html += "<div style='padding:12px 20px 18px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid rgba(255,255,255,.07);'>";
-  html += "<button onclick=\"closeModal();mcHistEditar('"+hkey+"')\" style='padding:9px 20px;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;'>✏️ Editar microciclo</button>";
-  html += "<button onclick='closeModal()' style='padding:9px 20px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;'>Cerrar</button>";
-  html += "</div>";
-  html += "</div>";
-
-  showModal(html);
+  if(!rec){ if(typeof toast==='function') toast('\u274C Microciclo no encontrado'); return; }
+  // Cargar datos del historial en las variables globales del microciclo
+  mcNumMicro = rec.numero || '';
+  MC_FECHAS_ACTIVAS = (rec.fechas||[]).slice();
+  MC_DIAS_ACTIVOS   = (rec.dias||[]).slice();
+  mcData = JSON.parse(JSON.stringify(rec.data||[]));
+  mcFechaFin = MC_FECHAS_ACTIVAS.length ? MC_FECHAS_ACTIVAS[MC_FECHAS_ACTIVAS.length-1] : (mcFechaFin||'');
+  // Mostrar la vista previa visual completa (misma que el botón Vista previa del editor)
+  mcRPreview();
 }
 
 function mcRenderHistorial(){
@@ -13200,7 +13130,8 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
     var thCol = isMD ? "#fff" : isDesc ? "#c9cdd4" : TXTD;
     var thBorder = isMD ? NAV : BORDER;
     var thBorderBottom = (isMD||isDesc) ? "0" : "2px solid "+thBorder;
-    h += "<th style='padding:9px 6px;background:"+thBg+";font-size:11px;font-weight:800;color:"+thCol+";text-align:center;border-right:1px solid "+BORDER+";border-bottom:"+thBorderBottom+";'>";
+    var thBorderRight = (isMD||isDesc) ? "0" : "1px solid "+BORDER;
+    h += "<th style='padding:9px 6px;background:"+thBg+";font-size:11px;font-weight:800;color:"+thCol+";text-align:center;border-right:"+thBorderRight+";border-bottom:"+thBorderBottom+";'>";
     var fechaDia=MC_FECHAS_ACTIVAS[i]?parseInt(MC_FECHAS_ACTIVAS[i].slice(8)):"";
     h += (MC_DIAS_ACTIVOS[i]||MC_DIAS[i]).toUpperCase()+(fechaDia?"<br><span style='font-size:10px;font-weight:400;opacity:.6;'>"+fechaDia+"</span>":"");
     if(isMD && mcLogoRival) h += "<br><img src='"+mcLogoRival+"' style='width:26px;height:26px;object-fit:contain;margin-top:4px;'>";
@@ -13219,7 +13150,7 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
       // Descanso: rowspan sin líneas internas
       if(isDesc){
         if(li===0){ descDone.push(i);
-          h += "<td rowspan='"+LBLS.length+"' style='padding:6px;background:"+NAV+";text-align:center;vertical-align:middle;border:0;'>";
+          h += "<td rowspan='"+LBLS.length+"' style='padding:6px;background:"+NAV+";text-align:center;vertical-align:middle;border:3px solid #131c28;'>";
           h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:10px;line-height:1.35;text-align:center;margin:auto;letter-spacing:.05em;'>D<br>E<br>S<br>C<br>A<br>N<br>S<br>O</div></td>";
         }
         return;
@@ -13234,7 +13165,7 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
           var logoHtml = mcLogoRival
             ? "<img src='"+mcLogoRival+"' style='width:28px;height:28px;object-fit:contain;display:block;margin:0 auto 4px;'>"
             : "<div style='font-size:22px;text-align:center;margin-bottom:4px;'>&#127942;</div>";
-          h += "<td rowspan='"+LBLS.length+"' style='padding:6px 4px;background:"+NAV+";text-align:center;vertical-align:middle;border:0;overflow:hidden;'>";
+          h += "<td rowspan='"+LBLS.length+"' style='padding:6px 4px;background:"+NAV+";text-align:center;vertical-align:middle;border:3px solid #131c28;overflow:hidden;'>";
           h += "<div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;'>";
           h += logoHtml;
           if(rivalMD) h += "<div style='font-size:9px;font-weight:800;color:rgba(255,255,255,.9);word-break:break-word;overflow-wrap:break-word;max-width:100%;line-height:1.2;'>"+rivalMD+"</div>";
@@ -13282,12 +13213,13 @@ function mcPL2(sem2,rival,jornada,horaP,estadio){
   h += "</div><div style='display:grid;grid-template-columns:repeat("+(mcData.length||7)+",1fr);background:"+DARK+";'>";
   mcData.forEach(function(d,i){
     var isMD=d.tipo==="partido", isDesc=d.tipo==="descanso", isViaje=d.tipo==="viaje";
-    var br = i<(mcData.length-1) ? "border-right:1px solid "+BORDER+";" : "";
+    var br = (i<(mcData.length-1) && !isDesc && !isMD) ? "border-right:1px solid "+BORDER+";" : "";
     var colBg = isMD ? NAV : isDesc ? NAV : NAV2;
     var dayCol = "#fff";
     var dayBg = isMD ? "rgba(255,255,255,.15)" : isDesc ? "rgba(255,255,255,.12)" : "rgba(255,255,255,.08)";
     var relLbl = (!isDesc && d.rel && d.rel!=="") ? d.rel : (isMD ? "MD" : "");
-    h += "<div style='padding:12px 8px;min-height:180px;"+br+"border-top:1px solid "+BORDER+";background:"+colBg+";'>";
+    var btop = (!isDesc && !isMD) ? "border-top:1px solid "+BORDER+";" : "";
+    h += "<div style='padding:12px 8px;min-height:180px;"+br+btop+"background:"+colBg+";'>";
     h += "<div style='font-size:10px;font-weight:800;color:"+dayCol+";text-align:center;text-transform:uppercase;padding:3px 6px;border-radius:99px;background:"+dayBg+";margin-bottom:4px;'>"+(MC_DIAS_ACTIVOS[i]||MC_DIAS[i])+"</div>";
     if(relLbl) h += "<div style='text-align:center;font-size:9px;font-weight:900;color:"+(isMD?"#fbbf24":"rgba(165,180,252,.85)")+";letter-spacing:.08em;margin-bottom:6px;'>"+relLbl+"</div>";
     if(isDesc){
@@ -13327,11 +13259,12 @@ function mcPL3(sem2,rival,jornada,horaP,estadio){
   h += "</div><div style='display:grid;grid-template-columns:repeat("+(mcData.length||7)+",1fr);background:"+DARK+";'>";
   mcData.forEach(function(d,i){
     var isMD=d.tipo==="partido", isDesc=d.tipo==="descanso", isViaje=d.tipo==="viaje";
-    var br = i<(mcData.length-1) ? "border-right:1px solid "+BORDER+";" : "";
+    var br = (i<(mcData.length-1) && !isDesc && !isMD) ? "border-right:1px solid "+BORDER+";" : "";
     var colBg = isMD ? NAV : isDesc ? NAV : NAV2;
     var dayBg = isMD ? "rgba(255,255,255,.15)" : isDesc ? "rgba(255,255,255,.12)" : "rgba(255,255,255,.08)";
     var relLbl3 = (!isDesc && d.rel && d.rel!=="") ? d.rel : (isMD ? "MD" : "");
-    h += "<div style='padding:12px 8px;min-height:180px;"+br+"border-top:1px solid "+BORDER+";background:"+colBg+";'>";
+    var btop3 = (!isDesc && !isMD) ? "border-top:1px solid "+BORDER+";" : "";
+    h += "<div style='padding:12px 8px;min-height:180px;"+br+btop3+"background:"+colBg+";'>";
     h += "<div style='font-size:10px;font-weight:800;color:#fff;text-align:center;text-transform:uppercase;padding:3px 6px;border-radius:6px;background:"+dayBg+";margin-bottom:4px;'>"+(MC_DIAS_ACTIVOS[i]||MC_DIAS[i])+"</div>";
     if(relLbl3) h += "<div style='text-align:center;font-size:9px;font-weight:900;color:"+(isMD?"#fbbf24":"rgba(165,180,252,.85)")+";letter-spacing:.08em;margin-bottom:6px;'>"+relLbl3+"</div>";
     if(isDesc){
