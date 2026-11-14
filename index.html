@@ -912,6 +912,8 @@ function fbGuardar() {
     var _fbPerfCfg = {}; try{ var _r7=localStorage.getItem('BFC_PERF_VARS_CFG'); if(_r7) _fbPerfCfg=JSON.parse(_r7)||{}; }catch(e){}
     // Incluir fotos solo si ya están comprimidas (≤55000 chars ≈ 40KB). Las originales grandes se excluyen.
     var jdbSinFotos = (JDB||[]).map(function(j){ var c=Object.assign({},j); if(c.foto && c.foto.length > 55000) delete c.foto; return c; });
+    var _fotosEnPayload = jdbSinFotos.filter(function(j){ return !!j.foto; }).length;
+    console.log('[BFC-FOTO] fbGuardar: jugadores en jdb:', jdbSinFotos.length, '| con foto:', _fotosEnPayload);
     // ⚠️  disp_db y plantilla_disp NO están en este payload — se manejan con .update() aislado
     var payload = {
       pl: PL, carga: CARGA, bien: BIEN, neuro: NEURO, evs: EVS,
@@ -1152,6 +1154,7 @@ var NOTIF_DB = []; // Centro de notificaciones
 var CI_DB = [];    // Carga Interna (RPE × Tiempo)
 var PP_DB = [];    // Post Partido (informes de partido)
 var LESIONES_DB = []; // Historial de lesiones por jugador
+var BIEN_EXTRA = []; // Bienestar extra (campos adicionales)
 var TODAY = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
 var MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 var DIAS_S = ["Dom","Lun","Mar","Mie","Jue","Vie","Sab"];
@@ -2884,6 +2887,9 @@ function plantillaGuardarEdicion(jid){
     } else {
       try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
     }
+    // Verificar foto en JDB antes de subir a Firebase
+    var _jFoto = safeArr(JDB).find(function(x){ return x.id===jid; });
+    console.log('[BFC-FOTO] Foto en JDB antes de fbGuardar:', _jFoto ? (_jFoto.foto ? ('SÍ, ' + _jFoto.foto.length + ' chars') : 'NO (campo vacío)') : 'jugador no encontrado');
     // fbGuardar ya incluye las fotos comprimidas en jdb — no se necesita llamada adicional
     if(typeof fbGuardar === 'function') fbGuardar();
     renderPlantilla();
@@ -2891,8 +2897,9 @@ function plantillaGuardarEdicion(jid){
   }
 
   if(_fotoNueva) {
-    // Comprimir foto a 90x90px antes de guardar para que quepa en Firebase y se vea en todos los dispositivos
+    console.log('[BFC-FOTO] Foto nueva detectada, tamaño original:', _fotoNueva.length, 'chars');
     comprimirFotoParaFirebase(_fotoNueva, function(fotoComprimida) {
+      console.log('[BFC-FOTO] Foto comprimida:', fotoComprimida.length, 'chars. Guardando en jugador idx:', idx);
       arr[idx].foto = fotoComprimida;
       _finalizarGuardadoEdicion();
     });
