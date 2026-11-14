@@ -462,6 +462,7 @@ function fbInit() {
     fbMonitorConexion();     // 🔌 Monitor de conexión en tiempo real
     fbPresenciaInit();       // 👥 Presencia multi-usuario
     fbBackupAutoInit();      // 💾 Backup automático periódico
+    setTimeout(fbMigrarFotosAntiguas, 3000); // 📸 Migrar fotos antiguas (grandes) a Firebase comprimidas
     console.log("[BFC Firebase] Conectado a Realtime Database");
   } catch(e) {
     console.warn("[BFC Firebase] Error al inicializar:", e.message);
@@ -909,8 +910,8 @@ function fbGuardar() {
     var _fbGpsCat = []; try{ var _r4=localStorage.getItem('BFC_GPS_CAT'); if(_r4) _fbGpsCat=JSON.parse(_r4)||[]; }catch(e){}
     var _fbCamposExtra = []; try{ var _r6=localStorage.getItem('BFC_BD_CAMPOS_EXTRA'); if(_r6) _fbCamposExtra=JSON.parse(_r6)||[]; }catch(e){}
     var _fbPerfCfg = {}; try{ var _r7=localStorage.getItem('BFC_PERF_VARS_CFG'); if(_r7) _fbPerfCfg=JSON.parse(_r7)||{}; }catch(e){}
-    // Incluir fotos solo si ya están comprimidas (≤20000 chars ≈ 15KB). Las originales se excluyen.
-    var jdbSinFotos = (JDB||[]).map(function(j){ var c=Object.assign({},j); if(c.foto && c.foto.length > 20000) delete c.foto; return c; });
+    // Incluir fotos solo si ya están comprimidas (≤55000 chars ≈ 40KB). Las originales grandes se excluyen.
+    var jdbSinFotos = (JDB||[]).map(function(j){ var c=Object.assign({},j); if(c.foto && c.foto.length > 55000) delete c.foto; return c; });
     // ⚠️  disp_db y plantilla_disp NO están en este payload — se manejan con .update() aislado
     var payload = {
       pl: PL, carga: CARGA, bien: BIEN, neuro: NEURO, evs: EVS,
@@ -980,8 +981,8 @@ function fbForzarSync() {
   var _fbPlantDisp={}; try{ var _e=localStorage.getItem('BFC_PLANTILLA_DISP'); if(_e) _fbPlantDisp=JSON.parse(_e)||{}; }catch(e){}
   var _fbCamposExtra=[]; try{ var _f=localStorage.getItem('BFC_BD_CAMPOS_EXTRA'); if(_f) _fbCamposExtra=JSON.parse(_f)||[]; }catch(e){}
   var _fbPerfCfg={}; try{ var _g=localStorage.getItem('BFC_PERF_VARS_CFG'); if(_g) _fbPerfCfg=JSON.parse(_g)||{}; }catch(e){}
-  // Incluir fotos solo si ya están comprimidas (≤20000 chars ≈ 15KB). Las originales se excluyen.
-  var jdbSinFotosForzar = (JDB||[]).map(function(j){ var c=Object.assign({},j); if(c.foto && c.foto.length > 20000) delete c.foto; return c; });
+  // Incluir fotos solo si ya están comprimidas (≤55000 chars ≈ 40KB). Las originales grandes se excluyen.
+  var jdbSinFotosForzar = (JDB||[]).map(function(j){ var c=Object.assign({},j); if(c.foto && c.foto.length > 55000) delete c.foto; return c; });
   var _forzarTs = Date.now();
   var _forzarDispTs = 0; try{ var _fdt=localStorage.getItem('BFC_DISP_TS'); if(_fdt) _forzarDispTs=parseInt(_fdt)||0; }catch(e){}
   var _forzarPdTs = 0; try{ var _fpdt=localStorage.getItem('BFC_PLANTILLA_DISP_TS'); if(_fpdt) _forzarPdTs=parseInt(_fpdt)||0; }catch(e){}
@@ -1077,12 +1078,12 @@ var PL=[], CARGA=[], BIEN=[], NEURO=[], EVS=[], JDB=[], SDB=[];
 function safeArr(v){ return Array.isArray(v) ? v : []; }
 
 // ── Comprimir foto a base64 de tamaño reducido para guardar en Firebase ──
-// Redimensiona a máximo 90x90px y calidad 0.6 → ~5-12KB por foto (cabe en Firebase)
+// Redimensiona a máximo 200x200px y calidad 0.75 → ~20-40KB por foto (cabe en Firebase y se ve bien)
 function comprimirFotoParaFirebase(base64, cb) {
   try {
     var img = new Image();
     img.onload = function() {
-      var MAX = 90;
+      var MAX = 200;
       var w = img.width, h = img.height;
       var scale = Math.min(MAX / w, MAX / h, 1);
       var cw = Math.round(w * scale), ch = Math.round(h * scale);
@@ -1090,11 +1091,35 @@ function comprimirFotoParaFirebase(base64, cb) {
       canvas.width = cw; canvas.height = ch;
       var ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, cw, ch);
-      cb(canvas.toDataURL('image/jpeg', 0.60));
+      cb(canvas.toDataURL('image/jpeg', 0.75));
     };
     img.onerror = function(){ cb(base64); }; // fallback: usar original si falla
     img.src = base64;
   } catch(e) { cb(base64); }
+}
+
+// ── Migrar fotos antiguas (grandes, en localStorage) → comprimir y subir a Firebase ──
+// Se llama una vez al cargar. Detecta jugadores con foto grande, la comprime y actualiza JDB+Firebase.
+function fbMigrarFotosAntiguas() {
+  if (!fbDB) return;
+  var jugadoresConFotoGrande = safeArr(JDB).filter(function(j){ return j.foto && j.foto.length > 55000; });
+  if (jugadoresConFotoGrande.length === 0) return;
+  console.log('[BFC] Migrando ' + jugadoresConFotoGrande.length + ' fotos antiguas a Firebase...');
+  var pendientes = jugadoresConFotoGrande.length;
+  jugadoresConFotoGrande.forEach(function(j) {
+    comprimirFotoParaFirebase(j.foto, function(fotoComprimida) {
+      // Actualizar en JDB global
+      var idx = safeArr(JDB).findIndex(function(x){ return x.id === j.id; });
+      if (idx !== -1) JDB[idx].foto = fotoComprimida;
+      pendientes--;
+      if (pendientes === 0) {
+        // Cuando todas están comprimidas, guardar JDB completo a Firebase y localStorage
+        try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){}
+        fbGuardar();
+        console.log('[BFC] Migración de fotos completada.');
+      }
+    });
+  });
 }
 
 // ── Sincronizar posiciones manuales de cancha a Firebase ──
@@ -1114,8 +1139,8 @@ function fbGuardarFotos() {
   window._FB_FOTOS_TIMEOUT = setTimeout(function() {
     var jdbConFotos = safeArr(JDB).map(function(j){
       var c = Object.assign({}, j);
-      // Solo incluir la foto si ya es una miniatura comprimida (<15KB en base64 ≈ ~20000 chars)
-      if (c.foto && c.foto.length > 20000) delete c.foto;
+      // Solo incluir la foto si ya es una miniatura comprimida (≤55000 chars ≈ 40KB)
+      if (c.foto && c.foto.length > 55000) delete c.foto;
       return c;
     });
     fbDB.ref('bfc').update({ jdb: jdbConFotos }).catch(function(e){ console.warn('[BFC] Error sync fotos:', e.message); });
@@ -2859,9 +2884,8 @@ function plantillaGuardarEdicion(jid){
     } else {
       try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
     }
-    // Datos generales del jugador (fbGuardar excluye fotos grandes; fbGuardarFotos las sube comprimidas)
+    // fbGuardar ya incluye las fotos comprimidas en jdb — no se necesita llamada adicional
     if(typeof fbGuardar === 'function') fbGuardar();
-    if(typeof fbGuardarFotos === 'function') fbGuardarFotos();
     renderPlantilla();
     plantillaMostrarJugador(jid);
   }
