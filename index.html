@@ -2364,7 +2364,7 @@ function renderPlantilla(){
 
   h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;'>";
   h += "<thead><tr style='background:rgba(255,255,255,.04);'>";
-  ['#','Jugador','Posición','Wellness','RPE','ACWR','Disponibilidad'].forEach(function(th){
+  ['#','Jugador','Wellness','RPE','ACWR','Disponibilidad','Observaciones'].forEach(function(th){
     h += "<th style='padding:8px 12px;text-align:left;font-size:9px;font-weight:700;color:#475569;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;'>"+th+"</th>";
   });
   h += "</tr></thead><tbody>";
@@ -2397,8 +2397,6 @@ function renderPlantilla(){
       h += "<div style='width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#334155,#1e293b);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#94a3b8;flex-shrink:0;border:2px solid "+semDot+";'>"+((j.nombre||j.name||'?').charAt(0))+"</div>";
     }
     h += "<span style='font-size:12px;font-weight:700;color:#e2e8f0;'>"+escHtml(nombre)+"</span></div></td>";
-    // Posición específica
-    h += "<td style='padding:9px 12px;'><span style='font-size:9px;font-weight:700;background:rgba(99,102,241,.2);color:#a5b4fc;padding:2px 8px;border-radius:99px;white-space:nowrap;'>"+lineaLabel+"</span></td>";
     // Wellness
     h += "<td style='padding:9px 12px;text-align:center;'>";
     if(sc!==null){ var c=sc>=7?'#22c55e':sc>=5?'#f59e0b':'#ef4444'; h+="<b style='color:"+c+";'>"+sc+"</b><span style='font-size:9px;color:#475569;'>/10</span>"; }
@@ -2433,6 +2431,17 @@ function renderPlantilla(){
       h += "<button onclick='plantillaModalDisp(\""+j.id+"\")' style='display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#4ade80;background:#22c55e18;border:1px solid #22c55e44;border-radius:99px;padding:3px 9px;cursor:pointer;'>✅ Disponible</button>";
       if(_obsDisp){ h += "<span style='font-size:9px;color:#fbbf24;font-weight:600;padding:0 4px;'>⚠ "+escHtml(_obsDisp)+"</span>"; }
       h += "</div>";
+    }
+    h += "</td>";
+    // Observaciones — médico (dispEstT.notas) + técnico (ovT.obs)
+    var obsM = (dispEstT && dispEstT.notas) ? dispEstT.notas : '';
+    var obsT = (ovT && ovT.obs) ? ovT.obs : '';
+    h += "<td style='padding:9px 12px;max-width:180px;'>";
+    if(obsM || obsT){
+      if(obsM) h += "<div style='font-size:10px;color:#c084fc;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' title='"+escHtml(obsM)+"'>🏥 "+escHtml(obsM.length>30?obsM.slice(0,30)+'…':obsM)+"</div>";
+      if(obsT) h += "<div style='font-size:10px;color:#fbbf24;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:"+(obsM?'3':'0')+"px;' title='"+escHtml(obsT)+"'>📋 "+escHtml(obsT.length>30?obsT.slice(0,30)+'…':obsT)+"</div>";
+    } else {
+      h += "<span style='color:#334155;font-size:11px;'>—</span>";
     }
     h += "</td>";
     h += "</tr>";
@@ -6282,6 +6291,12 @@ function renderProgramacion() {
     // ── CDEF sesión registrada ──
     if (ses4 && ses4.cdefSel && !rinf2) {
       h += "<div style='margin-top:2px;'>" + cdefHtml(ses4.cdefSel) + "</div>";
+    }
+
+    // ── LUGAR ENTRENAMIENTO ──
+    if (mc4 && mc4.lugEnt && mc4.tipo !== 'descanso') {
+      var lugCorto = (mc4.lugEnt||'').replace(/sede\s*/i,'').replace(/estadio\s*/i,'').trim();
+      h += "<div style='margin-top:3px;font-size:7px;font-weight:700;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;'>📍 " + lugCorto.replace(/</g,'&lt;').substring(0,20) + (lugCorto.length>20?'…':'') + "</div>";
     }
 
     // ── NOTA STAFF visible ──
@@ -13205,7 +13220,7 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
       if(isDesc){
         if(li===0){ descDone.push(i);
           h += "<td rowspan='"+LBLS.length+"' style='padding:6px;background:"+NAV+";text-align:center;vertical-align:middle;border:0;'>";
-          h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.18em;writing-mode:vertical-rl;text-orientation:mixed;text-align:center;margin:auto;'>DESCANSO</div></td>";
+          h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:10px;line-height:1.35;text-align:center;margin:auto;letter-spacing:.05em;'>D<br>E<br>S<br>C<br>A<br>N<br>S<br>O</div></td>";
         }
         return;
       }
@@ -13276,7 +13291,7 @@ function mcPL2(sem2,rival,jornada,horaP,estadio){
     h += "<div style='font-size:10px;font-weight:800;color:"+dayCol+";text-align:center;text-transform:uppercase;padding:3px 6px;border-radius:99px;background:"+dayBg+";margin-bottom:4px;'>"+(MC_DIAS_ACTIVOS[i]||MC_DIAS[i])+"</div>";
     if(relLbl) h += "<div style='text-align:center;font-size:9px;font-weight:900;color:"+(isMD?"#fbbf24":"rgba(165,180,252,.85)")+";letter-spacing:.08em;margin-bottom:6px;'>"+relLbl+"</div>";
     if(isDesc){
-      h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.18em;writing-mode:vertical-rl;text-orientation:mixed;text-align:center;margin:20px auto 0;'>DESCANSO</div>";
+      h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:10px;line-height:1.35;text-align:center;margin:20px auto 0;letter-spacing:.05em;'>D<br>E<br>S<br>C<br>A<br>N<br>S<br>O</div>";
     } else if(isViaje){
       h += "<div style='font-size:11px;font-weight:700;color:"+TXTS+";text-align:center;margin-bottom:4px;'>"+(d.lugar||"Aeropuerto")+"</div>";
       h += "<div style='text-align:center;font-size:26px;margin:8px 0;'>&#9992;&#65039;</div>";
@@ -13320,7 +13335,7 @@ function mcPL3(sem2,rival,jornada,horaP,estadio){
     h += "<div style='font-size:10px;font-weight:800;color:#fff;text-align:center;text-transform:uppercase;padding:3px 6px;border-radius:6px;background:"+dayBg+";margin-bottom:4px;'>"+(MC_DIAS_ACTIVOS[i]||MC_DIAS[i])+"</div>";
     if(relLbl3) h += "<div style='text-align:center;font-size:9px;font-weight:900;color:"+(isMD?"#fbbf24":"rgba(165,180,252,.85)")+";letter-spacing:.08em;margin-bottom:6px;'>"+relLbl3+"</div>";
     if(isDesc){
-      h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.18em;writing-mode:vertical-rl;text-orientation:mixed;text-align:center;margin:20px auto 0;'>DESCANSO</div>";
+      h += "<div style='font-weight:800;color:rgba(255,255,255,.55);font-size:10px;line-height:1.35;text-align:center;margin:20px auto 0;letter-spacing:.05em;'>D<br>E<br>S<br>C<br>A<br>N<br>S<br>O</div>";
     } else if(isViaje){
       h += "<div style='font-size:11px;font-weight:700;color:"+TXTS+";text-align:center;'>"+(d.lugar||"Aeropuerto")+"</div>";
       h += "<div style='text-align:center;font-size:26px;margin:8px 0;'>&#9992;&#65039;</div>";
