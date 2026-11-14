@@ -2440,7 +2440,7 @@ function renderPlantilla(){
   h += "<div style='padding:12px 18px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;'>";
   h += "<span style='font-size:13px;font-weight:800;color:#fff;'>Plantel — "+plantelAll.length+" jugadores</span>";
   h += "<div style='display:flex;gap:8px;'>";
-  h += "<button onclick='plantillaResetDisp()' style='background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#64748b;border-radius:8px;padding:5px 11px;font-size:10px;cursor:pointer;'>↺ Resetear</button>";
+  // Botón Resetear eliminado — generaba confusión
   h += "<button onclick='irA(\"basedatos\")' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:8px;padding:5px 11px;font-size:10px;cursor:pointer;'>Gestionar →</button>";
   h += "</div></div>";
 
@@ -2506,13 +2506,11 @@ function renderPlantilla(){
       var _DC={'rehabilitacion':'#a78bfa','baja':'#a78bfa','readaptacion':'#a78bfa','recuperacion':'#f87171','restriccion':'#fbbf24'};
       h += "<span style='display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:"+(_DC[dispKeyT]||'#a78bfa')+";background:"+(_DC[dispKeyT]||'#a78bfa')+"18;border:1px solid "+(_DC[dispKeyT]||'#a78bfa')+"44;border-radius:99px;padding:3px 9px;'>🔒 "+(_DL[dispKeyT]||dispKeyT)+"</span>";
     } else if(ovT && ovT.estado==='no_disponible'){
-      h += "<button onclick='plantillaModalDisp(\""+j.id+"\")' title='"+(ovT.obs?escHtml(ovT.obs):'No disponible')+"' style='display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#f87171;background:#ef444418;border:1px solid #ef444444;border-radius:99px;padding:3px 9px;cursor:pointer;'>❌ No disp."+(ovT.obs?' <span style=\"color:#94a3b8;font-weight:500;\">· '+escHtml(ovT.obs.slice(0,18))+(ovT.obs.length>18?'…':'')+'</span>':'')+"></button>";
+      // Obs se muestra solo en columna OBSERVACIONES, no dentro del chip
+      h += "<button onclick='plantillaModalDisp(\""+j.id+"\")' title='"+(ovT.obs?escHtml(ovT.obs):'No disponible')+"' style='display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#f87171;background:#ef444418;border:1px solid #ef444444;border-radius:99px;padding:3px 9px;cursor:pointer;'>❌ No disp.</button>";
     } else {
-      var _obsDisp = (ovT && ovT.obs) ? ovT.obs : '';
-      h += "<div style='display:flex;flex-direction:column;gap:3px;'>";
+      // Obs se muestra solo en columna OBSERVACIONES, no debajo del chip
       h += "<button onclick='plantillaModalDisp(\""+j.id+"\")' style='display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#4ade80;background:#22c55e18;border:1px solid #22c55e44;border-radius:99px;padding:3px 9px;cursor:pointer;'>✅ Disponible</button>";
-      if(_obsDisp){ h += "<span style='font-size:9px;color:#fbbf24;font-weight:600;padding:0 4px;'>⚠ "+escHtml(_obsDisp)+"</span>"; }
-      h += "</div>";
     }
     h += "</td>";
     // Observaciones — médico (dispEstT.notas) + técnico (ovT.obs)
@@ -13145,11 +13143,12 @@ function mcRPreview(){
   var semUP = mcSemStr(fecha,true);
   var sem2  = mcSemStr(fecha,false);
 
-  // Generar HTML de plantillas
+  // Generar HTML de plantillas — cada una con ID propio para descarga individual
+  var _btnIndiv = function(id,lbl){ return "<div style='text-align:right;margin-bottom:4px;'><button onclick=\"mcPNGIndividual('"+id+"','"+lbl+"')\" style='background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.35);color:#a5b4fc;border-radius:7px;padding:4px 12px;font-size:10px;font-weight:700;cursor:pointer;'>⬇️ Descargar solo esta</button></div>"; };
   var plantillasHTML =
-    "<div style='margin-bottom:24px;'>"+mcPL1(semUP,rival,jornada,horaP,estadio)+"</div>"+
-    "<div style='margin-bottom:24px;'>"+mcPL2(sem2,rival,jornada,horaP,estadio)+"</div>"+
-    "<div style='margin-bottom:24px;'>"+mcPL3(sem2,rival,jornada,horaP,estadio)+"</div>";
+    "<div id='mc-pl1-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl1-wrap','Logistica')+mcPL1(semUP,rival,jornada,horaP,estadio)+"</div>"+
+    "<div id='mc-pl2-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl2-wrap','Fisica')+mcPL2(sem2,rival,jornada,horaP,estadio)+"</div>"+
+    "<div id='mc-pl3-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl3-wrap','Tactica')+mcPL3(sem2,rival,jornada,horaP,estadio)+"</div>";
 
   // Quitar modal previo
   var prev = document.getElementById('mc-preview-modal');
@@ -15169,6 +15168,34 @@ function mcPNGModal(){
   } else { doCapture(); }
 }
 
+
+function mcPNGIndividual(wrapId, nombre){
+  var area = document.getElementById(wrapId);
+  if(!area){ alert('No se encontró la plantilla.'); return; }
+  function doCapture(){
+    toast('Generando imagen...');
+    // Ocultar temporalmente el botón "Descargar solo esta" para que no salga en el PNG
+    var btn = area.querySelector('button[onclick*="mcPNGIndividual"]');
+    if(btn) btn.style.visibility='hidden';
+    html2canvas(area, {scale:3, useCORS:true, allowTaint:true, backgroundColor:'#131c28', logging:false,
+      width:area.scrollWidth, height:area.scrollHeight})
+      .then(function(canvas){
+        if(btn) btn.style.visibility='';
+        var a = document.createElement('a');
+        a.download = 'BFC_Microciclo_'+(mcNumMicro||'semana').replace(/\s/g,'_')+'_'+nombre+'.png';
+        a.href = canvas.toDataURL('image/png');
+        a.click();
+        toast('✅ Imagen descargada');
+      }).catch(function(e){ if(btn) btn.style.visibility=''; alert('Error: '+e.message); });
+  }
+  if(typeof html2canvas === 'undefined'){
+    toast('Cargando librería...');
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    s.onload = doCapture;
+    document.head.appendChild(s);
+  } else { doCapture(); }
+}
 
 function mcWhatsAppModal(){
   var area = document.getElementById('mc-plantillas-modal');
