@@ -6096,16 +6096,22 @@ function renderProgramacion() {
   }
 
   // ── Disponibilidad real (médica + táctica) — misma jerarquía que plantillaEstado() ──
-  var disp = { aptos: 0, dudas: 0, noDisp: 0 };
+  var disp = { aptos: 0, dudas: 0, noDisp: 0, lesionados: 0 };
   dispLoad();
   plantelAll.forEach(function(j) {
     var jid = j.id || j._id || '';
     // Estado médico del día de hoy
     var recMed = dispGetEstado(jid, todayStr);
     var estMed = recMed ? (recMed.estado || 'disponible') : 'disponible';
-    // Estados clínicos graves: el técnico NO puede sobreescribir (igual que plantillaEstado)
-    var _lesionEstados = ['rehabilitacion','baja','readaptacion','recuperacion'];
+    // Estados clínicos de lesión (cuentan en lesionados Y en noDisp)
+    var _lesionEstados = ['rehabilitacion','baja','readaptacion'];
     if (_lesionEstados.indexOf(estMed) >= 0) {
+      disp.lesionados++;
+      disp.noDisp++;
+      return;
+    }
+    // Recuperación: no disponible pero no cuenta como lesionado
+    if (estMed === 'recuperacion') {
       disp.noDisp++;
       return;
     }
@@ -6232,10 +6238,18 @@ function renderProgramacion() {
   // Card: Disponibilidad superficial
   h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:16px 18px;'>";
   h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;margin-bottom:12px;'>Disponibilidad</div>";
-  h += "<div style='display:flex;gap:14px;align-items:center;'>";
-  h += "<div style='text-align:center;'><div style='font-size:24px;font-weight:900;color:#22c55e;'>" + disp.aptos + "</div><div style='font-size:9px;color:#64748b;font-weight:700;'>APTOS</div></div>";
-  h += "<div style='text-align:center;'><div style='font-size:24px;font-weight:900;color:#eab308;'>" + disp.dudas + "</div><div style='font-size:9px;color:#64748b;font-weight:700;'>DUDAS</div></div>";
-  h += "<div style='text-align:center;'><div style='font-size:24px;font-weight:900;color:#ef4444;'>" + disp.noDisp + "</div><div style='font-size:9px;color:#64748b;font-weight:700;'>NO DISP.</div></div>";
+  h += "<div style='display:flex;gap:8px;flex-wrap:wrap;'>";
+  [
+    {lbl:'Aptos',    val:disp.aptos,     bg:'rgba(34,197,94,.15)',   bdr:'rgba(34,197,94,.4)',   col:'#4ade80'},
+    {lbl:'Dudas',    val:disp.dudas,     bg:'rgba(245,158,11,.12)',  bdr:'rgba(245,158,11,.35)', col:'#fbbf24'},
+    {lbl:'No disp.', val:disp.noDisp,    bg:'rgba(239,68,68,.12)',   bdr:'rgba(239,68,68,.3)',   col:'#f87171'},
+    {lbl:'Lesion.',  val:disp.lesionados,bg:'rgba(124,58,237,.15)',  bdr:'rgba(124,58,237,.4)',  col:'#a78bfa'}
+  ].forEach(function(p){
+    h += "<div style='background:"+p.bg+";border:1px solid "+p.bdr+";border-radius:12px;padding:9px 14px;text-align:center;min-width:60px;'>";
+    h += "<div style='font-size:20px;font-weight:900;color:"+p.col+";'>"+p.val+"</div>";
+    h += "<div style='font-size:9px;color:"+p.col+";font-weight:700;text-transform:uppercase;letter-spacing:.04em;'>"+p.lbl+"</div>";
+    h += "</div>";
+  });
   h += "</div></div>";
 
   h += "</div>"; // end cards row
@@ -15190,6 +15204,9 @@ function mcDescargaDirectaPNG(){
     tmp.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1100px;background:#131c28;';
     tmp.innerHTML = mcGetPlantillasHTML();
     document.body.appendChild(tmp);
+    // Ocultar todos los botones "Descargar solo esta" en el div temporal
+    var btnsIndiv = tmp.querySelectorAll('button[onclick*="mcPNGIndividual"]');
+    btnsIndiv.forEach(function(b){ b.style.display='none'; });
     toast('Generando imagen...');
     html2canvas(tmp, {scale:3, useCORS:true, allowTaint:true, backgroundColor:'#131c28', logging:false,
       width:tmp.scrollWidth, height:tmp.scrollHeight})
@@ -15237,15 +15254,19 @@ function mcPNGModal(){
   if(!area){ alert('No hay plantillas para descargar.'); return; }
   function doCapture(){
     toast('Generando imagen...');
+    // Ocultar todos los botones "Descargar solo esta" para que no aparezcan en el PNG
+    var btnsIndiv = area.querySelectorAll('button[onclick*="mcPNGIndividual"]');
+    btnsIndiv.forEach(function(b){ b.style.visibility='hidden'; });
     html2canvas(area, {scale:3, useCORS:true, allowTaint:true, backgroundColor:'#131c28', logging:false,
       width:area.scrollWidth, height:area.scrollHeight})
       .then(function(canvas){
+        btnsIndiv.forEach(function(b){ b.style.visibility=''; });
         var a = document.createElement('a');
         a.download = 'BFC_Microciclo_'+(mcNumMicro||'semana').replace(/\s/g,'_')+'.png';
         a.href = canvas.toDataURL('image/png');
         a.click();
         toast('✅ Imagen descargada');
-      }).catch(function(e){ alert('Error generando imagen: '+e.message); });
+      }).catch(function(e){ btnsIndiv.forEach(function(b){ b.style.visibility=''; }); alert('Error generando imagen: '+e.message); });
   }
   if(typeof html2canvas === 'undefined'){
     toast('Cargando librería...');
