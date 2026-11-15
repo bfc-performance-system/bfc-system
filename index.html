@@ -10115,7 +10115,7 @@ function bienDetalleJugador(pid){
   m += "</div>";
   // Botones
   m += "<div style='padding:12px 20px;display:flex;gap:8px;'>";
-  m += "<button onclick='closeModal();window._bienJugSel=""+pid+"";window._bienTab="individual";renderBienestar()' style='flex:1;padding:10px;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.4);border-radius:10px;color:#a5b4fc;font-size:11px;font-weight:800;cursor:pointer;'>&#128202; Ver historial completo</button>";
+  m += "<button data-pid='"+pid+"' onclick='var p=this.dataset.pid;closeModal();window._bienJugSel=p;window._bienTab=&quot;individual&quot;;renderBienestar()' style='flex:1;padding:10px;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.4);border-radius:10px;color:#a5b4fc;font-size:11px;font-weight:800;cursor:pointer;'>&#128202; Ver historial completo</button>";
   m += "<button onclick='closeModal()' style='padding:10px 16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:10px;color:#64748b;font-size:11px;font-weight:700;cursor:pointer;'>Cerrar</button>";
   m += "</div></div>";
   showModal(m);
