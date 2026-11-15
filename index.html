@@ -13214,9 +13214,9 @@ function mcRPreview(){
   // Generar HTML de plantillas — cada una con ID propio para descarga individual
   var _btnIndiv = function(id,lbl){ return "<div style='text-align:right;margin-bottom:4px;'><button onclick=\"mcPNGIndividual('"+id+"','"+lbl+"')\" style='background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.35);color:#a5b4fc;border-radius:7px;padding:4px 12px;font-size:10px;font-weight:700;cursor:pointer;'>⬇️ Descargar solo esta</button></div>"; };
   var plantillasHTML =
-    "<div id='mc-pl1-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl1-wrap','Logistica')+mcPL1(semUP,rival,jornada,horaP,estadio)+"</div>"+
-    "<div id='mc-pl2-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl2-wrap','Fisica')+mcPL2(sem2,rival,jornada,horaP,estadio)+"</div>"+
-    "<div id='mc-pl3-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl3-wrap','Tactica')+mcPL3(sem2,rival,jornada,horaP,estadio)+"</div>";
+    "<div id='mc-pl1-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl1-wrap','Logistica')+mcPL1(semUP,rival,jornada,horaP,estadio,true)+"</div>"+
+    "<div id='mc-pl2-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl2-wrap','Fisica')+mcPL2(sem2,rival,jornada,horaP,estadio,true)+"</div>"+
+    "<div id='mc-pl3-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl3-wrap','Tactica')+mcPL3(sem2,rival,jornada,horaP,estadio,true)+"</div>";
 
   // Quitar modal previo
   var prev = document.getElementById('mc-preview-modal');
@@ -13284,19 +13284,18 @@ function mcBadge(c){
 }
 
 // PLANTILLA 1 LOGISTICA
-function mcPL1(semUP,rival,jornada,horaP,estadio){
+function mcPL1(semUP,rival,jornada,horaP,estadio,showFecha){
   var LBLS = ["LUGAR RECORRIDO","LUGAR ENTRENAMIENTO","INICIO RECORRIDO","HORA DE LLEGADA","PRESENTACIÓN / INICIO","INGESTA","SALIDA","OBSERVACIONES"];
   var NAV="#0f1623", NAV2="#162035", BORDER="rgba(255,255,255,.12)", TXTD="#e2e8f0", TXTS="rgba(255,255,255,.5)", CREAM="#162035", DARK="#131c28";
   var nCols = mcData.length || 7;
   var TOTAL_ROWS = LBLS.length + 1; // +1 for header row
 
-  var h = "<div style='font-family:Arial,sans-serif;background:"+DARK+";border-radius:14px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.4);'>";
-  // Header
-  h += "<div style='padding:18px 20px 14px;text-align:center;position:relative;background:"+NAV+";border-bottom:3px solid "+NAV2+";'>";
+  var h = "<div style='font-family:Arial,sans-serif;background:"+DARK+";border-radius:14px;border:1px solid rgba(255,255,255,.08);overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.4);'>";
+  h += "<div style='background:"+NAV+";padding:14px 20px;text-align:center;border-bottom:3px solid "+NAV2+";position:relative;'>";
   h += "<img src='"+MC_LOGO+"' style='position:absolute;right:14px;top:50%;transform:translateY(-50%);width:46px;height:46px;object-fit:contain;border-radius:50%;border:2px solid rgba(99,102,241,.7);'>";
-  h += "<div style='font-size:28px;font-weight:900;color:#fff;font-style:italic;letter-spacing:.02em;line-height:1;'>MICROCICLO</div>";
-  h += "<div style='font-size:11px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:.12em;margin-top:6px;'>INFORMACIÓN LOGÍSTICA</div>";
-  h += "<div style='margin-top:8px;display:inline-block;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:99px;padding:3px 16px;font-size:10px;color:rgba(255,255,255,.5);letter-spacing:.08em;'>"+semUP+"</div>";
+  h += "<div style='font-size:28px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.02em;line-height:1;'>MICROCICLO</div>";
+  h += "<div style='font-size:12px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:.08em;margin-top:4px;'>INFORMACI&Oacute;N LOG&Iacute;STICA</div>";
+  h += "<div style='font-size:10px;font-weight:800;color:#fff;letter-spacing:.08em;text-transform:uppercase;margin-top:6px;opacity:.75;'>"+semUP+"</div>";
   h += "</div>";
 
   // CSS Grid — 1 label col + nCols day cols, TOTAL_ROWS rows
@@ -13393,21 +13392,21 @@ function mcPL1(semUP,rival,jornada,horaP,estadio){
   });
 
   h += "</div></div>"; // close grid + overflow wrapper
-  h += "<div style='padding:4px;border-top:1px solid "+BORDER+";background:"+NAV+";'></div>";
   h += "</div>";
   return h;
 }
 
 // PLANTILLA 2 FISICA
-function mcPL2(sem2,rival,jornada,horaP,estadio){
+function mcPL2(sem2,rival,jornada,horaP,estadio,showFecha){
   var NAV="#0f1623", NAV2="#162035", BORDER="rgba(255,255,255,.1)", TXTD="#e2e8f0", TXTS="rgba(255,255,255,.55)", DARK="#131c28";
   var h = "<div style='font-family:Arial,sans-serif;background:"+DARK+";border-radius:14px;border:1px solid rgba(255,255,255,.08);overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.4);'>";
   h += "<div style='background:"+NAV+";padding:14px 20px;text-align:center;border-bottom:3px solid "+NAV2+";position:relative;'>";
   h += "<img src='"+MC_LOGO+"' style='position:absolute;right:14px;top:50%;transform:translateY(-50%);width:46px;height:46px;object-fit:contain;border-radius:50%;border:2px solid rgba(99,102,241,.7);'>";
   h += "<div style='font-size:28px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.02em;line-height:1;'>PROGRAMACI&Oacute;N SEMANAL</div>";
   h += "<div style='font-size:12px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:.08em;margin-top:4px;'>ENTRENAMIENTO COMPLEMENTARIO</div>";
-
-  h += "</div><div style='display:grid;grid-template-columns:repeat("+(mcData.length||7)+",1fr);background:"+DARK+";'>";
+  if(showFecha!==false) h += "<div style='font-size:10px;font-weight:800;color:#fff;letter-spacing:.08em;text-transform:uppercase;margin-top:6px;opacity:.75;'>"+sem2.toUpperCase()+"</div>";
+  h += "</div>";
+  h += "<div style='display:grid;grid-template-columns:repeat("+(mcData.length||7)+",1fr);background:"+DARK+";'>";
   mcData.forEach(function(d,i){
     var isMD=d.tipo==="partido", isDesc=d.tipo==="descanso", isViaje=d.tipo==="viaje";
     var br = (i<(mcData.length-1) && !isDesc && !isMD) ? "border-right:1px solid "+BORDER+";" : "";
@@ -13440,20 +13439,22 @@ function mcPL2(sem2,rival,jornada,horaP,estadio){
     }
     h += "</div>";
   });
-  h += "</div><div style='background:"+NAV+";padding:8px;text-align:center;font-size:10px;color:rgba(255,255,255,.4);border-top:1px solid "+BORDER+";letter-spacing:.06em;'>"+sem2+"</div></div>";
+  h += "</div>"; // close grid
+  h += "</div>"; // close outer
   return h;
 }
 
 // PLANTILLA 3 TACTICA
-function mcPL3(sem2,rival,jornada,horaP,estadio){
+function mcPL3(sem2,rival,jornada,horaP,estadio,showFecha){
   var NAV="#0f1623", NAV2="#162035", BORDER="rgba(255,255,255,.1)", TXTD="#e2e8f0", TXTS="rgba(255,255,255,.55)", DARK="#131c28";
   var h = "<div style='font-family:Arial,sans-serif;background:"+DARK+";border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.08);box-shadow:0 4px 24px rgba(0,0,0,.4);'>";
   h += "<div style='background:"+NAV+";padding:14px 20px;text-align:center;border-bottom:3px solid "+NAV2+";position:relative;'>";
   h += "<img src='"+MC_LOGO+"' style='position:absolute;right:14px;top:50%;transform:translateY(-50%);width:46px;height:46px;object-fit:contain;border-radius:50%;border:2px solid rgba(99,102,241,.7);'>";
   h += "<div style='font-size:28px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.02em;line-height:1;'>PROGRAMACI&Oacute;N SEMANAL</div>";
-  h += "<div style='font-size:12px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:.08em;margin-top:4px;'>PLANIFICACIÓN TÁCTICA</div>";
-
-  h += "</div><div style='display:grid;grid-template-columns:repeat("+(mcData.length||7)+",1fr);background:"+DARK+";'>";
+  h += "<div style='font-size:12px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:.08em;margin-top:4px;'>PLANIFICACI&Oacute;N T&Aacute;CTICA</div>";
+  if(showFecha!==false) h += "<div style='font-size:10px;font-weight:800;color:#fff;letter-spacing:.08em;text-transform:uppercase;margin-top:6px;opacity:.75;'>"+sem2.toUpperCase()+"</div>";
+  h += "</div>";
+  h += "<div style='display:grid;grid-template-columns:repeat("+(mcData.length||7)+",1fr);background:"+DARK+";'>";
   mcData.forEach(function(d,i){
     var isMD=d.tipo==="partido", isDesc=d.tipo==="descanso", isViaje=d.tipo==="viaje";
     var br = (i<(mcData.length-1) && !isDesc && !isMD) ? "border-right:1px solid "+BORDER+";" : "";
@@ -13482,11 +13483,8 @@ function mcPL3(sem2,rival,jornada,horaP,estadio){
     }
     h += "</div>";
   });
-  var _fechaGen3 = new Date().toLocaleDateString('es-CO',{day:'numeric',month:'long',year:'numeric'});
-  h += "</div><div style='background:"+NAV+";padding:10px 16px;text-align:center;border-top:2px solid rgba(99,102,241,.5);'>"
-    + "<div style='font-size:11px;font-weight:700;color:#fff;letter-spacing:.03em;'>Barranquilla FC &nbsp;&middot;&nbsp; Documento generado el "+_fechaGen3+"</div>"
-    + "<div style='font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.05em;'>"+sem2+"</div>"
-    + "</div></div>";
+  h += "</div>"; // close grid
+  h += "</div>"; // close outer
   return h;
 }
 
@@ -15176,15 +15174,15 @@ function mcGetPlantillasHTML(){
   var sem2     = mcSemStr(MC_FECHAS_ACTIVAS[0]||"",false);
   var SEP = "<div style='height:4px;background:linear-gradient(90deg,transparent,rgba(99,102,241,.65) 15%,rgba(99,102,241,.65) 85%,transparent);border-radius:2px;margin:0 8px;'></div>";
   return "<div style='display:flex;flex-direction:column;gap:0;padding:16px;background:#131c28;'>"
-    + mcPL1(semUP,rival,jornada,horaP,estadio)
+    + mcPL1(semUP,rival,jornada,horaP,estadio,true)
     + "<div style='height:20px;background:#131c28;'></div>"
     + SEP
     + "<div style='height:20px;background:#131c28;'></div>"
-    + mcPL2(sem2,rival,jornada,horaP,estadio)
+    + mcPL2(sem2,rival,jornada,horaP,estadio,false)
     + "<div style='height:20px;background:#131c28;'></div>"
     + SEP
     + "<div style='height:20px;background:#131c28;'></div>"
-    + mcPL3(sem2,rival,jornada,horaP,estadio)
+    + mcPL3(sem2,rival,jornada,horaP,estadio,false)
     + "</div>";
 }
 
