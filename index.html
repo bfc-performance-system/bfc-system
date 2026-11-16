@@ -825,6 +825,7 @@ function fbEscuchar() {
     if (d.expedientes_db && JSON.stringify(d.expedientes_db) !== JSON.stringify(EXPEDIENTES_DB)) { EXPEDIENTES_DB = safeArr(d.expedientes_db); try{ localStorage.setItem('BFC_EXPEDIENTES', JSON.stringify(EXPEDIENTES_DB)); }catch(e){} rerender = true; }
     if (d.novedades_db && JSON.stringify(d.novedades_db) !== JSON.stringify(NOVEDADES_DB)) { NOVEDADES_DB = safeArr(d.novedades_db); try{ localStorage.setItem('BFC_NOV', JSON.stringify(NOVEDADES_DB)); }catch(e){} rerender = true; }
     if (d.bien_extra && JSON.stringify(d.bien_extra) !== JSON.stringify(BIEN_EXTRA)) { BIEN_EXTRA = d.bien_extra; rerender = true; }
+    if (d.bien_sesiones && JSON.stringify(d.bien_sesiones) !== JSON.stringify(BIEN_SESIONES)) { BIEN_SESIONES = safeArr(d.bien_sesiones); try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){} rerender = true; }
     if (d.pruebas && JSON.stringify(d.pruebas) !== JSON.stringify(PRUEBAS))     { PRUEBAS   = d.pruebas;   rerender = true; }
     if (d.ci_db   && JSON.stringify(d.ci_db)   !== JSON.stringify(CI_DB))       { CI_DB     = d.ci_db;     try{ localStorage.setItem('BFC_CI', JSON.stringify(CI_DB)); }catch(e){} rerender = true; }
     if (d.historial && JSON.stringify(d.historial) !== JSON.stringify(HISTORIAL_DB)) { HISTORIAL_DB = d.historial; try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){} rerender = true; }
@@ -1050,6 +1051,7 @@ function fbGuardar() {
       expedientes_db: safeArr(EXPEDIENTES_DB),
       novedades_db: safeArr(NOVEDADES_DB),
       bien_extra: BIEN_EXTRA||[],
+      bien_sesiones: BIEN_SESIONES||[],
       mc_hist: _fbMcHist, mc_last: _fbMcLast,
       mc_hist_ts: (function(){ var t=0; try{ var s=localStorage.getItem('bfc_mc_hist_ts'); if(s) t=parseInt(s)||0; }catch(e){} return t||Date.now(); })(),
       ip_db: _fbIpDb, gps_cat: _fbGpsCat,
@@ -1081,6 +1083,7 @@ function fbVolcarALocalStorage() {
     localStorage.setItem("bfc_pl", JSON.stringify(PL));
     localStorage.setItem("bfc_carga", JSON.stringify(CARGA));
     localStorage.setItem("bfc_bien", JSON.stringify(BIEN));
+    localStorage.setItem("bfc_bien_sesiones", JSON.stringify(BIEN_SESIONES||[]));
     localStorage.setItem("bfc_neuro", JSON.stringify(NEURO));
     localStorage.setItem("bfc_evs", JSON.stringify(EVS));
     localStorage.setItem("bfc_jdb", JSON.stringify(JDB));
@@ -1127,6 +1130,7 @@ function fbForzarSync() {
     expedientes_db: safeArr(EXPEDIENTES_DB),
     novedades_db: safeArr(NOVEDADES_DB),
     bien_extra: BIEN_EXTRA||[],
+    bien_sesiones: BIEN_SESIONES||[],
     mc_hist: _fbMcHist, mc_last: _fbMcLast,
     mc_hist_ts: (function(){ var t=0; try{ var s=localStorage.getItem('bfc_mc_hist_ts'); if(s) t=parseInt(s)||0; }catch(e){} return t||_forzarTs; })(),
     ip_db: _fbIpDb, gps_cat: _fbGpsCat,
@@ -1294,6 +1298,7 @@ var CI_DB = [];    // Carga Interna (RPE × Tiempo)
 var PP_DB = [];    // Post Partido (informes de partido)
 var LESIONES_DB = []; // Historial de lesiones por jugador
 var BIEN_EXTRA = []; // Bienestar extra (campos adicionales)
+var BIEN_SESIONES = []; // Sesiones de jornada (nombre, fecha, creadas manualmente)
 var TODAY = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
 var MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 var DIAS_S = ["Dom","Lun","Mar","Mie","Jue","Vie","Sab"];
@@ -1302,6 +1307,7 @@ function cargar() {
   try { PL    = safeArr(JSON.parse(localStorage.getItem("bfc_pl")    || "[]")); } catch(e) { PL=[]; }
   try { CARGA = safeArr(JSON.parse(localStorage.getItem("bfc_carga") || "[]")); } catch(e) { CARGA=[]; }
   try { BIEN  = safeArr(JSON.parse(localStorage.getItem("bfc_bien")  || "[]")); } catch(e) { BIEN=[]; }
+  try { BIEN_SESIONES = safeArr(JSON.parse(localStorage.getItem("bfc_bien_sesiones") || "[]")); } catch(e) { BIEN_SESIONES=[]; }
   try { NEURO = safeArr(JSON.parse(localStorage.getItem("bfc_neuro") || "[]")); } catch(e) { NEURO=[]; }
   try { PRUEBAS = JSON.parse(localStorage.getItem("bfc_pruebas") || "[]"); } catch(e) { PRUEBAS = []; }
   if(!Array.isArray(PRUEBAS)) PRUEBAS = [];
@@ -5589,16 +5595,27 @@ function renderJornada(){
   var hoy = TODAY;
   var hoyLabel = new Date().toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long'});
 
+  // Fecha efectiva — si hay sesión activa, usar su fecha; si no, TODAY
+  var sesActiva = window._jornadaSesionActiva || null;
+  if(!sesActiva){
+    var _sesHoy = safeArr(BIEN_SESIONES).find(function(s){ return s.fecha===hoy; });
+    if(_sesHoy){ sesActiva = _sesHoy; window._jornadaSesionActiva = _sesHoy; }
+  }
+  var fechaEfectiva = (sesActiva && sesActiva.fecha) ? sesActiva.fecha : hoy;
+
   var h = "<div style='padding:20px;max-width:1100px;'>";
+
+  // ── Panel de Sesión (gestión) ───────────────────────────────────────────
+  h += jornadaSesionesPanel();
 
   // Header
   h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:12px;'>";
   h += "<div><div style='font-size:22px;font-weight:900;color:#fff;letter-spacing:-.02em;'>📲 Jornada</div>";
   h += "<div style='font-size:12px;color:#64748b;'>"+hoyLabel+"</div></div>";
-  var bWell = safeArr(BIEN).filter(function(b){ return b.fecha===hoy&&(b.sueno||b.fatiga); });
-  var bRpe  = safeArr(BIEN).filter(function(b){ return b.fecha===hoy&&b.rpe_post>0; });
+  var bWell = safeArr(BIEN).filter(function(b){ return b.fecha===fechaEfectiva&&(b.sueno||b.fatiga); });
+  var bRpe  = safeArr(BIEN).filter(function(b){ return b.fecha===fechaEfectiva&&b.rpe_post>0; });
   var gpsDB=[]; try{ var gd=localStorage.getItem('BFC_GPS_CAT'); if(gd) gpsDB=JSON.parse(gd)||[]; }catch(e){}
-  var gpsHoy = gpsDB.filter(function(r){ return r.fecha===hoy; });
+  var gpsHoy = gpsDB.filter(function(r){ return r.fecha===fechaEfectiva; });
   h += "<div style='display:flex;gap:8px;flex-wrap:wrap;'>";
   [[bWell.length,'Wellness','#6366f1'],[bRpe.length,'RPE','#f97316'],[gpsHoy.length,'GPS','#22c55e']].forEach(function(s){
     h += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:6px 14px;text-align:center;'>";
@@ -5652,6 +5669,127 @@ function renderJornada(){
 
   h += "</div>";
   el.innerHTML = h;
+}
+
+// ── Gestión de Sesiones de Jornada ─────────────────────────────────────────
+function jornadaCrearSesion(){
+  var nombre = (document.getElementById('jornada-ses-nombre')||{}).value||'';
+  var fecha  = (document.getElementById('jornada-ses-fecha')||{}).value||TODAY;
+  nombre = nombre.trim();
+  if(!nombre){ alert('Escribe un nombre para la sesión'); return; }
+  // Verificar si ya existe sesión con esa fecha
+  var existente = safeArr(BIEN_SESIONES).find(function(s){ return s.fecha===fecha; });
+  if(existente){
+    if(!confirm('Ya existe una sesión para esa fecha ("'+existente.nombre+'"). ¿Reemplazarla?')) return;
+    BIEN_SESIONES = BIEN_SESIONES.filter(function(s){ return s.fecha!==fecha; });
+  }
+  var nuevaSes = { id:'ses_'+Date.now(), nombre:nombre, fecha:fecha, creadaEn:new Date().toISOString() };
+  BIEN_SESIONES.push(nuevaSes);
+  BIEN_SESIONES.sort(function(a,b){ return b.fecha.localeCompare(a.fecha); }); // más reciente primero
+  // Activar automáticamente la sesión recién creada
+  window._jornadaSesionActiva = nuevaSes;
+  guardar();
+  fbAuditLog('jornada','Sesión creada: '+nombre+' ('+fecha+')');
+  renderJornada();
+}
+
+function jornadaEliminarSesion(sesId){
+  var ses = safeArr(BIEN_SESIONES).find(function(s){ return s.id===sesId; });
+  if(!ses) return;
+  var cntW = safeArr(BIEN).filter(function(b){ return b.fecha===ses.fecha&&(b.sueno||b.fatiga); }).length;
+  var cntR = safeArr(BIEN).filter(function(b){ return b.fecha===ses.fecha&&b.rpe_post>0; }).length;
+  var detalle = '';
+  if(cntW||cntR) detalle = '\n\nEsto también eliminará '+cntW+' registro(s) de wellness y '+cntR+' de RPE de esa fecha.';
+  if(!confirm('¿Eliminar la sesión "'+ses.nombre+'" ('+ses.fecha+')?'+detalle)) return;
+  // Eliminar la sesión
+  BIEN_SESIONES = BIEN_SESIONES.filter(function(s){ return s.id!==sesId; });
+  if(window._jornadaSesionActiva && window._jornadaSesionActiva.id===sesId){
+    window._jornadaSesionActiva = null;
+  }
+  // Eliminar datos de wellness y RPE de esa fecha
+  BIEN = safeArr(BIEN).filter(function(b){ return b.fecha!==ses.fecha; });
+  guardar();
+  fbAuditLog('jornada','Sesión eliminada con datos: '+ses.nombre+' ('+ses.fecha+') — '+cntW+' wellness, '+cntR+' RPE borrados');
+  renderJornada();
+}
+
+function jornadaActivarSesion(sesId){
+  var ses = safeArr(BIEN_SESIONES).find(function(s){ return s.id===sesId; });
+  if(!ses) return;
+  window._jornadaSesionActiva = ses;
+  guardar();
+  renderJornada();
+}
+
+function jornadaSesionesPanel(){
+  var hoy = TODAY;
+  var sesiones = safeArr(BIEN_SESIONES);
+  var activa   = window._jornadaSesionActiva || null;
+  // Si no hay sesión activa pero existe la de hoy, activarla automáticamente
+  if(!activa){
+    var sesHoy = sesiones.find(function(s){ return s.fecha===hoy; });
+    if(sesHoy){ activa = sesHoy; window._jornadaSesionActiva = activa; }
+  }
+
+  var h = "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px 20px;margin-bottom:16px;'>";
+  h += "<div style='font-size:13px;font-weight:800;color:#fff;margin-bottom:12px;'>📅 Sesión de Jornada</div>";
+
+  // Sesión activa
+  if(activa){
+    var esHoy = activa.fecha===hoy;
+    var labelFecha = esHoy ? 'Hoy' : new Date(activa.fecha+'T12:00:00').toLocaleDateString('es-CO',{weekday:'short',day:'numeric',month:'short'});
+    h += "<div style='display:flex;align-items:center;gap:10px;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);border-radius:12px;padding:10px 14px;margin-bottom:12px;'>";
+    h += "<div style='width:8px;height:8px;border-radius:50%;background:#6366f1;box-shadow:0 0 8px #6366f1;flex-shrink:0;'></div>";
+    h += "<div style='flex:1;'><div style='font-size:13px;font-weight:800;color:#a5b4fc;'>"+escHtml(activa.nombre)+"</div>";
+    h += "<div style='font-size:11px;color:#64748b;'>"+labelFecha+" · "+activa.fecha+"</div></div>";
+    h += "<span style='font-size:9px;background:rgba(99,102,241,.3);color:#a5b4fc;padding:3px 8px;border-radius:99px;font-weight:700;'>ACTIVA</span>";
+    h += "</div>";
+  } else {
+    h += "<div style='background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:10px 14px;font-size:12px;color:#fca5a5;margin-bottom:12px;'>⚠️ Sin sesión activa — crea una para vincular los datos de hoy.</div>";
+  }
+
+  // Formulario crear sesión
+  h += "<div style='display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;'>";
+  h += "<div style='flex:1;min-width:140px;'>";
+  h += "<div style='font-size:10px;color:#64748b;font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em;'>Nombre de la sesión</div>";
+  h += "<input id='jornada-ses-nombre' placeholder='Ej: Entreno táctico, Partido vs Tolima…' style='width:100%;box-sizing:border-box;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:9px 12px;color:#e2e8f0;font-size:12px;'>";
+  h += "</div>";
+  h += "<div style='flex-shrink:0;'>";
+  h += "<div style='font-size:10px;color:#64748b;font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em;'>Fecha</div>";
+  h += "<input id='jornada-ses-fecha' type='date' value='"+hoy+"' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:9px 12px;color:#e2e8f0;font-size:12px;cursor:pointer;'>";
+  h += "</div>";
+  h += "<button onclick='jornadaCrearSesion()' style='flex-shrink:0;padding:9px 18px;border-radius:10px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;'>＋ Crear sesión</button>";
+  h += "</div>";
+
+  // Lista de sesiones existentes (últimas 8)
+  if(sesiones.length){
+    h += "<div style='margin-top:14px;'>";
+    h += "<div style='font-size:10px;color:#475569;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;'>Sesiones anteriores</div>";
+    h += "<div style='display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto;'>";
+    sesiones.slice(0,20).forEach(function(s){
+      var esActiva = activa && activa.id===s.id;
+      var esHoy2   = s.fecha===hoy;
+      var labelF2  = esHoy2 ? 'Hoy' : new Date(s.fecha+'T12:00:00').toLocaleDateString('es-CO',{weekday:'short',day:'numeric',month:'short'});
+      // Contar registros de wellness en esa fecha
+      var cntW = safeArr(BIEN).filter(function(b){ return b.fecha===s.fecha&&(b.sueno||b.fatiga); }).length;
+      var cntR = safeArr(BIEN).filter(function(b){ return b.fecha===s.fecha&&b.rpe_post>0; }).length;
+      h += "<div style='display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;background:"+(esActiva?'rgba(99,102,241,.12)':'rgba(255,255,255,.02)')+";border:1px solid "+(esActiva?'rgba(99,102,241,.3)':'rgba(255,255,255,.05)')+";'>";
+      h += "<div style='flex:1;'>";
+      h += "<div style='font-size:12px;font-weight:700;color:"+(esActiva?'#a5b4fc':'#cbd5e1')+";'>"+escHtml(s.nombre)+"</div>";
+      h += "<div style='font-size:10px;color:#475569;'>"+labelF2+" · "+s.fecha;
+      if(cntW||cntR) h += " <span style='color:#334155;'>|</span> "+cntW+" wellness · "+cntR+" RPE";
+      h += "</div></div>";
+      if(!esActiva){
+        h += "<button data-sid='"+s.id+"' onclick='jornadaActivarSesion(this.dataset.sid)' style='padding:4px 10px;border-radius:8px;border:1px solid rgba(99,102,241,.3);background:transparent;color:#6366f1;font-size:10px;font-weight:700;cursor:pointer;'>Activar</button>";
+      }
+      h += "<button data-sid='"+s.id+"' onclick='jornadaEliminarSesion(this.dataset.sid)' style='padding:4px 8px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:transparent;color:#ef4444;font-size:12px;cursor:pointer;' title='Eliminar sesión y todos sus datos'>🗑</button>";
+      h += "</div>";
+    });
+    h += "</div></div>";
+  }
+
+  h += "</div>";
+  return h;
 }
 
 function jornadaDisponibilidad(plantelAll){
@@ -10197,6 +10335,13 @@ function _kioskoBloquearUI(){
   if(main){ main.style.position='fixed'; main.style.top='0'; main.style.left='0';
     main.style.width='100vw'; main.style.height='100vh'; main.style.zIndex='9000';
     main.style.overflow='auto'; }
+  // Ocultar botones flotantes (Área Médica e IA) para que los jugadores no los vean
+  var sigiFab = document.getElementById('sigi-fab');
+  var chatBtn = document.getElementById('bfc-chat-btn');
+  var chatWin = document.getElementById('bfc-chat-window');
+  if(sigiFab) sigiFab.style.display = 'none';
+  if(chatBtn) chatBtn.style.display = 'none';
+  if(chatWin) chatWin.style.display = 'none';
   // Guardar estado en localStorage para sobrevivir renderBienestar
   try{ localStorage.setItem('bfc_kiosko_bloqueado', _kioskoModoForzado||''); }catch(e){}
 }
@@ -10210,6 +10355,11 @@ function _kioskoRestaurarUI(){
   if(main){ main.style.position=''; main.style.top=''; main.style.left='';
     main.style.width=''; main.style.height=''; main.style.zIndex='';
     main.style.overflow=''; }
+  // Restaurar botones flotantes
+  var sigiFab = document.getElementById('sigi-fab');
+  var chatBtn = document.getElementById('bfc-chat-btn');
+  if(sigiFab) sigiFab.style.display = '';
+  if(chatBtn) chatBtn.style.display = '';
   try{ localStorage.removeItem('bfc_kiosko_bloqueado'); }catch(e){}
 }
 
@@ -10373,18 +10523,25 @@ function kioskoFormWellness(jug){
   }
   h += "<div><div style='font-size:20px;font-weight:900;color:#fff;'>"+nombre+"</div>";
   h += "<div style='font-size:12px;color:#94a3b8;'>"+(jug.posicion||jug.pos||'')+(jug.numero||jug.dorsal?' · #'+(jug.numero||jug.dorsal):'')+"</div>";
-  h += "<div style='font-size:11px;color:#6366f1;margin-top:4px;font-weight:700;'>🌅 Wellness — "+new Date().toLocaleDateString('es-CO')+"</div></div>";
+  var _fechaKiosko = (window._jornadaSesionActiva && window._jornadaSesionActiva.fecha) ? window._jornadaSesionActiva.fecha : TODAY;
+  var _fechaKioskoLabel = _fechaKiosko===TODAY ? new Date().toLocaleDateString('es-CO') : new Date(_fechaKiosko+'T12:00:00').toLocaleDateString('es-CO',{weekday:'short',day:'numeric',month:'short'});
+  var _sesLabel = (window._jornadaSesionActiva && window._jornadaSesionActiva.nombre) ? ' · '+window._jornadaSesionActiva.nombre : '';
+  h += "<div style='font-size:11px;color:#6366f1;margin-top:4px;font-weight:700;'>🌅 Wellness — "+_fechaKioskoLabel+_sesLabel+"</div></div>";
   h += "<button onclick='kioskoVolver()' style='margin-left:auto;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#94a3b8;border-radius:10px;padding:8px 14px;cursor:pointer;font-size:12px;'>← Volver</button>";
   h += "</div>";
 
   // Variables — Escala 1-5 con emojis visuales
+  // IMPORTANTE: 1 = siempre rojo/malo, 5 = siempre verde/bueno (uniforme para todos)
+  // Para dimensiones invertidas (dolor, fatiga, estrés), la pregunta está escrita
+  // en sentido inverso: "¿Cómo está tu cuerpo?" → 1=mucho dolor, 5=sin dolor
+  // La lógica interna de bienScore6 sigue invirtiendo el valor para el puntaje.
   var DIMS = [
-    {k:'sueno',   label:'Calidad del Sueño',    desc:'¿Cómo dormiste?',           emojis:['😴','😪','😐','😊','🌟'], colorOk:'#6366f1'},
-    {k:'dolor',   label:'Dolor Muscular',        desc:'¿Sientes DOMS o molestias?', emojis:['💪','😣','😕','😮','😱'], inverted:true, colorOk:'#22c55e'},
-    {k:'fatiga',  label:'Fatiga / Cansancio',    desc:'¿Qué tan cansado estás?',    emojis:['⚡','😴','😪','😩','💀'], inverted:true, colorOk:'#22c55e'},
-    {k:'humor',   label:'Estado de Ánimo',       desc:'¿Cómo te sientes?',          emojis:['😢','😕','😐','😊','🤩'], colorOk:'#f59e0b'},
-    {k:'estres',  label:'Nivel de Estrés',       desc:'¿Qué tan estresado estás?',  emojis:['😌','🙂','😐','😟','🤯'], inverted:true, colorOk:'#22c55e'},
-    {k:'motivacion',label:'Motivación',          desc:'¿Con qué ganas entrenas hoy?',emojis:['💤','😑','😐','😤','🔥'], colorOk:'#f59e0b'},
+    {k:'sueno',      label:'¿Cómo dormiste anoche?',         desc:'1 = muy mal  →  5 = excelente',    emojis:['😫','😪','😐','😴','✨😴'], colorOk:'#6366f1'},
+    {k:'dolor',      label:'¿Cómo está tu cuerpo hoy?',      desc:'1 = mucho dolor  →  5 = sin dolor', emojis:['🚨','🤕','😬','😤','💪'],   inverted:true, colorOk:'#22c55e'},
+    {k:'fatiga',     label:'¿Cómo está tu energía hoy?',     desc:'1 = agotado  →  5 = lleno de energía', emojis:['😵','🥵','😮‍💨','🙂','🏃'], inverted:true, colorOk:'#22c55e'},
+    {k:'humor',      label:'¿Cómo está tu estado de ánimo?', desc:'1 = muy bajo  →  5 = excelente',    emojis:['😔','😕','😐','😊','🤩'],   colorOk:'#f59e0b'},
+    {k:'estres',     label:'¿Qué tan tranquilo estás hoy?',  desc:'1 = muy estresado  →  5 = relajado', emojis:['🤯','😰','😐','🙂','😌'],  inverted:true, colorOk:'#22c55e'},
+    {k:'motivacion', label:'¿Cómo está tu motivación?',      desc:'1 = sin ganas  →  5 = al máximo',   emojis:['😴','😑','🙂','😤','🔥'],   colorOk:'#f59e0b'},
   ];
 
   h += "<div style='display:flex;flex-direction:column;gap:14px;'>";
@@ -10396,21 +10553,21 @@ function kioskoFormWellness(jug){
     h += "<div style='font-size:11px;color:#64748b;'>"+d.desc+"</div></div>";
     if(val) h += "<div style='font-size:28px;'>"+d.emojis[val-1]+"</div>";
     h += "</div>";
-    // Min/max labels per dimension
+    // Min/max labels per dimension — 1 = siempre malo (rojo), 5 = siempre bueno (verde)
     var WELL_LABELS = {
-      sueno:      {lo:'Muy mal', hi:'Excelente'},
-      dolor:      {lo:'Sin dolor', hi:'Dolor intenso'},
-      fatiga:     {lo:'Sin fatiga', hi:'Agotado'},
-      humor:      {lo:'Muy bajo', hi:'Excelente'},
-      estres:     {lo:'Sin estrés', hi:'Muy estresado'},
-      motivacion: {lo:'Sin ganas', hi:'Motivadísimo'}
+      sueno:      {lo:'Muy mal',         hi:'Excelente'},
+      dolor:      {lo:'Mucho dolor',     hi:'Sin dolor'},
+      fatiga:     {lo:'Agotado',         hi:'Lleno de energía'},
+      humor:      {lo:'Muy bajo',        hi:'Excelente'},
+      estres:     {lo:'Muy estresado',   hi:'Totalmente relajado'},
+      motivacion: {lo:'Sin ganas',       hi:'Al máximo'}
     };
     var wl = WELL_LABELS[d.k]||{lo:'Bajo',hi:'Alto'};
     h += "<div style='display:flex;gap:10px;'>";
     for(var v=1;v<=5;v++){
       var on = val===v;
-      var bg = on ? (v<=2&&d.inverted?'#22c55e':v<=2?'#ef4444':v===3?'#f59e0b':'#22c55e') : 'rgba(255,255,255,.06)';
-      if(on && d.inverted) bg = (v<=2?'#22c55e':v===3?'#f59e0b':'#ef4444');
+      // Escala visual unificada: 1=rojo, 2=naranja, 3=amarillo, 4=lima, 5=verde
+      var bg = on ? (v===1?'#ef4444':v===2?'#f97316':v===3?'#f59e0b':v===4?'#84cc16':'#22c55e') : 'rgba(255,255,255,.06)';
       h += "<button onclick='kioskoPickVal(\""+d.k+"\","+v+")' style='flex:1;height:52px;border-radius:12px;border:2px solid "+(on?'transparent':'rgba(255,255,255,.1)')+";background:"+bg+";color:"+(on?'#fff':'#94a3b8')+";font-size:18px;cursor:pointer;font-weight:700;transition:all .1s;'>"+d.emojis[v-1]+"<div style='font-size:9px;margin-top:1px;'>"+v+"</div></button>";
     }
     h += "</div>";
@@ -10529,11 +10686,13 @@ function kioskoGuardarWellness(){
   var v = _kioskoVals;
   if(!Object.values(v).every(function(x){ return x>0; })){ return; }
   guardar();
+  // Usar fecha de sesión activa si existe, si no TODAY
+  var _fechaGuardar = (window._jornadaSesionActiva && window._jornadaSesionActiva.fecha) ? window._jornadaSesionActiva.fecha : TODAY;
   BIEN.push({
     id: 'kiosko_'+Date.now(),
     pid: _kioskoJugId,
     jugadorId: _kioskoJugId,
-    fecha: TODAY,
+    fecha: _fechaGuardar,
     sueno: v.sueno,
     dolor: v.dolor,
     fatiga: v.fatiga,
@@ -10552,10 +10711,12 @@ function kioskoGuardarWellness(){
 function kioskoGuardarRpe(){
   if(!_kioskoRpe) return;
   guardar();
-  // Find existing wellness entry today or add standalone RPE
+  // Usar fecha de sesión activa si existe, si no TODAY
+  var _fechaGuardarRpe = (window._jornadaSesionActiva && window._jornadaSesionActiva.fecha) ? window._jornadaSesionActiva.fecha : TODAY;
+  // Find existing wellness entry for that date or add standalone RPE
   var existingIdx = -1;
   safeArr(BIEN).forEach(function(b,i){
-    if((b.pid===_kioskoJugId||b.jugadorId===_kioskoJugId) && b.fecha===TODAY && b.fuente==='kiosko') existingIdx=i;
+    if((b.pid===_kioskoJugId||b.jugadorId===_kioskoJugId) && b.fecha===_fechaGuardarRpe && b.fuente==='kiosko') existingIdx=i;
   });
   if(existingIdx>=0){
     BIEN[existingIdx].rpe_post = _kioskoRpe;
@@ -10564,7 +10725,7 @@ function kioskoGuardarRpe(){
       id: 'kiosko_rpe_'+Date.now(),
       pid: _kioskoJugId,
       jugadorId: _kioskoJugId,
-      fecha: TODAY,
+      fecha: _fechaGuardarRpe,
       rpe_post: _kioskoRpe,
       fuente: 'kiosko_rpe',
       hora: new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})
