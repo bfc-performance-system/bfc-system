@@ -7085,38 +7085,8 @@ function renderProgramacion() {
 
   // ── HEADER ──
   h += "<div style='padding:28px 28px 0;'>";
-  h += "<div style='font-size:24px;font-weight:900;color:#f1f5f9;letter-spacing:-.5px;margin-bottom:2px;'>Programación</div>";
+  h += "<div style='font-size:28px;font-weight:900;color:#f1f5f9;letter-spacing:-.5px;margin-bottom:3px;'>Barranquilla FC</div>";
   h += "<div style='font-size:12px;color:#475569;font-weight:600;'>Vista general para el staff técnico · " + mesNombres[mm] + " " + yy + "</div>";
-  h += "</div>";
-
-  // ── BANDA DE PENDIENTES DEL DÍA ──
-  var _bienHoyProg = safeArr(BIEN).filter(function(b){ return b.fecha === todayStr; }).length;
-  var _sesHoyProg  = (function(){ try{ var h2=JSON.parse(localStorage.getItem('BFC_HISTORIAL')||'[]'); return h2&&h2.length&&(h2[0].fecha||h2[0].fechaSes)===todayStr?h2[0]:null; }catch(e){return null;} })();
-  var _proxPart    = safeArr(EVS).filter(function(e){ return (e.tipo||'').toLowerCase()==='partido' && e.fecha >= todayStr; }).sort(function(a,b){ return a.fecha.localeCompare(b.fecha); })[0] || null;
-  var _diasPart    = null;
-  if(_proxPart){ var _d1=new Date(todayStr),_d2=new Date(_proxPart.fecha); _diasPart=Math.round((_d2-_d1)/86400000); }
-  var _horaNow = new Date().getHours();
-  var _saludo  = _horaNow<12?'Buenos días':_horaNow<18?'Buenas tardes':'Buenas noches';
-  var _pendProg = [];
-  if(_bienHoyProg < plantelAll.length) _pendProg.push({ icon:'🌅', txt:'Wellness: '+_bienHoyProg+'/'+plantelAll.length+' jugadores registrados', accion:"irA('kiosko')" });
-  if(!_sesHoyProg) _pendProg.push({ icon:'📋', txt:'Sesión de hoy sin registrar todavía', accion:"irA('sesion')" });
-  if(_proxPart && _diasPart !== null && _diasPart <= 5) _pendProg.push({ icon:'⚽', txt:'Partido en '+(_diasPart===0?'HOY':_diasPart===1?'1 día':_diasPart+' días')+' vs '+(_proxPart.titulo||'').replace(/^BFC\s*vs\s*/i,'').replace(/^Barranquilla\s*FC\s*vs\s*/i,'').trim(), accion:"irA('informes')" });
-  h += "<div style='padding:16px 28px 0;'>";
-  if(_pendProg.length){
-    h += "<div style='background:linear-gradient(135deg,rgba(99,102,241,.12),rgba(139,92,246,.08));border:1.5px solid rgba(99,102,241,.25);border-radius:14px;padding:14px 18px;margin-bottom:0;'>";
-    h += "<div style='font-size:11px;font-weight:800;color:#a5b4fc;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;'>"+_saludo+" — Pendientes del día</div>";
-    h += "<div style='display:flex;flex-wrap:wrap;gap:8px;'>";
-    _pendProg.forEach(function(p){
-      h += "<button onclick='"+p.accion+"' style='display:flex;align-items:center;gap:8px;padding:9px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(99,102,241,.3);border-radius:10px;cursor:pointer;font-size:11px;font-weight:600;color:#cbd5e1;text-align:left;'>";
-      h += "<span style='font-size:16px;'>"+p.icon+"</span><span>"+p.txt+"</span></button>";
-    });
-    h += "</div></div>";
-  } else {
-    h += "<div style='background:linear-gradient(135deg,rgba(5,150,105,.12),rgba(16,185,129,.08));border:1.5px solid rgba(5,150,105,.3);border-radius:14px;padding:14px 18px;'>";
-    h += "<div style='font-size:13px;font-weight:800;color:#34d399;'>✅ Todo al día — "+_saludo+"</div>";
-    h += "<div style='font-size:11px;color:#64748b;margin-top:3px;'>Wellness registrado · Sesión del día guardada · Sin partidos urgentes</div>";
-    h += "</div>";
-  }
   h += "</div>";
 
   // ── CARDS FILA SUPERIOR ──
