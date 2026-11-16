@@ -7098,10 +7098,10 @@ function renderProgramacion() {
     var sf = SES_DB_RAW[si2].fecha || SES_DB_RAW[si2].fechaSes;
     if (sf === todayStr) { sesHoy = SES_DB_RAW[si2]; break; }
   }
-  var _sesBg2   = sesHoy ? 'linear-gradient(135deg,rgba(16,185,129,.18),rgba(16,185,129,.06))' : 'linear-gradient(135deg,rgba(99,102,241,.18),rgba(99,102,241,.06))';
-  var _sesBord2 = sesHoy ? 'rgba(16,185,129,.5)' : 'rgba(99,102,241,.35)';
-  h += "<div onclick=\"irA('sesion')\" style='background:" + _sesBg2 + ";border:1px solid " + _sesBord2 + ";border-radius:16px;padding:16px 18px;cursor:pointer;transition:border-color .2s,box-shadow .2s;' onmouseover=\"this.style.borderColor='" + (sesHoy?'rgba(16,185,129,.8)':'rgba(99,102,241,.7)') + "';this.style.boxShadow='0 0 0 3px " + (sesHoy?'rgba(16,185,129,.15)':'rgba(99,102,241,.15)') + "'\" onmouseout=\"this.style.borderColor='" + _sesBord2 + "';this.style.boxShadow='none'\">";
-  h += "<div style='font-size:9px;font-weight:800;color:" + (sesHoy?'#10b981':'#6366f1') + ";text-transform:uppercase;letter-spacing:.10em;margin-bottom:8px;'>Hoy · " + todayD + " de " + mesNombres[mm] + "</div>";
+  var _sesBg2   = 'linear-gradient(135deg,rgba(99,102,241,.18),rgba(99,102,241,.06))';
+  var _sesBord2 = 'rgba(99,102,241,.35)';
+  h += "<div onclick=\"irA('sesion')\" style='background:" + _sesBg2 + ";border:1px solid " + _sesBord2 + ";border-radius:16px;padding:16px 18px;cursor:pointer;transition:border-color .2s,box-shadow .2s;' onmouseover=\"this.style.borderColor='rgba(99,102,241,.7)';this.style.boxShadow='0 0 0 3px rgba(99,102,241,.15)'\" onmouseout=\"this.style.borderColor='rgba(99,102,241,.35)';this.style.boxShadow='none'\">";
+  h += "<div style='font-size:9px;font-weight:800;color:#6366f1;text-transform:uppercase;letter-spacing:.10em;margin-bottom:8px;'>Hoy · " + todayD + " de " + mesNombres[mm] + "</div>";
   // Código día + carga
   if (mcDiaHoy) {
     var cargaC = cargaColor[(mcDiaHoy.carga||'').toLowerCase()] || '#94a3b8';
@@ -7144,8 +7144,8 @@ function renderProgramacion() {
   h += "</div>";
 
   // Card: Disponibilidad superficial
-  h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:16px 18px;'>";
-  h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;margin-bottom:12px;'>Disponibilidad</div>";
+  h += "<div style='background:linear-gradient(135deg,rgba(99,102,241,.18),rgba(99,102,241,.06));border:1px solid rgba(99,102,241,.35);border-radius:16px;padding:16px 18px;'>";
+  h += "<div style='font-size:9px;font-weight:800;color:#6366f1;text-transform:uppercase;letter-spacing:.10em;margin-bottom:12px;'>Disponibilidad</div>";
   h += "<div style='display:flex;gap:8px;flex-wrap:wrap;'>";
   [
     {lbl:'Aptos',    val:disp.aptos,     bg:'rgba(34,197,94,.15)',   bdr:'rgba(34,197,94,.4)',   col:'#4ade80'},
@@ -7159,6 +7159,34 @@ function renderProgramacion() {
     h += "</div>";
   });
   h += "</div></div>";
+
+  // Card: Wellness del día
+  (function(){
+    var _wTotal  = plantelAll.length;
+    var _wHoy    = safeArr(BIEN).filter(function(b){ return b.fecha===todayStr && (b.sueno||b.fatiga||b.dolor||b.estres||b.disposicion); }).length;
+    var _wPct    = _wTotal > 0 ? Math.round(_wHoy/_wTotal*100) : 0;
+    var _wOk     = _wHoy >= _wTotal;
+    var _wCol    = '#f1f5f9';
+    var _wIcon   = _wOk ? '✅' : (_wPct>=60?'🌅':'⚠️');
+    var _wLabel  = _wOk ? 'Wellness completo' : (_wHoy===0?'Sin registros hoy':_wHoy+' de '+_wTotal+' jugadores');
+    var _wSub    = _wOk ? 'Todo el plantel ha registrado' : (_wHoy===0?'Wellness pendiente para todo el plantel':'Faltan '+(_wTotal-_wHoy)+' por registrar');
+    var _wBarW   = _wTotal>0 ? _wPct : 0;
+    h += "<div onclick=\"irA('kiosko')\" style='background:linear-gradient(135deg,rgba(99,102,241,.18),rgba(99,102,241,.06));border:1px solid rgba(99,102,241,.35);border-radius:16px;padding:16px 18px;cursor:pointer;transition:border-color .2s,box-shadow .2s;' onmouseover=\"this.style.borderColor='rgba(99,102,241,.7)';this.style.boxShadow='0 0 0 3px rgba(99,102,241,.15)'\" onmouseout=\"this.style.borderColor='rgba(99,102,241,.35)';this.style.boxShadow='none'\">";
+    h += "<div style='font-size:9px;font-weight:800;color:#6366f1;text-transform:uppercase;letter-spacing:.10em;margin-bottom:8px;'>Wellness · Hoy</div>";
+    h += "<div style='display:flex;align-items:baseline;gap:6px;margin-bottom:6px;'>";
+    h += "<span style='font-size:32px;font-weight:900;color:"+_wCol+";line-height:1;'>"+_wHoy+"</span>";
+    h += "<span style='font-size:14px;font-weight:700;color:#475569;'>/ "+_wTotal+"</span>";
+    h += "<span style='font-size:18px;margin-left:4px;'>"+_wIcon+"</span>";
+    h += "</div>";
+    h += "<div style='font-size:11px;font-weight:800;color:"+_wCol+";margin-bottom:3px;'>"+_wLabel+"</div>";
+    h += "<div style='font-size:10px;color:#64748b;font-weight:600;margin-bottom:10px;'>"+_wSub+"</div>";
+    // Barra progreso
+    h += "<div style='background:rgba(255,255,255,.07);border-radius:99px;height:5px;overflow:hidden;'>";
+    h += "<div style='width:"+_wBarW+"%;height:100%;background:rgba(241,245,249,.5);border-radius:99px;transition:width .4s;'></div>";
+    h += "</div>";
+    h += "<div style='font-size:9px;color:#94a3b8;font-weight:700;margin-top:4px;text-align:right;'>"+_wPct+"% registrado</div>";
+    h += "</div>";
+  })();
 
   h += "</div>"; // end cards row
 
