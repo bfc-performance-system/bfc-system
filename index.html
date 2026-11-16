@@ -328,34 +328,32 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
       <div class="sb-brand-sub">Performance Management System</div>
     </div>
 
-    <div class="sb-sec">Equipo</div>
-    <div class="sb-link on" data-page="programacion"><span class="sb-icon">📆</span>Programación</div>
-    <div class="sb-link" data-page="plantilla"><span class="sb-icon">👥</span>Plantilla</div>
-    <div class="sb-link" data-page="disponibilidad"><span class="sb-icon">🚦</span>Disponibilidad</div>
+    <div class="sb-link on" data-page="programacion" onclick="irA('programacion')"><span class="sb-icon">🏠</span>Inicio</div>
+    <div class="sb-link" data-page="plantilla" onclick="irA('plantilla')"><span class="sb-icon">👥</span>Plantilla</div>
+    <div class="sb-link" data-page="disponibilidad" onclick="irA('disponibilidad')"><span class="sb-icon">🚦</span>Disponibilidad</div>
+    <div class="sb-link" data-page="jornada" onclick="irA('jornada')"><span class="sb-icon">📲</span>Jornada</div>
 
-    <div class="sb-sec">Análisis</div>
-    <div class="sb-link" data-page="dashboard"><span class="sb-icon">⚡</span>Dashboard</div>
-    <div class="sb-link" data-page="carga"><span class="sb-icon">📡</span>GPS / Carga Externa</div>
-    <div class="sb-link" data-page="cargainterna"><span class="sb-icon">🔥</span>Carga Interna (RPE)</div>
-    <div class="sb-link" data-page="neuro"><span class="sb-icon">🧠</span>Pruebas Físicas</div>
+    <div style="margin:6px 12px;border-top:1px solid rgba(255,255,255,.07);pointer-events:none;"></div>
 
-    <div class="sb-sec">Planificación</div>
-    <div class="sb-link" data-page="microciclo"><span class="sb-icon">📅</span>Microciclo</div>
-    <div class="sb-link" data-page="historial-mc"><span class="sb-icon">🕓</span>Historial Microciclos</div>
-    <div class="sb-link" data-page="sesion"><span class="sb-icon">📋</span>Sesión del día</div>
-    <div class="sb-link" data-page="historial"><span class="sb-icon">🕓</span>Historial Sesiones</div>
+    <div class="sb-link" data-page="dashboard" onclick="irA('dashboard')"><span class="sb-icon">📊</span>Dashboard</div>
+    <div class="sb-link" data-page="cargainterna" onclick="irA('cargainterna')"><span class="sb-icon">🔥</span>Carga Interna</div>
+    <div class="sb-link" data-page="carga" onclick="irA('carga')"><span class="sb-icon">📡</span>Carga Externa</div>
 
-    <div class="sb-sec">Registro</div>
-    <div class="sb-link" data-page="jornada"><span class="sb-icon">📲</span>Jornada</div>
-    <div class="sb-link" data-page="kiosko"><span class="sb-icon">💚</span>Bienestar Kiosko</div>
+    <div style="margin:6px 12px;border-top:1px solid rgba(255,255,255,.07);pointer-events:none;"></div>
 
-    <div class="sb-sec">Comunicación</div>
-    <div class="sb-link" data-page="informes"><span class="sb-icon">📄</span>Informes</div>
-    <div class="sb-link" data-page="reportes"><span class="sb-icon">🤖</span>Reportes IA</div>
+    <div class="sb-link" data-page="microciclo" onclick="irA('microciclo')"><span class="sb-icon">📅</span>Microciclo</div>
+    <div class="sb-link" data-page="sesion" onclick="irA('sesion')"><span class="sb-icon">📋</span>Sesión del día</div>
+    <div class="sb-link" data-page="neuro" onclick="irA('neuro')"><span class="sb-icon">🧠</span>Pruebas Físicas</div>
 
-    <div class="sb-sec">Base de datos</div>
-    <div class="sb-link" data-page="basedatos"><span class="sb-icon">🗃️</span>Jugadores y Staff</div>
-    <div class="sb-link" data-page="notificaciones"><span class="sb-icon">🔔</span>Notificaciones</div>
+    <div style="margin:6px 12px;border-top:1px solid rgba(255,255,255,.07);pointer-events:none;"></div>
+
+    <div class="sb-link" data-page="informes" onclick="irA('informes')"><span class="sb-icon">📄</span>Informes</div>
+    <div class="sb-link" data-page="reportes" onclick="irA('reportes')"><span class="sb-icon">🤖</span>Reportes IA</div>
+
+    <div style="margin:6px 12px;border-top:1px solid rgba(255,255,255,.07);pointer-events:none;"></div>
+
+    <div class="sb-link" data-page="basedatos" onclick="irA('basedatos')"><span class="sb-icon">🗃️</span>Jugadores y Staff</div>
+    <div class="sb-link" data-page="notificaciones" onclick="irA('notificaciones')"><span class="sb-icon">🔔</span>Notificaciones</div>
 
     <div style="flex:1;"></div>
     <div class="sb-footer">
@@ -942,7 +940,14 @@ function fbEscuchar() {
           disponibilidad: typeof renderDisponibilidad==='function'&&renderDisponibilidad
         };
         if (_pgId && _fbRenders[_pgId]) {
-          setTimeout(function(){ try{ _fbRenders[_pgId](); }catch(e){} }, 150);
+          setTimeout(function(){
+            try{
+              // Leer la página activa EN EL MOMENTO de ejecutar, no cuando se programó
+              var _pgNow = document.querySelector('.page.on');
+              var _pgIdNow = _pgNow && _pgNow.id ? _pgNow.id.replace('page-','') : null;
+              if(_pgIdNow && _fbRenders[_pgIdNow]) _fbRenders[_pgIdNow]();
+            }catch(e){}
+          }, 150);
         }
       } catch(e) {}
     }
@@ -1461,7 +1466,7 @@ function bienScore6(r) {
   var raw = score / count; // 1..5
   return Math.round((raw - 1) / 4 * 10 * 10) / 10; // maps [1,5] → [0,10]
 }
-function semW(s) { return s >= 4 ? "ok" : s >= 3 ? "warn" : "danger"; }
+function semW(s) { return s >= 7 ? "ok" : s >= 5 ? "warn" : "danger"; }
 function semCMJ(pct) { return pct < 85 ? "danger" : pct < 93 ? "warn" : "ok"; }
 function pct(a, b) { return b > 0 ? Math.round(a/b*100) : 0; }
 function colSem(s) { return s==="ok" ? "#22c55e" : s==="warn" ? "#eab308" : "#ef4444"; }
@@ -1518,7 +1523,7 @@ function calcEstado3P(pid){
 
   // PILAR 1: BIENESTAR
   var w = (Array.isArray(BIEN)?BIEN:[]).filter(function(x){return x.pid===pid;}).slice(-1)[0];
-  var scoreB = w ? scoreW(w) : null;
+  var scoreB = w ? bienScore6(w) : null;
   var pB = scoreB===null ? "grey" : semW(scoreB);
 
   // PILAR 2: CARGA GPS
@@ -1744,13 +1749,17 @@ function fillSelect(id) {
 // ================================================
 // NAVEGACION
 // ================================================
-document.getElementById("sidebar").addEventListener("click", function(e) {
-  var link = e.target.closest(".sb-link");
-  if (!link) return;
-  var page = link.getAttribute("data-page");
-  if (!page) return;
-  irA(page);
-});
+(function(){
+  var sb = document.getElementById("sidebar");
+  if(!sb) return;
+  sb.addEventListener("click", function(e) {
+    var link = e.target.closest(".sb-link");
+    if (!link) return;
+    var page = link.getAttribute("data-page");
+    if (!page) return;
+    irA(page);
+  });
+})();
 
 function irA(id) {
   document.querySelectorAll(".sb-link").forEach(function(l){ l.classList.remove("on"); });
@@ -5590,7 +5599,7 @@ function convocatoriaGenerar(){
 function renderJornada(){
   var el = document.getElementById('page-jornada');
   if(!el) return;
-  var tab = window._jornadaTab || 'wellness';
+  var paso = window._jornadaPaso || 'sesion';
   var plantelAll = safeArr(JDB).length>0 ? safeArr(JDB) : safeArr(PL);
   var hoy = TODAY;
   var hoyLabel = new Date().toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long'});
@@ -5603,72 +5612,233 @@ function renderJornada(){
   }
   var fechaEfectiva = (sesActiva && sesActiva.fecha) ? sesActiva.fecha : hoy;
 
-  var h = "<div style='padding:20px;max-width:1100px;'>";
-
-  // ── Panel de Sesión (gestión) ───────────────────────────────────────────
-  h += jornadaSesionesPanel();
-
-  // Header
-  h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:12px;'>";
-  h += "<div><div style='font-size:22px;font-weight:900;color:#fff;letter-spacing:-.02em;'>📲 Jornada</div>";
-  h += "<div style='font-size:12px;color:#64748b;'>"+hoyLabel+"</div></div>";
+  // Contadores de progreso
   var bWell = safeArr(BIEN).filter(function(b){ return b.fecha===fechaEfectiva&&(b.sueno||b.fatiga); });
   var bRpe  = safeArr(BIEN).filter(function(b){ return b.fecha===fechaEfectiva&&b.rpe_post>0; });
   var gpsDB=[]; try{ var gd=localStorage.getItem('BFC_GPS_CAT'); if(gd) gpsDB=JSON.parse(gd)||[]; }catch(e){}
   var gpsHoy = gpsDB.filter(function(r){ return r.fecha===fechaEfectiva; });
+  var totalJug = plantelAll.length;
+
+  var h = "<div style='padding:20px;max-width:1100px;'>";
+
+  // ── HEADER ──────────────────────────────────────────────────────
+  h += "<div style='display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:12px;'>";
+  h += "<div><div style='font-size:22px;font-weight:900;color:#fff;letter-spacing:-.02em;'>📲 Jornada</div>";
+  h += "<div style='font-size:12px;color:#64748b;margin-top:2px;'>"+hoyLabel;
+  if(sesActiva && sesActiva.nombre) h += " &nbsp;·&nbsp; <span style='color:#6366f1;font-weight:700;'>"+escHtml(sesActiva.nombre)+"</span>";
+  h += "</div></div>";
+  // Badges de progreso
   h += "<div style='display:flex;gap:8px;flex-wrap:wrap;'>";
-  [[bWell.length,'Wellness','#6366f1'],[bRpe.length,'RPE','#f97316'],[gpsHoy.length,'GPS','#22c55e']].forEach(function(s){
-    h += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:6px 14px;text-align:center;'>";
-    h += "<div style='font-size:16px;font-weight:900;color:"+s[2]+";'>"+s[0]+"</div>";
-    h += "<div style='font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;'>"+s[1]+"</div></div>";
-  });
+  h += "<div style='background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);border-radius:10px;padding:6px 14px;text-align:center;'><div style='font-size:16px;font-weight:900;color:#6366f1;'>"+bWell.length+"/"+totalJug+"</div><div style='font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;'>Wellness</div></div>";
+  h += "<div style='background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.25);border-radius:10px;padding:6px 14px;text-align:center;'><div style='font-size:16px;font-weight:900;color:#f97316;'>"+bRpe.length+"/"+totalJug+"</div><div style='font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;'>RPE</div></div>";
+  h += "<div style='background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);border-radius:10px;padding:6px 14px;text-align:center;'><div style='font-size:16px;font-weight:900;color:#22c55e;'>"+gpsHoy.length+"</div><div style='font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;'>GPS filas</div></div>";
   h += "</div></div>";
 
-  // ── Botones kiosko PRE / POST ──────────────────────────────────
-  h += "<div style='display:flex;gap:10px;margin:12px 0 4px;flex-wrap:wrap;align-items:center;'>";
-  h += "<span style='font-size:10px;color:#475569;font-weight:700;text-transform:uppercase;letter-spacing:.08em;'>Kiosko iPad:</span>";
-  h += "<button onclick='kioskoActivarPRE()' style='padding:8px 18px;border-radius:99px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:11px;font-weight:800;cursor:pointer;box-shadow:0 2px 12px rgba(99,102,241,.4);'>📲 Activar PRE-entreno</button>";
-  h += "<button onclick='kioskoActivarPOST()' style='padding:8px 18px;border-radius:99px;border:none;background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;font-size:11px;font-weight:800;cursor:pointer;box-shadow:0 2px 12px rgba(249,115,22,.4);'>🏋️ Activar POST-entreno</button>";
-  if(_kioskoModoForzado){
-    var _mLabel = _kioskoModoForzado==='pre' ? '📲 PRE activo' : '🏋️ POST activo';
-    h += "<span style='font-size:10px;background:rgba(255,255,255,.08);border-radius:20px;padding:4px 12px;color:#94a3b8;'>"+_mLabel+"</span>";
-  }
-  h += "</div>";
-
-  // 4 pasos
-  var tabs = [
-    {k:'wellness', l:'1 · Wellness pre', icon:'🌅'},
-    {k:'disponibilidad', l:'2 · Disponibilidad', icon:'📋'},
-    {k:'valoracion', l:'3 · Valoraciones', icon:'🔬'},
-    {k:'gps', l:'4 · RPE + GPS', icon:'📡'},
+  // ── BARRA DE 5 PASOS ──────────────────────────────────────────────
+  var evalDB = {};
+  try{ var ev=localStorage.getItem('BFC_EVAL_PRE'); if(ev) evalDB=JSON.parse(ev)||{}; }catch(e){}
+  var evalHoy = evalDB[fechaEfectiva] ? Object.keys(evalDB[fechaEfectiva]).filter(function(k){ return k!=='_loaded'; }).length : 0;
+  var pasos = [
+    {k:'sesion',     l:'Sesión',        icon:'📅', done: !!sesActiva},
+    {k:'wellness',   l:'Wellness PRE',  icon:'🌅', done: bWell.length>=Math.ceil(totalJug*0.5)},
+    {k:'evaluacion', l:'Evaluación PRE',icon:'🔬', done: evalHoy>=Math.ceil(totalJug*0.5)},
+    {k:'rpe',        l:'RPE POST',      icon:'🏋️', done: bRpe.length>=Math.ceil(totalJug*0.5)},
+    {k:'gps',        l:'GPS',           icon:'📡', done: gpsHoy.length>0},
   ];
-  h += "<div style='display:flex;gap:2px;background:rgba(255,255,255,.04);border-radius:14px;padding:4px;margin:16px 0 20px;'>";
-  tabs.forEach(function(t){
-    var a = tab===t.k;
-    h += "<button onclick='window._jornadaTab=\""+t.k+"\";renderJornada()' style='flex:1;padding:10px 6px;border:none;border-radius:11px;cursor:pointer;font-size:11px;font-weight:"+(a?'800':'500')+";background:"+(a?'rgba(99,102,241,.9)':'transparent')+";color:"+(a?'#fff':'#94a3b8')+";'>"+t.icon+" "+t.l+"</button>";
+  h += "<div style='display:flex;gap:0;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:4px;margin-bottom:20px;overflow-x:auto;'>";
+  pasos.forEach(function(p, i){
+    var act = paso===p.k;
+    var fw  = act ? '800' : '500';
+    var bg  = act ? 'rgba(99,102,241,.9)' : 'transparent';
+    var col = act ? '#fff' : (p.done ? '#4ade80' : '#64748b');
+    var colSub = act ? 'rgba(255,255,255,.6)' : (p.done ? '#4ade80' : '#475569');
+    var doneMark = (p.done && !act) ? '<span style="font-size:9px;">✓</span>' : '';
+    h += '<button onclick="window._jornadaPaso=\''+p.k+'\';renderJornada()"';
+    h += ' style="flex:1;min-width:80px;padding:10px 6px;border:none;border-radius:11px;cursor:pointer;font-size:10px;';
+    h += 'font-weight:'+fw+';background:'+bg+';color:'+col+';transition:all .15s;white-space:nowrap;">';
+    h += '<span style="display:block;font-size:14px;margin-bottom:2px;">'+p.icon+doneMark+'</span>';
+    h += '<span style="display:block;font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:'+colSub+';">Paso '+(i+1)+'</span>';
+    h += '<span>'+p.l+'</span></button>';
   });
   h += "</div>";
 
-  if(tab==='wellness'){
-    window._kioskoMode = window._kioskoMode || 'wellness';
+  // ── CONTENIDO POR PASO ──────────────────────────────────────────
+  if(paso==='sesion'){
+    h += jornadaSesionesPanel();
+
+  } else if(paso==='wellness'){
+    h += "<div style='display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;'>";
+    h += "<button onclick='kioskoActivarPRE()' style='padding:8px 18px;border-radius:99px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:11px;font-weight:800;cursor:pointer;box-shadow:0 2px 12px rgba(99,102,241,.4);'>📲 Activar Kiosko PRE</button>";
+    if(_kioskoModoForzado==='pre') h += "<span style='font-size:10px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);border-radius:20px;padding:4px 12px;color:#818cf8;'>📲 Kiosko PRE activo</span>";
+    h += "</div>";
+    window._kioskoMode = 'wellness';
     h += bienKioskoInline(plantelAll);
-  } else if(tab==='disponibilidad'){
-    h += jornadaDisponibilidad(plantelAll);
-  } else if(tab==='valoracion'){
-    h += jornadaValoracion(plantelAll);
-  } else if(tab==='gps'){
-    h += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:16px;'>";
-    h += "<div><div style='font-size:13px;font-weight:800;color:#fff;margin-bottom:12px;'>🏋️ RPE Post-sesión</div>";
+    if(bWell.length > 0){
+      h += jornadaAnalisisPRE(plantelAll, fechaEfectiva);
+    }
+
+  } else if(paso==='evaluacion'){
+    h += jornadaEvaluacionPRE(plantelAll, fechaEfectiva);
+
+  } else if(paso==='rpe'){
+    h += "<div style='display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;'>";
+    h += "<button onclick='kioskoActivarPOST()' style='padding:8px 18px;border-radius:99px;border:none;background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;font-size:11px;font-weight:800;cursor:pointer;box-shadow:0 2px 12px rgba(249,115,22,.4);'>🏋️ Activar Kiosko POST</button>";
+    if(_kioskoModoForzado==='post') h += "<span style='font-size:10px;background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.3);border-radius:20px;padding:4px 12px;color:#fb923c;'>🏋️ Kiosko POST activo</span>";
+    h += "</div>";
     window._kioskoMode = 'rpe';
     h += bienKioskoInline(plantelAll);
-    h += "</div><div><div style='font-size:13px;font-weight:800;color:#fff;margin-bottom:12px;'>📡 GPS — Catapult</div>";
+
+  } else if(paso==='gps'){
+    h += "<div style='margin-bottom:12px;'>";
+    h += "<div style='font-size:13px;font-weight:800;color:#fff;margin-bottom:8px;'>📡 Importar GPS — Catapult</div>";
+    h += "<div style='font-size:11px;color:#64748b;margin-bottom:16px;'>Importá el archivo CSV de Catapult para esta sesión. El análisis detallado está en <strong style='color:#94a3b8;'>Carga Externa</strong>.</div>";
     if(typeof ciTabCatapult === 'function') h += ciTabCatapult(plantelAll);
     else h += "<div style='color:#64748b;font-size:12px;'>Import GPS disponible en Control de Cargas.</div>";
-    h += "</div></div>";
+    if(gpsHoy.length>0){
+      h += "<div style='margin-top:16px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:12px;padding:12px 16px;font-size:12px;color:#4ade80;'>✅ "+gpsHoy.length+" filas GPS importadas para esta sesión. <a href='#' onclick='irA(\"carga\");return false;' style='color:#4ade80;font-weight:700;'>Ver análisis completo en Carga Externa →</a></div>";
+    }
+    h += "</div>";
   }
 
   h += "</div>";
   el.innerHTML = h;
+}
+
+// ── Análisis PRE-sesión inline (después de registrar wellness) ─────────────
+function jornadaAnalisisPRE(plantelAll, fechaEf){
+  var hoy = fechaEf || TODAY;
+  var listos=[], precaucion=[], alerta=[], sinDatos=[];
+  plantelAll.forEach(function(j){
+    var bHoy = safeArr(BIEN).filter(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===hoy&&(b.sueno||b.fatiga); });
+    if(!bHoy.length){ sinDatos.push(j); return; }
+    var sc = bienScore6(bHoy[bHoy.length-1]);
+    if(sc===null){ sinDatos.push(j); return; }
+    if(sc>=7) listos.push({j:j,sc:sc});
+    else if(sc>=5) precaucion.push({j:j,sc:sc});
+    else alerta.push({j:j,sc:sc});
+  });
+
+  var h = "<div style='margin-top:20px;border-top:1px solid rgba(255,255,255,.07);padding-top:20px;'>";
+  h += "<div style='font-size:13px;font-weight:800;color:#fff;margin-bottom:16px;'>📊 Análisis PRE-sesión</div>";
+
+  // Semáforo 3 columnas
+  h += "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:20px;'>";
+  [
+    {label:'🟢 Listos',    list:listos,    bg:'rgba(34,197,94,.08)', bc:'rgba(34,197,94,.25)',  col:'#4ade80', desc:'Score ≥ 7 — sin restricciones'},
+    {label:'🟡 Precaución',list:precaucion,bg:'rgba(234,179,8,.08)', bc:'rgba(234,179,8,.25)',  col:'#fbbf24', desc:'Score 5-7 — monitorear hoy'},
+    {label:'🔴 Alerta',    list:alerta,    bg:'rgba(239,68,68,.08)', bc:'rgba(239,68,68,.25)',  col:'#f87171', desc:'Score < 5 — intervención necesaria'},
+  ].forEach(function(g){
+    h += "<div style='background:"+g.bg+";border:1px solid "+g.bc+";border-radius:14px;padding:14px;'>";
+    h += "<div style='font-size:12px;font-weight:800;color:"+g.col+";margin-bottom:4px;'>"+g.label+" ("+g.list.length+")</div>";
+    h += "<div style='font-size:9px;color:#64748b;margin-bottom:10px;'>"+g.desc+"</div>";
+    if(g.list.length){
+      g.list.forEach(function(item){
+        var nm = ((item.j.apellido||item.j.lastname||item.j.nombre||'').split(' ')[0]||'').toUpperCase();
+        h += "<div style='display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);'>";
+        h += "<span style='font-size:11px;color:#e2e8f0;'>"+escHtml(nm)+"</span>";
+        h += "<span style='font-size:11px;font-weight:800;color:"+g.col+";'>"+item.sc+"/10</span></div>";
+      });
+    } else {
+      h += "<div style='font-size:11px;color:#334155;'>Ninguno</div>";
+    }
+    h += "</div>";
+  });
+  h += "</div>";
+
+  // Tabla de disponibilidad + reporte al cuerpo técnico
+  h += jornadaDisponibilidad(plantelAll, hoy);
+  h += "</div>";
+  return h;
+}
+
+// ── Evaluación PRE-sesión (Paso 3) ─────────────────────────────────────────
+function jornadaEvaluacionPRE(plantelAll, fechaEf){
+  var hoy = fechaEf || TODAY;
+  var evalDB = {};
+  try{ var ev=localStorage.getItem('BFC_EVAL_PRE'); if(ev) evalDB=JSON.parse(ev)||{}; }catch(e){}
+  var evalDia = evalDB[hoy] || {};
+
+  var h = "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;overflow:hidden;margin-bottom:16px;'>";
+  h += "<div style='padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;'>";
+  h += "<div><div style='font-size:13px;font-weight:800;color:#fff;'>🔬 Evaluación PRE-sesión</div>";
+  h += "<div style='font-size:11px;color:#64748b;margin-top:2px;'>CMJ · CPK · Pruebas funcionales · Observaciones del médico/fisio. La decisión manual sobreescribe el cálculo automático.</div></div>";
+  h += "<button onclick='jornadaEvalGuardar()' style='background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;color:#fff;border-radius:9px;padding:7px 16px;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>💾 Guardar evaluaciones</button>";
+  h += "</div><div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;'>";
+  h += "<thead><tr style='background:rgba(255,255,255,.04);'>";
+  ['Jugador','CMJ (cm)','CPK (U/L)','Prueba funcional','Obs. médica/fisio','Decisión','Alertas cruzadas'].forEach(function(th){
+    h += "<th style='padding:9px 12px;text-align:left;font-size:9px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;'>"+th+"</th>";
+  });
+  h += "</tr></thead><tbody>";
+
+  plantelAll.forEach(function(j, ri){
+    var nombre = ((j.nombre||j.name||'')+' '+(j.apellido||j.lastname||'')).trim();
+    var jid = j.id;
+    var evalJ = evalDia[jid] || {};
+    // Wellness del día
+    var bHoy = safeArr(BIEN).filter(function(b){ return (b.pid===jid||b.jugadorId===jid)&&b.fecha===hoy&&(b.sueno||b.fatiga); });
+    var wellSc = bHoy.length ? bienScore6(bHoy[bHoy.length-1]) : null;
+    // CMJ
+    var cmjBase = parseFloat(j.cmjBase||j.jcmj) || null;
+    var cmjHoy = parseFloat(evalJ.cmj) || null;
+    var cmjPct = (cmjHoy && cmjBase) ? Math.round(cmjHoy/cmjBase*100) : null;
+    // Alertas cruzadas
+    var alertas = [];
+    if(wellSc!==null && wellSc>=7 && cmjPct!==null && cmjPct<90) alertas.push('⚠️ Wellness ok / CMJ bajo → fatiga oculta');
+    if(wellSc!==null && wellSc<5 && cmjPct!==null && cmjPct>=95) alertas.push('ℹ️ Wellness bajo / CMJ ok → percepción');
+
+    var bg = ri%2===0?'rgba(255,255,255,.01)':'transparent';
+    h += "<tr style='background:"+bg+";border-bottom:1px solid rgba(255,255,255,.04);'>";
+    h += "<td style='padding:10px 12px;font-size:12px;font-weight:700;color:#e2e8f0;white-space:nowrap;'>"+escHtml(nombre)+"</td>";
+    // CMJ
+    h += "<td style='padding:8px 12px;'><div style='display:flex;align-items:center;gap:6px;'>";
+    h += "<input type='number' id='eval-cmj-"+jid+"' value='"+(cmjHoy||'')+"' placeholder='cm' min='0' max='100' style='width:60px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:5px 8px;color:#e2e8f0;font-size:12px;'>";
+    if(cmjPct!==null) h += "<span style='font-size:10px;font-weight:700;color:"+(cmjPct>=95?'#4ade80':cmjPct>=85?'#fbbf24':'#f87171')+";'>"+cmjPct+"%</span>";
+    else if(cmjBase) h += "<span style='font-size:9px;color:#475569;'>base:"+cmjBase+"</span>";
+    h += "</div></td>";
+    // CPK
+    h += "<td style='padding:8px 12px;'><input type='number' id='eval-cpk-"+jid+"' value='"+(evalJ.cpk||'')+"' placeholder='U/L' min='0' style='width:72px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:5px 8px;color:#e2e8f0;font-size:12px;'></td>";
+    // Prueba funcional
+    h += "<td style='padding:8px 12px;'><input type='text' id='eval-func-"+jid+"' value='"+(evalJ.prueba_func||'')+"' placeholder='Overhead squat, equilibrio…' style='width:160px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:5px 8px;color:#e2e8f0;font-size:11px;'></td>";
+    // Obs médica
+    h += "<td style='padding:8px 12px;'><input type='text' id='eval-obs-"+jid+"' value='"+(evalJ.obs||'')+"' placeholder='Deshidratado, fatiga muscular…' style='width:170px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:5px 8px;color:#e2e8f0;font-size:11px;'></td>";
+    // Decisión
+    h += "<td style='padding:8px 12px;'><select id='eval-dec-"+jid+"' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:5px 8px;color:#e2e8f0;font-size:11px;cursor:pointer;'>";
+    var decActual = evalJ.decision || 'auto';
+    [{v:'auto',l:'🤖 Auto'},{v:'disp',l:'✅ Disponible'},{v:'precaucion',l:'⚠️ Precaución'},{v:'no_disp',l:'🚫 No disponible'}].forEach(function(opt){
+      h += "<option value='"+opt.v+"'"+(decActual===opt.v?" selected":"")+">"+opt.l+"</option>";
+    });
+    h += "</select></td>";
+    // Alertas
+    h += "<td style='padding:8px 12px;font-size:10px;color:#f59e0b;max-width:160px;'>"+(alertas.length?alertas.join('<br>'):"<span style='color:#334155;'>—</span>")+"</td>";
+    h += "</tr>";
+  });
+  h += "</tbody></table></div></div>";
+  h += "<div style='background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:14px;padding:12px 16px;font-size:11px;color:#a5b4fc;'>💡 <strong>Alertas cruzadas:</strong> Wellness ok + CMJ bajo = posible fatiga oculta. Wellness bajo + CMJ normal = diferencia percepción/realidad. La decisión manual sobreescribe el cálculo automático y se refleja en Plantilla → Disponibilidad.</div>";
+  return h;
+}
+
+function jornadaEvalGuardar(){
+  var plantelAll = safeArr(JDB).length>0 ? safeArr(JDB) : safeArr(PL);
+  var sesActiva = window._jornadaSesionActiva;
+  var hoy = (sesActiva && sesActiva.fecha) ? sesActiva.fecha : TODAY;
+  var evalDB = {};
+  try{ var ev=localStorage.getItem('BFC_EVAL_PRE'); if(ev) evalDB=JSON.parse(ev)||{}; }catch(e){}
+  if(!evalDB[hoy]) evalDB[hoy] = {};
+  plantelAll.forEach(function(j){
+    var jid = j.id;
+    var cmj = (document.getElementById('eval-cmj-'+jid)||{}).value||'';
+    var cpk = (document.getElementById('eval-cpk-'+jid)||{}).value||'';
+    var func = (document.getElementById('eval-func-'+jid)||{}).value||'';
+    var obs = (document.getElementById('eval-obs-'+jid)||{}).value||'';
+    var dec = (document.getElementById('eval-dec-'+jid)||{}).value||'auto';
+    if(cmj||cpk||func||obs||dec!=='auto'){
+      evalDB[hoy][jid] = {cmj:cmj,cpk:cpk,prueba_func:func,obs:obs,decision:dec,ts:Date.now()};
+    }
+  });
+  try{ localStorage.setItem('BFC_EVAL_PRE', JSON.stringify(evalDB)); }catch(e){}
+  fbAuditLog('jornada','Evaluaciones PRE guardadas para '+hoy);
+  toast('✅ Evaluaciones guardadas');
+  renderJornada();
 }
 
 // ── Gestión de Sesiones de Jornada ─────────────────────────────────────────
@@ -5792,14 +5962,15 @@ function jornadaSesionesPanel(){
   return h;
 }
 
-function jornadaDisponibilidad(plantelAll){
-  var hoy = TODAY;
-  var ayer = new Date(); ayer.setDate(ayer.getDate()-1);
-  var ayerStr = ayer.toISOString().slice(0,10);
+function jornadaDisponibilidad(plantelAll, fechaEf){
+  var hoy = fechaEf || TODAY;
+  var ayerD = new Date(hoy+'T12:00:00'); ayerD.setDate(ayerD.getDate()-1);
+  var ayerStr = ayerD.toISOString().slice(0,10);
+  var fechaLabel = new Date(hoy+'T12:00:00').toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long'});
   var h = '';
   h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;overflow:hidden;margin-bottom:16px;'>";
   h += "<div style='padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between;'>";
-  h += "<span style='font-size:13px;font-weight:800;color:#fff;'>Disponibilidad — "+new Date().toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long'})+"</span>";
+  h += "<span style='font-size:13px;font-weight:800;color:#fff;'>Disponibilidad — "+fechaLabel+"</span>";
   h += "<button onclick='jornadaExportarDisponibilidad()' style='background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:8px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;'>📤 Enviar al técnico</button>";
   h += "</div><div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;'>";
   h += "<thead><tr style='background:rgba(255,255,255,.04);'>";
@@ -5817,9 +5988,19 @@ function jornadaDisponibilidad(plantelAll){
     var acwrObj = calcACWR(j.id);
     var acwr = acwrObj ? acwrObj.acwr : null;
     var est = calcEstado3P(j.id);
-    var semDot = est.global==='ok'?'#22c55e':est.global==='warn'?'#f59e0b':'#ef4444';
-    var semLbl = est.global==='ok'?'Apto':est.global==='warn'?'Duda':'No disp.';
-    if(!bHoy.length && !acwrObj){ semDot='#475569'; semLbl='Sin datos'; }
+    // Verificar si hay decisión manual en evaluación PRE
+    var evalDB2={}; try{ var ev2=localStorage.getItem('BFC_EVAL_PRE'); if(ev2) evalDB2=JSON.parse(ev2)||{}; }catch(e){}
+    var evalJ2 = (evalDB2[hoy]||{})[j.id]||{};
+    var decManual = evalJ2.decision||'auto';
+    var semDot, semLbl;
+    if(decManual==='no_disp'){ semDot='#ef4444'; semLbl='No disp.'; }
+    else if(decManual==='precaucion'){ semDot='#f59e0b'; semLbl='Precaución'; }
+    else if(decManual==='disp'){ semDot='#22c55e'; semLbl='Apto'; }
+    else {
+      semDot = est.global==='ok'?'#22c55e':est.global==='warn'?'#f59e0b':'#ef4444';
+      semLbl = est.global==='ok'?'Apto':est.global==='warn'?'Duda':'No disp.';
+      if(!bHoy.length && !acwrObj){ semDot='#475569'; semLbl='Sin datos'; }
+    }
     var acwrCol = !acwr?'#64748b':acwr>1.5?'#ef4444':acwr>1.3?'#f97316':acwr>=0.8?'#22c55e':'#3b82f6';
     var bg = ri%2===0?'rgba(255,255,255,.01)':'transparent';
     h += "<tr style='background:"+bg+";border-bottom:1px solid rgba(255,255,255,.04);'>";
@@ -7594,7 +7775,7 @@ function renderDashboard() {
 
   // Bienestar promedio hoy
   var bHoy = safeArr(BIEN).filter(function(b){return b.fecha===TODAY;});
-  var scores = bHoy.map(function(b){return scoreW(b);}).filter(function(x){return x!==null;});
+  var scores = bHoy.map(function(b){return bienScore6(b);}).filter(function(x){return x!==null;});
   var avgB = scores.length ? Math.round(scores.reduce(function(a,b){return a+b;},0)/scores.length*10)/10 : null;
 
   // Jugadores en alerta/riesgo
@@ -7746,7 +7927,7 @@ function renderDashboard() {
 
     // Bienestar
     var bScore = est.bienestar.score;
-    var bTxt = bScore!==null ? bScore+"/5" : "—";
+    var bTxt = bScore!==null ? bScore+"/10" : "—";
     var bCol = est.bienestar.estado==="ok"?"#166534":est.bienestar.estado==="warn"?"#854d0e":est.bienestar.estado==="danger"?"#991b1b":"#9ca3af";
     var bBg  = est.bienestar.estado==="ok"?"#dcfce7":est.bienestar.estado==="warn"?"#fef9c3":est.bienestar.estado==="danger"?"#fee2e2":"#f3f4f6";
 
@@ -15674,7 +15855,7 @@ function reporteDiario(){
     else if(est.global==="warn") alerta++;
     else if(est.global==="danger") riesgo++;
     else sinDatos++;
-    var bS = est.bienestar.score!==null ? est.bienestar.score+"/5" : "—";
+    var bS = est.bienestar.score!==null ? est.bienestar.score+"/10" : "—";
     var cS = est.carga.raw ? est.carga.raw.distancia.toLocaleString()+"m" : "—";
     var nS = est.neuro.raw&&est.neuro.base ? Math.round(est.neuro.raw.val/est.neuro.base*100)+"%" : "—";
     var gLabel = est.global==="ok"?"APTO":est.global==="warn"?"ALERTA":est.global==="danger"?"RIESGO":"SIN DATOS";
@@ -15692,7 +15873,7 @@ function reporteDiario(){
   }).join("");
 
   var bHoy = safeArr(BIEN).filter(function(b){return b.fecha===TODAY;});
-  var scores = bHoy.map(function(b){return scoreW(b);});
+  var scores = bHoy.map(function(b){return bienScore6(b);}).filter(function(x){return x!==null;});
   var avgB = scores.length ? Math.round(scores.reduce(function(a,b){return a+b;},0)/scores.length*10)/10 : "—";
 
   var LOGO_B64 = document.querySelector(".nav-logo")?document.querySelector(".nav-logo").src:"";
