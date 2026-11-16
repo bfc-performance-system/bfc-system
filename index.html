@@ -1446,22 +1446,25 @@ function avEl(p, sz) {
 
 function scoreW(r) {
   if (!r) return null;
-  return Math.round(((r.sueno + (6-r.fatiga) + r.humor + (6-r.estres)) / 4) * 10) / 10;
+  // All dims stored as 1=bad→5=good (kiosko scale) — no inversion needed
+  var vals = [r.sueno, r.dolor, r.fatiga, r.estres, r.disposicion].filter(function(v){ return v && v > 0; });
+  if (!vals.length) return null;
+  var raw = vals.reduce(function(a,b){ return a+b; }, 0) / vals.length; // 1..5
+  return Math.round((raw - 1) / 4 * 10 * 10) / 10; // maps [1,5] → [0,10]
 }
-// 6-dimension wellness score (0–10 scale) using all Kiosko dimensions
-// sueno(1-5)+, dolor(1-5)inv, fatiga(1-5)inv, humor(1-5)+, estres(1-5)inv, motivacion(1-5)+
+// 5-dimension wellness score (0–10 scale)
+// All dims: 1=muy mal/mucho/muy fatigado → 5=muy bien/sin dolor/sin fatiga (kiosko native scale)
 function bienScore6(r) {
   if (!r) return null;
-  var dims = [r.sueno, r.dolor, r.fatiga, r.humor, r.estres, r.motivacion];
+  var dims = [r.sueno, r.dolor, r.fatiga, r.estres, r.disposicion];
   var valid = dims.filter(function(v){ return v && v > 0; });
   if (valid.length < 3) return null; // need at least 3 dims filled
   var score = 0, count = 0;
-  if (r.sueno > 0)      { score += r.sueno;         count++; }
-  if (r.dolor > 0)      { score += (6 - r.dolor);   count++; } // inverted
-  if (r.fatiga > 0)     { score += (6 - r.fatiga);  count++; } // inverted
-  if (r.humor > 0)      { score += r.humor;          count++; }
-  if (r.estres > 0)     { score += (6 - r.estres);  count++; } // inverted
-  if (r.motivacion > 0) { score += r.motivacion;    count++; }
+  if (r.sueno > 0)        { score += r.sueno;        count++; }
+  if (r.dolor > 0)        { score += r.dolor;        count++; }
+  if (r.fatiga > 0)       { score += r.fatiga;       count++; }
+  if (r.estres > 0)       { score += r.estres;       count++; }
+  if (r.disposicion > 0)  { score += r.disposicion;  count++; }
   // Normalize from 1-5 range to 0-10 scale
   var raw = score / count; // 1..5
   return Math.round((raw - 1) / 4 * 10 * 10) / 10; // maps [1,5] → [0,10]
@@ -5631,8 +5634,17 @@ function jornadaIniciarListener(){
         var plantelAll2 = safeArr(JDB).length>0 ? safeArr(JDB) : safeArr(PL);
         var sesActiva2 = window._jornadaSesionActiva;
         var fechaEf2 = (sesActiva2 && sesActiva2.fecha) ? sesActiva2.fecha : TODAY;
-        var bW = safeArr(BIEN).filter(function(b){ return b.fecha===fechaEf2&&(b.sueno||b.fatiga); });
-        var bR = safeArr(BIEN).filter(function(b){ return b.fecha===fechaEf2&&b.rpe_post>0; });
+        var _sesIdBadge = (sesActiva2 && sesActiva2.id) ? sesActiva2.id : null;
+        var bW = safeArr(BIEN).filter(function(b){
+          if(!(b.fecha===fechaEf2&&(b.sueno||b.fatiga))) return false;
+          if(_sesIdBadge) return b.sesId===_sesIdBadge;
+          return !b.sesId;
+        });
+        var bR = safeArr(BIEN).filter(function(b){
+          if(!(b.fecha===fechaEf2&&b.rpe_post>0)) return false;
+          if(_sesIdBadge) return b.sesId===_sesIdBadge;
+          return !b.sesId;
+        });
         if(badgeW) badgeW.textContent = bW.length+'/'+plantelAll2.length;
         if(badgeR) badgeR.textContent = bR.length+'/'+plantelAll2.length;
       }
@@ -5655,7 +5667,7 @@ function jornadaDetenerListener(){
 function jornadaSemaforoWellness(bReg){
   if(!bReg) return null;
   var dims = {sueno:bReg.sueno, dolor:bReg.dolor, fatiga:bReg.fatiga,
-              humor:bReg.humor, estres:bReg.estres, motivacion:bReg.motivacion};
+              estres:bReg.estres, disposicion:bReg.disposicion};
   var vals = Object.values(dims).filter(function(v){ return v && v > 0; });
   if(vals.length < 3) return null;
   var prom = vals.reduce(function(a,b){ return a+b; }, 0) / vals.length;
@@ -5674,12 +5686,20 @@ function jornadaMonitorPanel(plantelAll, fechaEf){
 
   var verde=[], amarillo=[], rojo=[], sinWell=[], conRpe=[];
 
+  // Filtrar por sesId cuando hay sesión activa con id
+  var _sesActMon = window._jornadaSesionActiva;
+  var _sesIdMon  = (_sesActMon && _sesActMon.id) ? _sesActMon.id : null;
+
   jugadores.forEach(function(j){
     var bHoy = safeArr(BIEN).filter(function(b){
-      return (b.pid===j.id||b.jugadorId===j.id) && b.fecha===hoy && (b.sueno||b.fatiga);
+      if(!((b.pid===j.id||b.jugadorId===j.id) && b.fecha===hoy && (b.sueno||b.fatiga))) return false;
+      if(_sesIdMon) return b.sesId===_sesIdMon;
+      return !b.sesId; // compatibilidad: registros sin sesId
     });
     var rpeHoy = safeArr(BIEN).filter(function(b){
-      return (b.pid===j.id||b.jugadorId===j.id) && b.fecha===hoy && b.rpe_post>0;
+      if(!((b.pid===j.id||b.jugadorId===j.id) && b.fecha===hoy && b.rpe_post>0)) return false;
+      if(_sesIdMon) return b.sesId===_sesIdMon;
+      return !b.sesId;
     });
     var nombre = ((j.apellido||j.lastname||'').split(' ')[0] || j.nombre || '').toUpperCase();
     var rpeVal = rpeHoy.length ? rpeHoy[rpeHoy.length-1].rpe_post : null;
@@ -5693,15 +5713,14 @@ function jornadaMonitorPanel(plantelAll, fechaEf){
     var sem = jornadaSemaforoWellness(reg);
     // Detalles para tooltip
     var detalle = [];
-    if(reg.sueno)      detalle.push('Sueño: '+reg.sueno);
-    if(reg.dolor)      detalle.push('Dolor: '+reg.dolor);
-    if(reg.fatiga)     detalle.push('Fatiga: '+reg.fatiga);
-    if(reg.humor)      detalle.push('Humor: '+reg.humor);
-    if(reg.estres)     detalle.push('Estrés: '+reg.estres);
-    if(reg.motivacion) detalle.push('Motivac: '+reg.motivacion);
+    if(reg.sueno)       detalle.push('Sueño: '+reg.sueno);
+    if(reg.dolor)       detalle.push('Dolor: '+reg.dolor);
+    if(reg.fatiga)      detalle.push('Fatiga: '+reg.fatiga);
+    if(reg.estres)      detalle.push('Estrés: '+reg.estres);
+    if(reg.disposicion) detalle.push('Dispos: '+reg.disposicion);
     // Alerta por valor = 1
     var alertas = [];
-    var dimLabels = {sueno:'Sueño',dolor:'Dolor',fatiga:'Fatiga',humor:'Humor',estres:'Estrés',motivacion:'Motivac'};
+    var dimLabels = {sueno:'Sueño',dolor:'Dolor',fatiga:'Fatiga',estres:'Estrés',disposicion:'Dispos'};
     Object.keys(dimLabels).forEach(function(k){ if(reg[k]===1) alertas.push(dimLabels[k]); });
 
     var entry = {j:j, nombre:nombre, reg:reg, sem:sem, detalle:detalle, alertas:alertas, rpe:rpeVal};
@@ -6516,7 +6535,21 @@ function dispGenerarImagen(){
     f._h = FIL_HDR + f._chipRows*(CHIP_H+CHIP_GAP) + ROW_PAD;
   });
 
-  var totalH = HDR_H + FILAS.reduce(function(s,f){return s+f._h+6;},0) + FTR_H + 16;
+  // Pre-calcular espacio wellness
+  var _wL2=[], _wP2=[], _wA2=[];
+  plantelAll.forEach(function(j){
+    var bH = safeArr(BIEN).filter(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===fecha&&(b.sueno||b.fatiga||b.disposicion); });
+    if(!bH.length) return;
+    var sc = bienScore6(bH[bH.length-1]); if(sc===null) return;
+    if(sc>=7) _wL2.push(sc); else if(sc>=5) _wP2.push(sc); else _wA2.push(sc);
+  });
+  var _wellExtra = 0;
+  if(_wL2.length||_wP2.length||_wA2.length){
+    var _maxR = Math.max(_wL2.length,_wP2.length,_wA2.length);
+    _wellExtra = 36 + _maxR*22 + 20 + 6 + 36; // HDR+rows+pad+gap+secHDR
+  }
+
+  var totalH = HDR_H + FILAS.reduce(function(s,f){return s+f._h+6;},0) + _wellExtra + FTR_H + 16;
 
   var canvas = document.createElement('canvas');
   canvas.width  = W;
@@ -6627,6 +6660,48 @@ function dispGenerarImagen(){
       sy += 6; // gap entre filas
     });
 
+    // ── WELLNESS BLOCK (desde BIEN en tiempo real) ──
+    var wL=[], wP=[], wA=[];
+    plantelAll.forEach(function(j){
+      var bHoy = safeArr(BIEN).filter(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===fecha&&(b.sueno||b.fatiga||b.disposicion); });
+      if(!bHoy.length) return;
+      var sc = bienScore6(bHoy[bHoy.length-1]);
+      if(sc===null) return;
+      var nm = ((j.apellido||j.lastname||j.nombre||'').split(' ')[0]||'').toUpperCase();
+      if(sc>=7) wL.push({nm:nm,sc:sc});
+      else if(sc>=5) wP.push({nm:nm,sc:sc});
+      else wA.push({nm:nm,sc:sc});
+    });
+    if(wL.length||wP.length||wA.length){
+      var WELL_HDR=36, WELL_ROW=22, WELL_PAD=10;
+      var wellGroups=[{l:'LISTOS',list:wL,c:'#4ade80',bg:'#052e16'},{l:'PRECAUCIÓN',list:wP,c:'#fbbf24',bg:'#2d1a00'},{l:'ALERTA',list:wA,c:'#f87171',bg:'#1c0505'}].filter(function(x){return x.list.length>0;});
+      var maxRows = Math.max.apply(null, wellGroups.map(function(x){return x.list.length;}));
+      var wellH = WELL_HDR + maxRows*WELL_ROW + WELL_PAD*2 + 8;
+      var colW = Math.floor((W-PAD*2)/wellGroups.length)-6;
+      // Header seccion
+      ctx.fillStyle='rgba(99,102,241,0.12)'; ctx.fillRect(0,sy,W,WELL_HDR);
+      ctx.fillStyle='#6366f1'; ctx.fillRect(0,sy,7,WELL_HDR);
+      ctx.font='bold 14px Arial'; ctx.fillStyle='#a5b4fc';
+      ctx.fillText('🧠  WELLNESS PRE-ENTRENO  ('+( wL.length+wP.length+wA.length )+' jugadores)', PAD+10, sy+24);
+      sy += WELL_HDR;
+      // Columnas de grupos
+      wellGroups.forEach(function(gw,gi){
+        var cx2 = PAD + gi*(colW+6);
+        ctx.fillStyle = gw.bg; ctx.fillRect(cx2,sy,colW,wellH);
+        ctx.strokeStyle = gw.c+'44'; ctx.lineWidth=1; ctx.strokeRect(cx2,sy,colW,wellH);
+        ctx.font='bold 10px Arial'; ctx.fillStyle=gw.c;
+        ctx.fillText(gw.l+' ('+gw.list.length+')', cx2+WELL_PAD, sy+WELL_PAD+10);
+        gw.list.forEach(function(item,ri){
+          var ry = sy+WELL_HDR-WELL_PAD+ri*WELL_ROW;
+          ctx.fillStyle='#e2e8f0'; ctx.font='11px Arial';
+          ctx.fillText(item.nm, cx2+WELL_PAD, ry);
+          ctx.fillStyle=gw.c; ctx.font='bold 11px Arial'; ctx.textAlign='right';
+          ctx.fillText(item.sc+'/10', cx2+colW-WELL_PAD, ry); ctx.textAlign='left';
+        });
+      });
+      sy += wellH + 6;
+    }
+
     // ── FOOTER ──
     var fy = totalH - FTR_H;
     ctx.fillStyle='#060e1f'; ctx.fillRect(0,fy,W,FTR_H);
@@ -6681,6 +6756,26 @@ function dispCopiarWhatsapp(){
   if(grupos.rehabilitacion.length){ lineas.push('🏥 *LESIONADOS ('+grupos.rehabilitacion.length+')*');  grupos.rehabilitacion.forEach(function(l){lineas.push(l);}); lineas.push(''); }
   if(grupos.readaptacion.length)  { lineas.push('🔁 *READAPTACIÓN ('+grupos.readaptacion.length+')*');  grupos.readaptacion.forEach(function(l){lineas.push(l);}); lineas.push(''); }
   if(grupos.baja.length)          { lineas.push('🔴 *BAJA ('+grupos.baja.length+')*');           grupos.baja.forEach(function(l){lineas.push(l);}); lineas.push(''); }
+
+  // Wellness desde BIEN (en tiempo real)
+  var wListos=[], wPrec=[], wAlerta=[];
+  plantelAll.forEach(function(j){
+    var bHoy = safeArr(BIEN).filter(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===fecha&&(b.sueno||b.fatiga||b.disposicion); });
+    if(!bHoy.length) return;
+    var sc = bienScore6(bHoy[bHoy.length-1]);
+    if(sc===null) return;
+    var nm = ((j.apellido||j.lastname||j.nombre||'').split(' ')[0]||'').toUpperCase();
+    if(sc>=7) wListos.push(nm+' ('+sc+'/10)');
+    else if(sc>=5) wPrec.push(nm+' ('+sc+'/10)');
+    else wAlerta.push(nm+' ('+sc+'/10)');
+  });
+  if(wListos.length||wPrec.length||wAlerta.length){
+    lineas.push('🧠 *WELLNESS PRE-ENTRENO*');
+    if(wListos.length) lineas.push('🟢 Listos: '+wListos.join(', '));
+    if(wPrec.length)   lineas.push('🟡 Precaución: '+wPrec.join(', '));
+    if(wAlerta.length) lineas.push('🔴 Alerta: '+wAlerta.join(', '));
+    lineas.push('');
+  }
   lineas.push('_BFC Performance System_');
 
   var texto = lineas.join('\n');
@@ -6698,6 +6793,144 @@ function _fallbackCopyDisp(texto){
   try{ document.execCommand('copy'); toast('📋 Disponibilidad copiada — pegá en WhatsApp o email'); }
   catch(e){ toast('⚠️ No se pudo copiar automáticamente'); }
   document.body.removeChild(ta);
+}
+
+// ── Informe de hoy — modal desde panel de inicio ─────────────────────────────
+function jornadaAbrirInformeHoy(){
+  var plantelAll = safeArr(JDB).length>0 ? safeArr(JDB) : safeArr(PL);
+  var fecha = TODAY;
+  var fechaLabel = new Date(fecha+'T12:00:00').toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  fechaLabel = fechaLabel.charAt(0).toUpperCase()+fechaLabel.slice(1);
+
+  var listos=[], precaucion=[], alerta=[], sinDatos=[];
+  plantelAll.forEach(function(j){
+    var bHoy = safeArr(BIEN).filter(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===fecha&&(b.sueno||b.fatiga||b.disposicion); });
+    var nm = ((j.apellido||j.lastname||j.nombre||'').split(' ')[0]||'').toUpperCase();
+    var pos = abrevPos(j.pos||j.posicion||'');
+    if(!bHoy.length){ sinDatos.push({nm:nm,pos:pos}); return; }
+    var sc = bienScore6(bHoy[bHoy.length-1]);
+    if(sc===null){ sinDatos.push({nm:nm,pos:pos}); return; }
+    if(sc>=7) listos.push({nm:nm,sc:sc,pos:pos});
+    else if(sc>=5) precaucion.push({nm:nm,sc:sc,pos:pos});
+    else alerta.push({nm:nm,sc:sc,pos:pos});
+  });
+  var totalConDatos = listos.length+precaucion.length+alerta.length;
+  var totalJug = plantelAll.length;
+
+  var h = "<div style='max-height:80vh;overflow-y:auto;'>";
+  h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;'>";
+  h += "<div><div style='font-size:15px;font-weight:900;color:#fff;'>📋 Informe de hoy</div>";
+  h += "<div style='font-size:11px;color:#64748b;'>"+fechaLabel+" · "+totalConDatos+"/"+totalJug+" con datos</div></div>";
+  h += "<div style='display:flex;gap:6px;'>";
+  h += "<button onclick='jornadaExportarInformeHoy()' style='background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#4ade80;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;'>🖼️ Exportar imagen</button>";
+  h += "<button onclick='closeModal()' style='background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:8px;padding:6px 12px;font-size:11px;cursor:pointer;'>✕</button>";
+  h += "</div></div>";
+
+  h += "<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;'>";
+  [{label:'🟢 Listos',list:listos,bg:'rgba(34,197,94,.08)',bc:'rgba(34,197,94,.3)',col:'#4ade80',desc:'Score ≥ 7'},
+   {label:'🟡 Precaución',list:precaucion,bg:'rgba(234,179,8,.08)',bc:'rgba(234,179,8,.3)',col:'#fbbf24',desc:'Score 5–7'},
+   {label:'🔴 Alerta',list:alerta,bg:'rgba(239,68,68,.08)',bc:'rgba(239,68,68,.3)',col:'#f87171',desc:'Score < 5'}
+  ].forEach(function(g){
+    h += "<div style='background:"+g.bg+";border:1px solid "+g.bc+";border-radius:12px;padding:12px;'>";
+    h += "<div style='font-size:11px;font-weight:800;color:"+g.col+";'>"+g.label+" ("+g.list.length+")</div>";
+    h += "<div style='font-size:9px;color:#64748b;margin-bottom:8px;'>"+g.desc+"</div>";
+    if(g.list.length){ g.list.forEach(function(item){
+      h += "<div style='display:flex;justify-content:space-between;padding:2px 0;'>";
+      h += "<span style='font-size:11px;color:#e2e8f0;'>"+escHtml(item.nm)+"</span>";
+      h += "<span style='font-size:11px;font-weight:800;color:"+g.col+";'>"+item.sc+"/10</span></div>";
+    }); } else { h += "<div style='font-size:11px;color:#334155;'>Ninguno</div>"; }
+    h += "</div>";
+  });
+  h += "</div>";
+
+  if(sinDatos.length){
+    h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:10px 14px;margin-bottom:12px;'>";
+    h += "<div style='font-size:10px;font-weight:700;color:#475569;margin-bottom:6px;'>⏳ PENDIENTES ("+sinDatos.length+")</div>";
+    h += "<div style='font-size:11px;color:#64748b;'>"+sinDatos.map(function(j){return escHtml(j.nm);}).join(' · ')+"</div></div>";
+  }
+
+  h += "<div style='font-size:9px;color:#334155;text-align:right;'>Actualizado: "+new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})+"</div>";
+  h += "</div>";
+  showModal(h, 540);
+}
+
+// ── Exportar imagen del informe de hoy ───────────────────────────────────────
+function jornadaExportarInformeHoy(){
+  closeModal();
+  toast('🎨 Generando informe…');
+  var plantelAll = safeArr(JDB).length>0 ? safeArr(JDB) : safeArr(PL);
+  var fecha = TODAY;
+  var fechaLabel = new Date(fecha+'T12:00:00').toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  fechaLabel = fechaLabel.charAt(0).toUpperCase()+fechaLabel.slice(1);
+
+  var listos=[], precaucion=[], alerta=[], sinDatos=[];
+  plantelAll.forEach(function(j){
+    var bHoy = safeArr(BIEN).filter(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===fecha&&(b.sueno||b.fatiga||b.disposicion); });
+    var nm = ((j.apellido||j.lastname||j.nombre||'').split(' ')[0]||'').toUpperCase();
+    var pos = abrevPos(j.pos||j.posicion||'');
+    if(!bHoy.length){ sinDatos.push({nm:nm,pos:pos}); return; }
+    var sc = bienScore6(bHoy[bHoy.length-1]);
+    if(sc===null){ sinDatos.push({nm:nm,pos:pos}); return; }
+    if(sc>=7) listos.push({nm:nm,sc:sc,pos:pos});
+    else if(sc>=5) precaucion.push({nm:nm,sc:sc,pos:pos});
+    else alerta.push({nm:nm,sc:sc,pos:pos});
+  });
+
+  var tmp = document.createElement('div');
+  tmp.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;background:#0d1117;padding:0;font-family:Inter,sans-serif;';
+
+  var inner = '';
+  inner += "<div style='background:linear-gradient(135deg,#0c2461,#0a1a3a);padding:20px 24px;border-bottom:4px solid #f5c842;display:flex;align-items:center;justify-content:space-between;'>";
+  inner += "<div><div style='font-size:9px;font-weight:800;color:#f5c842;text-transform:uppercase;letter-spacing:.15em;'>Barranquilla FC</div>";
+  inner += "<div style='font-size:18px;font-weight:900;color:#fff;margin-top:3px;'>Informe Wellness Pre-Entreno</div>";
+  inner += "<div style='font-size:11px;color:#94a3b8;margin-top:3px;'>"+fechaLabel+"</div></div>";
+  inner += "<div style='text-align:right;'><div style='font-size:11px;color:#64748b;'>Con datos</div>";
+  inner += "<div style='font-size:28px;font-weight:900;color:#fff;'>"+(listos.length+precaucion.length+alerta.length)+"/"+plantelAll.length+"</div></div></div>";
+
+  inner += "<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:0;'>";
+  [{label:'LISTOS',list:listos,bg:'#052e16',bc:'#166534',col:'#4ade80',ico:'🟢'},
+   {label:'PRECAUCIÓN',list:precaucion,bg:'#2d1a00',bc:'#92400e',col:'#fbbf24',ico:'🟡'},
+   {label:'ALERTA',list:alerta,bg:'#1c0505',bc:'#991b1b',col:'#f87171',ico:'🔴'}
+  ].forEach(function(g){
+    inner += "<div style='background:"+g.bg+";border:1px solid "+g.bc+";padding:16px;min-height:120px;'>";
+    inner += "<div style='font-size:10px;font-weight:800;color:"+g.col+";text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;'>"+g.ico+" "+g.label+" ("+g.list.length+")</div>";
+    if(g.list.length){ g.list.forEach(function(item){
+      inner += "<div style='display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.05);'>";
+      inner += "<span style='font-size:12px;color:#e2e8f0;font-weight:600;'>"+item.nm+"</span>";
+      inner += "<span style='font-size:12px;font-weight:900;color:"+g.col+";'>"+item.sc+"/10</span></div>";
+    }); } else { inner += "<div style='font-size:11px;color:#334155;margin-top:8px;'>—</div>"; }
+    inner += "</div>";
+  });
+  inner += "</div>";
+
+  if(sinDatos.length){
+    inner += "<div style='background:#111827;padding:12px 16px;border-top:1px solid rgba(255,255,255,.07);'>";
+    inner += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;'>⏳ PENDIENTES ("+sinDatos.length+")</div>";
+    inner += "<div style='font-size:11px;color:#64748b;'>"+sinDatos.map(function(x){return x.nm;}).join(' · ')+"</div></div>";
+  }
+
+  inner += "<div style='background:#050c1a;padding:10px 16px;display:flex;justify-content:space-between;'>";
+  inner += "<span style='font-size:9px;color:#334155;'>BFC Performance System</span>";
+  inner += "<span style='font-size:9px;color:#334155;'>"+new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})+" · "+fecha+"</span></div>";
+
+  tmp.innerHTML = inner;
+  document.body.appendChild(tmp);
+
+  function doCapture(){
+    html2canvas(tmp,{backgroundColor:'#0d1117',scale:3,useCORS:true,allowTaint:true,logging:false,width:800}).then(function(canvas){
+      document.body.removeChild(tmp);
+      var link = document.createElement('a');
+      link.download = 'BFC_Wellness_'+fecha+'.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      toast('✅ Imagen descargada');
+    }).catch(function(){ document.body.removeChild(tmp); toast('⚠️ Error al generar imagen'); });
+  }
+  if(window.html2canvas){ doCapture(); return; }
+  var s = document.createElement('script');
+  s.onload = doCapture;
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+  document.head.appendChild(s);
 }
 
 // ================================================
@@ -6997,7 +7230,10 @@ function renderProgramacion() {
     h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px 18px;'>";
     h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;'>";
     h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;'>Carga & Rendimiento · Semana actual</div>";
+    h += "<div style='display:flex;gap:6px;align-items:center;'>";
+    h += "<button onclick=\"jornadaAbrirInformeHoy()\" style='font-size:9px;font-weight:700;color:#4ade80;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:7px;padding:4px 10px;cursor:pointer;'>📋 Informe de hoy</button>";
     h += "<button onclick=\"irA('dashboard')\" style='font-size:9px;font-weight:700;color:#a5b4fc;background:rgba(99,102,241,.14);border:1px solid rgba(99,102,241,.3);border-radius:7px;padding:4px 10px;cursor:pointer;'>Ver dashboard →</button>";
+    h += "</div>";
     h += "</div>";
     h += "<div style='display:flex;gap:10px;flex-wrap:wrap;'>";
 
@@ -9617,7 +9853,12 @@ function renderGPSActividad(){
   h += "<div style='display:flex;gap:6px;align-items:center;'>";
   h += "<select id='gps-fecha-sel' onchange='renderTabActividad()' style='flex:1;padding:8px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);font-size:12px;'>";
   fechas.forEach(function(f){
-    h += "<option value='"+f+"'"+(f===fechaSel?' selected':'')+">"+f+"</option>";
+    // Mostrar tipo y mdRef junto a la fecha si existe
+    var regF = safeArr(CARGA).find(function(c){ return c.fecha===f; });
+    var mdLab = regF&&regF.mdRef ? ' ['+regF.mdRef+']' : '';
+    var tipoLab = '';
+    if(regF){ var tt=(regF.tipoEvt||regF.tipo||'').toLowerCase(); if(tt==='partido'||tt==='amistoso') tipoLab=' ⚽'; else if(tt==='recuperacion') tipoLab=' 🔄'; }
+    h += "<option value='"+f+"'"+(f===fechaSel?' selected':'')+">"+f+mdLab+tipoLab+"</option>";
   });
   h += "</select>";
   h += "<button onclick='gpsEliminarSesion()' title='Eliminar esta sesión GPS' style='padding:7px 10px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#ef4444;border-radius:var(--r-sm);font-size:13px;cursor:pointer;white-space:nowrap;flex-shrink:0;'>🗑</button>";
@@ -9902,15 +10143,40 @@ function renderGPSSemanal(){
   var plantelSem = JDB.length>0 ? JDB : PL;
 
   // Agrupar sesiones por semana (sobre datos filtrados)
-  var sesiones = [...new Set(cargaFil.map(function(c){ return c.fecha; }))].sort();
-  if(!sesiones.length) return "<div style='text-align:center;padding:40px;color:#9ca3af;'>No hay datos para el filtro seleccionado.</div>";
-  // Tomar las últimas 7 fechas como semana actual
-  var semanaActual = sesiones.slice(-7);
-  var semanaAnterior = sesiones.slice(-14,-7);
+  var todasFechas = [...new Set(cargaFil.map(function(c){ return c.fecha; }))].sort();
+  if(!todasFechas.length) return "<div style='text-align:center;padding:40px;color:#9ca3af;'>No hay datos para el filtro seleccionado.</div>";
+
+  // Construir lista de semanas (grupos de 7 fechas) para selector
+  var semanas = [];
+  for(var si=0; si<todasFechas.length; si+=7){
+    var bloque = todasFechas.slice(si, si+7);
+    semanas.push({inicio: bloque[0], fin: bloque[bloque.length-1], fechas: bloque});
+  }
+  // Permitir selección; por defecto la última semana
+  if(window._gpsSemIdx === undefined || window._gpsSemIdx >= semanas.length) window._gpsSemIdx = semanas.length-1;
+  var semIdx = window._gpsSemIdx;
+  var semanaActual = semanas[semIdx].fechas;
+  var semanaAnterior = semIdx > 0 ? semanas[semIdx-1].fechas : [];
 
   var filLabel = gpsFiltroLabel();
   var h = "<div style='margin-bottom:12px;'>";
-  h += "<div style='font-size:11px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;'>CARGA SEMANAL — MICROCICLO ACTUAL"+filLabel+"</div>";
+
+  // ── Selector de semana ─────────────────────────────────────────
+  h += "<div style='display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;'>";
+  h += "<div style='font-size:9px;font-weight:800;color:#888;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;'>SEMANA:</div>";
+  h += "<div style='display:flex;align-items:center;gap:4px;'>";
+  h += "<button onclick='if(window._gpsSemIdx>0){window._gpsSemIdx--;var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSSemanal();}' "
+     + "style='padding:5px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);background:var(--bg-card);color:var(--text-1);font-size:13px;cursor:pointer;line-height:1;'>◀</button>";
+  h += "<div style='padding:6px 14px;border:1px solid var(--border-b);border-radius:var(--r-sm);background:var(--bg-card);font-size:12px;font-weight:700;color:var(--text-1);white-space:nowrap;'>"
+     + semanas[semIdx].inicio+" → "+semanas[semIdx].fin+"</div>";
+  h += "<button onclick='if(window._gpsSemIdx<"+(semanas.length-1)+"){window._gpsSemIdx++;var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSSemanal();}' "
+     + "style='padding:5px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);background:var(--bg-card);color:var(--text-1);font-size:13px;cursor:pointer;line-height:1;'"+( semIdx>=semanas.length-1?" disabled style='opacity:.4;cursor:default;padding:5px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);background:var(--bg-card);color:var(--text-1);font-size:13px;'":"")+">▶</button>";
+  if(semIdx < semanas.length-1) h += "<button onclick='window._gpsSemIdx="+(semanas.length-1)+";var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSSemanal();' style='padding:5px 12px;border:1px solid var(--border-b);border-radius:var(--r-sm);background:transparent;color:#888;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;'>Semana actual</button>";
+  h += "</div>";
+  h += "<div style='font-size:9px;color:#64748b;'>"+semIdx+" / "+(semanas.length-1)+" semanas · "+(semanaActual.length)+" sesiones</div>";
+  h += "</div>";
+
+  h += "<div style='font-size:11px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;'>CARGA SEMANAL — MICROCICLO "+semanas[semIdx].inicio+" → "+semanas[semIdx].fin+filLabel+"</div>";
 
   // Gráfica de barras por día
   h += "<div class='card' style='padding:14px;margin-bottom:14px;'>";
@@ -10100,9 +10366,38 @@ function renderGPSLongitudinalVar(varKey){
   var filLabel = gpsFiltroLabel();
   var plantelL = JDB.length>0 ? JDB : PL;
 
-  var fechas = [...new Set(cargaFil.map(function(c){ return c.fecha; }))].sort();
+  var todasFechasL = [...new Set(cargaFil.map(function(c){ return c.fecha; }))].sort();
+  var fechaMinL = window._gpsLongFechaMin || todasFechasL[0];
+  var fechaMaxL = window._gpsLongFechaMax || todasFechasL[todasFechasL.length-1];
+  // Asegurar que el rango sea válido
+  if(!todasFechasL.includes(fechaMinL)) fechaMinL = todasFechasL[0];
+  if(!todasFechasL.includes(fechaMaxL)) fechaMaxL = todasFechasL[todasFechasL.length-1];
+  if(fechaMinL > fechaMaxL){ var tmp=fechaMinL; fechaMinL=fechaMaxL; fechaMaxL=tmp; }
+
+  var fechas = todasFechasL.filter(function(f){ return f>=fechaMinL && f<=fechaMaxL; });
 
   var h = "<div>";
+
+  // ── Rango de fechas ─────────────────────────────────────────────
+  h += "<div style='display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end;'>";
+  h += "<div><label style='font-size:9px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:3px;'>DESDE</label>";
+  h += "<select id='gps-long-min' onchange='window._gpsLongFechaMin=this.value;var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSLongitudinalVar(window._gpsLongVar)' style='padding:7px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);font-size:12px;background:var(--bg-card);color:var(--text-1);'>";
+  todasFechasL.forEach(function(f){ h += "<option value='"+f+"'"+(f===fechaMinL?' selected':'')+">"+f+"</option>"; });
+  h += "</select></div>";
+  h += "<div><label style='font-size:9px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:3px;'>HASTA</label>";
+  h += "<select id='gps-long-max' onchange='window._gpsLongFechaMax=this.value;var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSLongitudinalVar(window._gpsLongVar)' style='padding:7px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);font-size:12px;background:var(--bg-card);color:var(--text-1);'>";
+  todasFechasL.forEach(function(f){ h += "<option value='"+f+"'"+(f===fechaMaxL?' selected':'')+">"+f+"</option>"; });
+  h += "</select></div>";
+  // Accesos rápidos
+  h += "<div style='display:flex;gap:4px;align-items:flex-end;flex-wrap:wrap;'>";
+  [{l:'7 ses',n:7},{l:'15 ses',n:15},{l:'30 ses',n:30},{l:'Todo',n:9999}].forEach(function(op){
+    var fi = todasFechasL.slice(-Math.min(op.n,todasFechasL.length))[0]||todasFechasL[0];
+    var ff = todasFechasL[todasFechasL.length-1];
+    h += "<button onclick='window._gpsLongFechaMin=\""+fi+"\";window._gpsLongFechaMax=\""+ff+"\";var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSLongitudinalVar(window._gpsLongVar)' "
+       + "style='padding:5px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);background:var(--bg-card);color:#888;font-size:10px;font-weight:700;cursor:pointer;'>"+op.l+"</button>";
+  });
+  h += "</div>";
+  h += "</div>";
 
   // Selector de variable
   h += "<div style='display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap;'>";
@@ -10408,12 +10703,32 @@ function renderGPSComparativa(){
 function renderGPSPartido(){
   if(!CARGA || !CARGA.length) return renderGPSVacio();
 
-  // ── Solo registros competitivos (partido / amistoso / MD) ──
+  // ── Registros de microciclo: partido/amistoso/md O cualquiera con mdRef ──
   var todosCARGA = safeArr(CARGA);
-  var regComp = todosCARGA.filter(function(c){
+  // Leer filtro mdRef activo
+  var _mdRefSel = window._gpsPartMdRef !== undefined ? window._gpsPartMdRef : 'MD';
+  try{ var _elMdr = document.getElementById('gps-mdref-fil'); if(_elMdr) _mdRefSel = _elMdr.value; }catch(e){}
+  window._gpsPartMdRef = _mdRefSel;
+
+  // Todos los que tienen mdRef asignado O son tipo partido/amistoso
+  var regMicrociclo = todosCARGA.filter(function(c){
     var t = (c.tipo||c.tipoEvt||'').toLowerCase();
-    return t==='partido'||t==='amistoso'||t==='md';
+    var esComp = t==='partido'||t==='amistoso'||t==='md';
+    var tieneMdRef = !!(c.mdRef);
+    return esComp || tieneMdRef;
   });
+
+  // Filtrar por mdRef seleccionado
+  var regComp = _mdRefSel === '__todos__'
+    ? regMicrociclo
+    : regMicrociclo.filter(function(c){
+        if(_mdRefSel === 'MD'){
+          // MD: sesiones tipo partido/amistoso O mdRef=MD
+          var t = (c.tipo||c.tipoEvt||'').toLowerCase();
+          return c.mdRef==='MD' || t==='partido' || t==='amistoso' || t==='md';
+        }
+        return c.mdRef === _mdRefSel;
+      });
 
   var filLabel = gpsFiltroLabel();
   var plantelP = JDB.length>0 ? JDB : PL;
@@ -10445,18 +10760,11 @@ function renderGPSPartido(){
   });
   var PERF_VARS = ALL_PERF_VARS.filter(function(v){ return _perfVarsCfg[v.k]; });
 
-  // Fechas únicas de competencia, más recientes primero
+  // Fechas únicas del filtro activo, más recientes primero
   var fechasComp = [...new Set(regComp.map(function(c){ return c.fecha; }))].sort().reverse();
-  if(!fechasComp.length){
-    return "<div style='text-align:center;padding:60px 20px;color:#9ca3af;'>"
-      + "<div style='font-size:48px;margin-bottom:12px;'>🏆</div>"
-      + "<div style='font-size:14px;font-weight:700;color:#1a1a1a;margin-bottom:6px;'>Sin historial competitivo</div>"
-      + "<div style='font-size:12px;'>Registra sesiones de tipo Partido o Amistoso para ver el Perfil Competitivo Propio</div>"
-      + "</div>";
-  }
 
   // Leer selección previa
-  var selFecha = fechasComp[0];
+  var selFecha = fechasComp.length ? fechasComp[0] : '';
   try{
     var elP = document.getElementById('gps-partido-sel');
     if(elP && fechasComp.includes(elP.value)) selFecha = elP.value;
@@ -10520,19 +10828,46 @@ function renderGPSPartido(){
   h += "</div>";
   h += "</div>";
 
-  // ── SELECTOR DE PARTIDO ──────────────────────────────────────
+  // ── SELECTOR DE REFERENCIA MICROCICLO + PARTIDO ──────────────
+  var _mdOpts = [
+    {v:'__todos__', l:'Todos'},
+    {v:'-5', l:'-5'}, {v:'-4', l:'-4'}, {v:'-3', l:'-3'},
+    {v:'-2', l:'-2'}, {v:'-1', l:'-1 (víspera)'},
+    {v:'MD', l:'MD (partido)'},
+    {v:'+1', l:'+1 (recup.)'}, {v:'+2', l:'+2'},
+  ];
+  h += "<div style='display:flex;gap:12px;margin-bottom:14px;align-items:flex-end;flex-wrap:wrap;'>";
+  h += "<div style='min-width:220px;'><label style='font-size:9px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:4px;'>REFERENCIA MICROCICLO</label>";
+  h += "<div style='display:flex;gap:4px;flex-wrap:wrap;'>";
+  _mdOpts.forEach(function(o){
+    var isSel = _mdRefSel===o.v;
+    h += "<button onclick=\"window._gpsPartMdRef='"+o.v+"';recargarPartido()\" style='padding:5px 11px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;border:1.5px solid "+(isSel?'#1a1a1a':'#d1d5db')+";background:"+(isSel?'#1a1a1a':'transparent')+";color:"+(isSel?'#fff':'#6b7280')+";'>"+o.l+"</button>";
+  });
+  h += "</div></div>";
+  h += "</div>";
+
+  if(!fechasComp.length){
+    h += "<div style='text-align:center;padding:40px 20px;color:#9ca3af;background:var(--bg-card);border-radius:12px;'>"
+      + "<div style='font-size:40px;margin-bottom:10px;'>🏆</div>"
+      + "<div style='font-size:13px;font-weight:700;color:var(--text-1);margin-bottom:6px;'>Sin sesiones para &laquo;"+escHtml(_mdRefSel==='__todos__'?'Todos':_mdRefSel)+"&raquo;</div>"
+      + "<div style='font-size:11px;'>Registrá sesiones con esa referencia de microciclo en Entrada manual GPS</div>"
+      + "</div>";
+    return h;
+  }
+
   h += "<div style='display:flex;gap:12px;margin-bottom:16px;align-items:flex-end;flex-wrap:wrap;'>";
   h += "<div style='flex:1;min-width:200px;'>";
-  h += "<label style='font-size:9px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:4px;'>PARTIDO / SESIÓN</label>";
+  h += "<label style='font-size:9px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:4px;'>SESIÓN</label>";
   h += "<select id='gps-partido-sel' onchange='recargarPartido()' style='width:100%;padding:9px 12px;border:1px solid var(--border-b);border-radius:var(--r-sm);font-size:13px;font-weight:700;background:var(--bg-card);'>";
   fechasComp.forEach(function(f){
     var reg = regComp.find(function(c){ return c.fecha===f; });
-    var label = f + (reg&&reg.rival ? ' vs '+escHtml(reg.rival) : '');
+    var mdLabel = reg&&reg.mdRef ? ' ['+reg.mdRef+']' : '';
+    var label = f + mdLabel + (reg&&reg.rival ? ' vs '+escHtml(reg.rival) : '');
     h += "<option value='"+f+"'"+(f===selFecha?' selected':'')+">"+label+"</option>";
   });
   h += "</select></div>";
   h += "<div style='padding-bottom:9px;font-size:11px;color:var(--text-2);'>";
-  h += "📊 "+fechasComp.length+" partido"+(fechasComp.length!==1?'s':'')+' en historial';
+  h += "📊 "+fechasComp.length+" sesión"+(fechasComp.length!==1?'es':'')+' · '+(_mdRefSel==='__todos__'?'todas':_mdRefSel);
   h += "</div>";
   h += "</div>";
 
@@ -10798,6 +11133,27 @@ function mostrarEntradaManualGPS(){
     + "<div><label style='font-size:10px;color:#94a3b8;font-weight:700;display:block;margin-bottom:4px;'>FECHA</label>"
     + "<input type='date' id='mgps-fecha' value='"+TODAY+"' style='width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:#1e293b;color:#e2e8f0;font-size:12px;box-sizing:border-box;'></div>"
     + "</div>"
+    + "<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;'>"
+    + "<div><label style='font-size:10px;color:#94a3b8;font-weight:700;display:block;margin-bottom:4px;'>TIPO DE SESIÓN</label>"
+    + "<select id='mgps-tipo' style='width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:#1e293b;color:#e2e8f0;font-size:12px;'>"
+    + "<option value='entrenamiento'>🏃 Entrenamiento</option>"
+    + "<option value='partido'>⚽ Partido oficial</option>"
+    + "<option value='amistoso'>🤝 Amistoso</option>"
+    + "<option value='recuperacion'>🔄 Recuperación</option>"
+    + "</select></div>"
+    + "<div><label style='font-size:10px;color:#94a3b8;font-weight:700;display:block;margin-bottom:4px;'>REFERENCIA MICROCICLO</label>"
+    + "<select id='mgps-mdref' style='width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:#1e293b;color:#e2e8f0;font-size:12px;'>"
+    + "<option value=''>— Sin referencia —</option>"
+    + "<option value='-5'>-5</option>"
+    + "<option value='-4'>-4</option>"
+    + "<option value='-3'>-3</option>"
+    + "<option value='-2'>-2</option>"
+    + "<option value='-1'>-1 (víspera)</option>"
+    + "<option value='MD'>MD (partido)</option>"
+    + "<option value='+1'>+1 (recuperación)</option>"
+    + "<option value='+2'>+2</option>"
+    + "</select></div>"
+    + "</div>"
     + "<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;'>"
     + "<div><label style='font-size:10px;color:#94a3b8;font-weight:700;display:block;margin-bottom:4px;'>DISTANCIA (m)</label>"
     + "<input type='number' id='mgps-dist' placeholder='0' style='width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:#1e293b;color:#e2e8f0;font-size:12px;box-sizing:border-box;'></div>"
@@ -10822,19 +11178,21 @@ function mostrarEntradaManualGPS(){
 }
 
 function guardarEntradaManualGPS(){
-  var pid   = (document.getElementById('mgps-jug')||{}).value||'';
-  var fecha = (document.getElementById('mgps-fecha')||{}).value||TODAY;
-  var dist  = parseFloat((document.getElementById('mgps-dist')||{}).value)||0;
-  var hsr   = parseFloat((document.getElementById('mgps-hsr')||{}).value)||0;
-  var spr   = parseFloat((document.getElementById('mgps-spr')||{}).value)||0;
-  var dur   = parseFloat((document.getElementById('mgps-dur')||{}).value)||0;
-  var vmax  = parseFloat((document.getElementById('mgps-vmax')||{}).value)||0;
-  var acc   = parseFloat((document.getElementById('mgps-acc')||{}).value)||0;
+  var pid    = (document.getElementById('mgps-jug')||{}).value||'';
+  var fecha  = (document.getElementById('mgps-fecha')||{}).value||TODAY;
+  var dist   = parseFloat((document.getElementById('mgps-dist')||{}).value)||0;
+  var hsr    = parseFloat((document.getElementById('mgps-hsr')||{}).value)||0;
+  var spr    = parseFloat((document.getElementById('mgps-spr')||{}).value)||0;
+  var dur    = parseFloat((document.getElementById('mgps-dur')||{}).value)||0;
+  var vmax   = parseFloat((document.getElementById('mgps-vmax')||{}).value)||0;
+  var acc    = parseFloat((document.getElementById('mgps-acc')||{}).value)||0;
+  var tipoEv = (document.getElementById('mgps-tipo')||{}).value||'entrenamiento';
+  var mdRef  = (document.getElementById('mgps-mdref')||{}).value||'';
   if(!pid){ toast('⚠️ Seleccioná un jugador'); return; }
   var gpsDB = [];
   try{ var gd=localStorage.getItem('BFC_GPS_CAT'); if(gd) gpsDB=JSON.parse(gd)||[]; }catch(e){}
-  // Quitar entrada previa del mismo jugador+fecha
-  gpsDB = gpsDB.filter(function(r){ return !(r.pid===pid && r.fecha===fecha); });
+  // Quitar entrada previa del mismo jugador+fecha+tipo
+  gpsDB = gpsDB.filter(function(r){ return !(r.pid===pid && r.fecha===fecha && (r.tipoEvt||'entrenamiento')===(tipoEv)); });
   var plantelAll = safeArr(JDB).length>0 ? safeArr(JDB) : safeArr(PL);
   var j = plantelAll.find(function(p){ return p.id===pid; });
   var nombre = j ? ((j.nombre||j.name||'')+' '+(j.apellido||j.lastname||'')).trim() : pid;
@@ -10848,6 +11206,8 @@ function guardarEntradaManualGPS(){
     duracion: dur,
     velMax: vmax,
     aceleraciones: acc,
+    tipoEvt: tipoEv,
+    mdRef: mdRef,
     fuente: 'manual',
     ts: Date.now()
   });
@@ -10917,7 +11277,7 @@ function renderBienestar() {
   // TAB 1: RESUMEN HOY — Semáforo 3 columnas + drill-down individual
   // ────────────────────────────────────────────────────────────
   } else if(tab==='hoy'){
-    var bienConWell = hoy.filter(function(b){ return b.sueno||b.dolor||b.fatiga||b.humor||b.estres||b.motivacion; });
+    var bienConWell = hoy.filter(function(b){ return b.sueno||b.dolor||b.fatiga||b.estres||b.disposicion; });
     var bienConRpe  = hoy.filter(function(b){ return b.rpe_post>0; });
     var scores      = bienConWell.map(function(b){ return bienScore6(b); }).filter(function(s){ return s!==null; });
     var avgScore    = scores.length ? Math.round(scores.reduce(function(a,v){return a+v;},0)/scores.length*10)/10 : null;
@@ -11048,13 +11408,12 @@ function renderBienestar() {
 
     // Tabla dimensiones promedio por día
     var DIMS_INFO = [
-      {k:'sueno',     l:'Sueño',      inv:false},
-      {k:'dolor',     l:'Dolor',      inv:true},
-      {k:'fatiga',    l:'Fatiga',     inv:true},
-      {k:'humor',     l:'Ánimo',      inv:false},
-      {k:'estres',    l:'Estrés',     inv:true},
-      {k:'motivacion',l:'Motivación', inv:false},
-      {k:'rpe_post',  l:'RPE',        inv:true, scale:10},
+      {k:'sueno',      l:'Sueño',       inv:false},
+      {k:'dolor',      l:'Dolor',       inv:true},
+      {k:'fatiga',     l:'Fatiga',      inv:true},
+      {k:'estres',     l:'Estrés',      inv:true},
+      {k:'disposicion',l:'Disposición', inv:false},
+      {k:'rpe_post',   l:'RPE',         inv:true, scale:10},
     ];
 
     html += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;overflow:hidden;'>";
@@ -11159,7 +11518,7 @@ function renderBienestar() {
         html += "<tr style='background:"+(ri%2===0?'rgba(255,255,255,.01)':'transparent')+";border-bottom:1px solid rgba(255,255,255,.04);'>";
         html += "<td style='padding:8px 10px;font-size:11px;font-weight:700;color:#cbd5e1;text-align:center;'>"+r.fecha+"</td>";
         html += "<td style='padding:8px 6px;text-align:center;font-size:10px;color:#94a3b8;'>"+fuenteLabel+"</td>";
-        ['sueno','dolor','fatiga','humor','estres','motivacion'].forEach(function(d){
+        ['sueno','dolor','fatiga','estres','disposicion'].forEach(function(d){
           var v=r[d]||0; var c=v?'#94a3b8':'#1e293b';
           html += "<td style='padding:8px 6px;text-align:center;font-size:12px;font-weight:700;color:"+c+";'>"+(v||'—')+"</td>";
         });
@@ -11289,11 +11648,11 @@ function renderBienestar() {
         var dt = new Date(key+'T12:00:00');
         // Dimensión más baja del promedio semanal
         var dimProms = {};
-        var DIMS_S = ['sueno','dolor','fatiga','humor','estres','motivacion'];
+        var DIMS_S = ['sueno','dolor','fatiga','estres','disposicion'];
         DIMS_S.forEach(function(d){ var vals=s.regs.map(function(r){return r[d]||0;}).filter(Boolean); dimProms[d]=vals.length?vals.reduce(function(a,b){return a+b;},0)/vals.length:null; });
         var dimCrit = null; var dimCritVal = 999;
         DIMS_S.forEach(function(d){ if(dimProms[d]!==null){ var score=d==='dolor'||d==='fatiga'||d==='estres'?dimProms[d]:(5-dimProms[d]); if(score<dimCritVal){dimCritVal=score;dimCrit=d;} } });
-        var dimNames = {sueno:'Sueño',dolor:'Dolor',fatiga:'Fatiga',humor:'Ánimo',estres:'Estrés',motivacion:'Motivación'};
+        var dimNames = {sueno:'Sueño',dolor:'Dolor',fatiga:'Fatiga',estres:'Estrés',disposicion:'Disposición'};
         html += "<tr style='background:"+(ri%2===0?'rgba(255,255,255,.01)':'transparent')+";border-bottom:1px solid rgba(255,255,255,.04);'>";
         html += "<td style='padding:9px 10px;text-align:center;font-size:11px;font-weight:700;color:#a5b4fc;'>S"+(semKeys2.length-ri)+"</td>";
         html += "<td style='padding:9px 10px;text-align:center;font-size:11px;color:#94a3b8;'>"+dt.getDate()+'/'+(dt.getMonth()+1)+'/'+dt.getFullYear()+"</td>";
@@ -11344,7 +11703,7 @@ function renderBienestar() {
       html += "<td style='padding:9px 10px;font-size:11px;color:#94a3b8;text-align:center;'>"+r.fecha+"</td>";
       html += "<td style='padding:9px 12px;font-size:12px;font-weight:700;color:#e2e8f0;white-space:nowrap;'>"+escHtml(nombre)+"</td>";
       html += "<td style='padding:9px 6px;text-align:center;font-size:13px;'>"+fLabel+"</td>";
-      ['sueno','dolor','fatiga','humor','estres','motivacion'].forEach(function(d){
+      ['sueno','dolor','fatiga','estres','disposicion'].forEach(function(d){
         var v=r[d]||0; html += "<td style='padding:9px 6px;text-align:center;font-size:12px;font-weight:700;color:"+(v?'#94a3b8':'#1e293b')+";'>"+(v||'—')+"</td>";
       });
       var rpe=r.rpe_post||0; html += "<td style='padding:9px 6px;text-align:center;font-size:12px;font-weight:700;color:"+(rpe>=8?'#ef4444':rpe>=6?'#f97316':rpe>=4?'#f59e0b':'#94a3b8')+"'>"+(rpe||'—')+"</td>";
@@ -11367,7 +11726,7 @@ function renderBienHoy() {
     var p=safeArr(PL).find(function(x){return x.id===b.pid;}); var sc=scoreW(b); var s=semW(sc);
     var nombre=p?p.nombre:(b.nombreExt||"—");
     var avH=p?avEl(p,30):"<div class=\"av\" style=\"width:30px;height:30px;font-size:10px;\">"+ini(nombre)+"</div>";
-    return "<div style=\"display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f3f4f6;\">"+avH+"<div style=\"flex:1;\"><div style=\"font-size:13px;font-weight:600;\">"+nombre+" <span style=\"font-size:9px;background:var(--bg-elevated);color:var(--text-2);padding:1px 5px;border-radius:4px;\">"+(b.fuente==="sheets"?"Tally":"Manual")+"</span></div><div style=\"font-size:11px;color:#9ca3af;\">S:"+b.sueno+" F:"+b.fatiga+" H:"+b.humor+" E:"+b.estres+"</div></div><span class=\"pill "+s+"\">"+sc+"/5</span></div>";
+    return "<div style=\"display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f3f4f6;\">"+avH+"<div style=\"flex:1;\"><div style=\"font-size:13px;font-weight:600;\">"+nombre+" <span style=\"font-size:9px;background:var(--bg-elevated);color:var(--text-2);padding:1px 5px;border-radius:4px;\">"+(b.fuente==="sheets"?"Tally":"Manual")+"</span></div><div style=\"font-size:11px;color:#9ca3af;\">S:"+b.sueno+" D:"+b.dolor+" F:"+b.fatiga+" E:"+b.estres+"</div></div><span class=\"pill "+s+"\">"+sc+"/5</span></div>";
   }).join("");
 }
 
@@ -11399,12 +11758,11 @@ function bienDetalleJugador(pid){
   m += "<div style='padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.07);'>";
   m += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;'>Dimensiones hoy</div>";
   var dims6 = [
-    {k:'sueno',lbl:'Sue\u00f1o',icon:'\uD83D\uDE34',inv:false,col:'#6366f1'},
-    {k:'fatiga',lbl:'Fatiga',icon:'\u26A1',inv:true,col:'#f97316'},
-    {k:'dolor',lbl:'Dolor',icon:'\uD83E\uDE79',inv:true,col:'#ef4444'},
-    {k:'humor',lbl:'\u00c1nimo',icon:'\uD83D\uDE0A',inv:false,col:'#22c55e'},
-    {k:'estres',lbl:'Estr\u00e9s',icon:'\uD83E\uDDE0',inv:true,col:'#f59e0b'},
-    {k:'motivacion',lbl:'Motivaci\u00f3n',icon:'\uD83D\uDD25',inv:false,col:'#8b5cf6'},
+    {k:'sueno',       lbl:'Sue\u00f1o',       icon:'\uD83D\uDE34',inv:false,col:'#6366f1'},
+    {k:'dolor',       lbl:'Dolor',            icon:'\uD83E\uDE79',inv:true, col:'#ef4444'},
+    {k:'fatiga',      lbl:'Fatiga',           icon:'\u26A1',       inv:true, col:'#f97316'},
+    {k:'estres',      lbl:'Estr\u00e9s',      icon:'\uD83E\uDDE0',inv:true, col:'#f59e0b'},
+    {k:'disposicion', lbl:'Disposici\u00f3n', icon:'\u26A1',       inv:false,col:'#22c55e'},
   ];
   m += "<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px;'>";
   dims6.forEach(function(d){
@@ -11518,7 +11876,7 @@ function bienKioskoInline(plantel){
 
 var _kioskoFase = 'select'; // 'select' | 'wellness' | 'rpe' | 'done'
 var _kioskoJugId = null;
-var _kioskoVals = {sueno:0, dolor:0, fatiga:0, humor:0, estres:0, motivacion:0};
+var _kioskoVals = {sueno:0, dolor:0, fatiga:0, estres:0, disposicion:0};
 var _kioskoRpe = 0;
 var _kioskoMode = 'wellness'; // 'wellness' | 'rpe'
 var _kioskoModoForzado = null; // null | 'pre' | 'post' — bloqueado por el preparador
@@ -11641,9 +11999,9 @@ function kioskoSetMode(mode){
   _kioskoMode = mode;
   _kioskoFase = 'select';
   _kioskoJugId = null;
-  _kioskoVals = {sueno:0, dolor:0, fatiga:0, humor:0, estres:0, motivacion:0};
+  _kioskoVals = {sueno:0, dolor:0, fatiga:0, estres:0, disposicion:0};
   _kioskoRpe = 0;
-  if((window._jornadaPaso==='rpe'||window._jornadaPaso==='wellness')&&typeof renderJornada==='function'){
+  if((window._jornadaPaso==='rpe'||window._jornadaPaso==='wellness')&&!_kioskoModoForzado&&typeof renderJornada==='function'){
     renderJornada(); return;
   }
   window._bienTab = 'kiosko';
@@ -11671,12 +12029,25 @@ function kioskoSeleccion(plantel){
     var num = j.numero||j.dorsal||'';
     var jidSafe = String(j.id).replace(/['"]/g,'');
 
-    // Check if already filled today
+    // Check if already filled for the ACTIVE SESSION (not just today)
+    var _sesActK = window._jornadaSesionActiva;
+    var _fechaK  = (_sesActK && _sesActK.fecha) ? _sesActK.fecha : TODAY;
+    var _sesIdK  = (_sesActK && _sesActK.id) ? _sesActK.id : null;
     var ya = false;
     if(_kioskoMode==='wellness'){
-      ya = safeArr(BIEN).some(function(b){ return (b.pid===j.id||b.jugadorId===j.id) && b.fecha===TODAY && (b.fuente==='kiosko'||b.fuente==='manual'); });
+      ya = safeArr(BIEN).some(function(b){
+        if(!((b.pid===j.id||b.jugadorId===j.id) && b.fecha===_fechaK && (b.fuente==='kiosko'||b.fuente==='manual'))) return false;
+        // Si hay sesión activa con id, debe coincidir el sesId del registro
+        if(_sesIdK) return b.sesId===_sesIdK;
+        // Sin sesión activa con id: solo registros sin sesId (compatibilidad)
+        return !b.sesId;
+      });
     } else {
-      ya = safeArr(BIEN).some(function(b){ return (b.pid===j.id||b.jugadorId===j.id) && b.fecha===TODAY && b.rpe_post>0 && b.fuente==='kiosko_rpe'; });
+      ya = safeArr(BIEN).some(function(b){
+        if(!((b.pid===j.id||b.jugadorId===j.id) && b.fecha===_fechaK && b.rpe_post>0)) return false;
+        if(_sesIdK) return b.sesId===_sesIdK;
+        return !b.sesId;
+      });
     }
 
     var origBorder = ya ? '#22c55e' : 'rgba(255,255,255,.1)';
@@ -11702,10 +12073,10 @@ function kioskoSeleccion(plantel){
 
 function kioskoSelJugador(jid){
   _kioskoJugId = jid;
-  _kioskoVals = {sueno:0, dolor:0, fatiga:0, humor:0, estres:0, motivacion:0};
+  _kioskoVals = {sueno:0, dolor:0, fatiga:0, estres:0, disposicion:0};
   _kioskoRpe = 0;
   _kioskoFase = (_kioskoMode==='rpe') ? 'rpe' : 'wellness';
-  if((window._jornadaPaso==='rpe'||window._jornadaPaso==='wellness')&&typeof renderJornada==='function'){
+  if((window._jornadaPaso==='rpe'||window._jornadaPaso==='wellness')&&!_kioskoModoForzado&&typeof renderJornada==='function'){
     renderJornada(); return;
   }
   window._bienTab = 'kiosko';
@@ -11741,12 +12112,11 @@ function kioskoFormWellness(jug){
   // en sentido inverso: "¿Cómo está tu cuerpo?" → 1=mucho dolor, 5=sin dolor
   // La lógica interna de bienScore6 sigue invirtiendo el valor para el puntaje.
   var DIMS = [
-    {k:'sueno',      label:'¿Cómo dormiste anoche?',         desc:'1 = muy mal  →  5 = excelente',    emojis:['😫','😪','😐','😴','✨😴'], colorOk:'#6366f1'},
-    {k:'dolor',      label:'¿Cómo está tu cuerpo hoy?',      desc:'1 = mucho dolor  →  5 = sin dolor', emojis:['🚨','🤕','😬','😤','💪'],   inverted:true, colorOk:'#22c55e'},
-    {k:'fatiga',     label:'¿Cómo está tu energía hoy?',     desc:'1 = agotado  →  5 = lleno de energía', emojis:['😵','🥵','😮‍💨','🙂','🏃'], inverted:true, colorOk:'#22c55e'},
-    {k:'humor',      label:'¿Cómo está tu estado de ánimo?', desc:'1 = muy bajo  →  5 = excelente',    emojis:['😔','😕','😐','😊','🤩'],   colorOk:'#f59e0b'},
-    {k:'estres',     label:'¿Qué tan tranquilo estás hoy?',  desc:'1 = muy estresado  →  5 = relajado', emojis:['🤯','😰','😐','🙂','😌'],  inverted:true, colorOk:'#22c55e'},
-    {k:'motivacion', label:'¿Cómo está tu motivación?',      desc:'1 = sin ganas  →  5 = al máximo',   emojis:['😴','😑','🙂','😤','🔥'],   colorOk:'#f59e0b'},
+    {k:'sueno',       label:'¿Cómo dormiste anoche?',              desc:'1 = muy mal  →  5 = excelente',         emojis:['😫','😪','😐','😴','✨😴'], colorOk:'#6366f1'},
+    {k:'dolor',       label:'¿Cuánto te duelen los músculos?',     desc:'1 = mucho dolor  →  5 = sin dolor',     emojis:['🚨','🤕','😬','😤','💪'],   inverted:true, colorOk:'#22c55e'},
+    {k:'fatiga',      label:'¿Qué tan fatigado estás hoy?',        desc:'1 = muy fatigado  →  5 = sin fatiga',   emojis:['😵','🥵','😮‍💨','🙂','🏃'], inverted:true, colorOk:'#22c55e'},
+    {k:'estres',      label:'¿Qué tan estresado estás hoy?',       desc:'1 = muy estresado  →  5 = sin estrés',  emojis:['🤯','😰','😐','🙂','😌'],   inverted:true, colorOk:'#22c55e'},
+    {k:'disposicion', label:'¿Cómo está tu disposición para entrenar hoy?', desc:'1 = sin ganas  →  5 = listo al 100%', emojis:['😴','😑','🙂','😤','🔥'], colorOk:'#f59e0b'},
   ];
 
   h += "<div style='display:flex;flex-direction:column;gap:14px;'>";
@@ -11760,12 +12130,11 @@ function kioskoFormWellness(jug){
     h += "</div>";
     // Min/max labels per dimension — 1 = siempre malo (rojo), 5 = siempre bueno (verde)
     var WELL_LABELS = {
-      sueno:      {lo:'Muy mal',         hi:'Excelente'},
-      dolor:      {lo:'Mucho dolor',     hi:'Sin dolor'},
-      fatiga:     {lo:'Agotado',         hi:'Lleno de energía'},
-      humor:      {lo:'Muy bajo',        hi:'Excelente'},
-      estres:     {lo:'Muy estresado',   hi:'Totalmente relajado'},
-      motivacion: {lo:'Sin ganas',       hi:'Al máximo'}
+      sueno:       {lo:'Muy mal',         hi:'Excelente'},
+      dolor:       {lo:'Mucho dolor',     hi:'Sin dolor'},
+      fatiga:      {lo:'Muy fatigado',    hi:'Sin fatiga'},
+      estres:      {lo:'Muy estresado',   hi:'Sin estrés'},
+      disposicion: {lo:'Sin ganas',       hi:'Listo al 100%'}
     };
     var wl = WELL_LABELS[d.k]||{lo:'Bajo',hi:'Alto'};
     h += "<div style='display:flex;gap:10px;'>";
@@ -11854,12 +12223,13 @@ function kioskoDone(){
 
   // Auto-reset after 4 seconds
   var _doneJornadaPaso = window._jornadaPaso;
+  var _doneModoForzado = _kioskoModoForzado;
   setTimeout(function(){
     _kioskoFase='select';
     _kioskoJugId=null;
     _kioskoRpe=0;
-    _kioskoVals={sueno:0,dolor:0,fatiga:0,humor:0,estres:0,motivacion:0};
-    if((_doneJornadaPaso==='rpe'||_doneJornadaPaso==='wellness')&&typeof renderJornada==='function'){
+    _kioskoVals={sueno:0,dolor:0,fatiga:0,estres:0,disposicion:0};
+    if(!_doneModoForzado && (_doneJornadaPaso==='rpe'||_doneJornadaPaso==='wellness')&&typeof renderJornada==='function'){
       renderJornada(); return;
     }
     window._bienTab='kiosko';
@@ -11879,20 +12249,20 @@ function kioskoDone(){
 
 function kioskoPickVal(key, val){
   _kioskoVals[key] = val;
-  if(window._jornadaPaso==='wellness'&&typeof renderJornada==='function'){ renderJornada(); return; }
+  if(window._jornadaPaso==='wellness'&&!_kioskoModoForzado&&typeof renderJornada==='function'){ renderJornada(); return; }
   window._bienTab='kiosko'; renderBienestar();
 }
 
 function kioskoPickRpe(val){
   _kioskoRpe = val;
-  if(window._jornadaPaso==='rpe'&&typeof renderJornada==='function'){ renderJornada(); return; }
+  if(window._jornadaPaso==='rpe'&&!_kioskoModoForzado&&typeof renderJornada==='function'){ renderJornada(); return; }
   window._bienTab='kiosko'; renderBienestar();
 }
 
 function kioskoVolver(){
   _kioskoFase = 'select';
   _kioskoJugId = null;
-  if(window._jornadaPaso==='rpe'||window._jornadaPaso==='wellness'){
+  if(!_kioskoModoForzado && (window._jornadaPaso==='rpe'||window._jornadaPaso==='wellness')){
     if(typeof renderJornada==='function'){ renderJornada(); return; }
   }
   window._bienTab='kiosko'; renderBienestar();
@@ -11904,24 +12274,25 @@ function kioskoGuardarWellness(){
   guardar();
   // Usar fecha de sesión activa si existe, si no TODAY
   var _fechaGuardar = (window._jornadaSesionActiva && window._jornadaSesionActiva.fecha) ? window._jornadaSesionActiva.fecha : TODAY;
+  var _sesIdWell = (window._jornadaSesionActiva && window._jornadaSesionActiva.id) ? window._jornadaSesionActiva.id : null;
   BIEN.push({
     id: 'kiosko_'+Date.now(),
     pid: _kioskoJugId,
     jugadorId: _kioskoJugId,
     fecha: _fechaGuardar,
+    sesId: _sesIdWell,
     sueno: v.sueno,
     dolor: v.dolor,
     fatiga: v.fatiga,
-    humor: v.humor,
     estres: v.estres,
-    motivacion: v.motivacion,
+    disposicion: v.disposicion,
     fuente: 'kiosko',
     hora: new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})
   });
   guardar();
   fbAuditLog('kiosko','Wellness registrado');
   _kioskoFase = 'done';
-  if(window._jornadaPaso==='wellness'&&typeof renderJornada==='function'){ renderJornada(); return; }
+  if(window._jornadaPaso==='wellness'&&!_kioskoModoForzado&&typeof renderJornada==='function'){ renderJornada(); return; }
   window._bienTab='kiosko'; renderBienestar();
 }
 
@@ -11930,10 +12301,13 @@ function kioskoGuardarRpe(){
   guardar();
   // Usar fecha de sesión activa si existe, si no TODAY
   var _fechaGuardarRpe = (window._jornadaSesionActiva && window._jornadaSesionActiva.fecha) ? window._jornadaSesionActiva.fecha : TODAY;
-  // Find existing wellness entry for that date or add standalone RPE
+  // Sesión activa para vincular el RPE
+  var _sesIdRpe = (window._jornadaSesionActiva && window._jornadaSesionActiva.id) ? window._jornadaSesionActiva.id : null;
+  // Buscar entry de wellness existente del mismo jugador+fecha+sesId para adjuntar el RPE
   var existingIdx = -1;
   safeArr(BIEN).forEach(function(b,i){
-    if((b.pid===_kioskoJugId||b.jugadorId===_kioskoJugId) && b.fecha===_fechaGuardarRpe && b.fuente==='kiosko') existingIdx=i;
+    var mismoSes = _sesIdRpe ? (b.sesId===_sesIdRpe) : !b.sesId;
+    if((b.pid===_kioskoJugId||b.jugadorId===_kioskoJugId) && b.fecha===_fechaGuardarRpe && b.fuente==='kiosko' && mismoSes) existingIdx=i;
   });
   if(existingIdx>=0){
     BIEN[existingIdx].rpe_post = _kioskoRpe;
@@ -11943,6 +12317,7 @@ function kioskoGuardarRpe(){
       pid: _kioskoJugId,
       jugadorId: _kioskoJugId,
       fecha: _fechaGuardarRpe,
+      sesId: _sesIdRpe,
       rpe_post: _kioskoRpe,
       fuente: 'kiosko_rpe',
       hora: new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})
@@ -11967,15 +12342,19 @@ function kioskoGuardarRpe(){
   }
   if(_tiempoSes > 0) {
     var _ua = ciUA(_kioskoRpe, _tiempoSes);
-    // Eliminar entrada previa auto-generada del mismo jugador/día para no duplicar
+    // Eliminar entrada previa auto-generada del mismo jugador/sesión para no duplicar
+    var _fechaCI = (_sesIdRpe && window._jornadaSesionActiva && window._jornadaSesionActiva.fecha) ? window._jornadaSesionActiva.fecha : TODAY;
     CI_DB = safeArr(CI_DB).filter(function(r){
-      return !((r.pid===_kioskoJugId||r.jugadorId===_kioskoJugId) && r.fecha===TODAY && r.fuente==='kiosko_auto');
+      if(!((r.pid===_kioskoJugId||r.jugadorId===_kioskoJugId) && r.fuente==='kiosko_auto')) return true;
+      if(_sesIdRpe && r.sesId) return r.sesId !== _sesIdRpe;
+      return !(!r.sesId && r.fecha===_fechaCI);
     });
     CI_DB.push({
       id: 'ci_kiosko_'+Date.now()+'_'+_kioskoJugId,
       pid: _kioskoJugId,
       jugadorId: _kioskoJugId,
-      fecha: TODAY,
+      fecha: _fechaCI,
+      sesId: _sesIdRpe,
       tipo: 'MD',
       tipoEvt: 'Sesión',
       rival: '', resultado: '',
@@ -11991,7 +12370,7 @@ function kioskoGuardarRpe(){
   // ────────────────────────────────────────────────────────────────────
 
   _kioskoFase = 'done';
-  if(window._jornadaPaso==='rpe'&&typeof renderJornada==='function'){ renderJornada(); return; }
+  if(window._jornadaPaso==='rpe'&&!_kioskoModoForzado&&typeof renderJornada==='function'){ renderJornada(); return; }
   window._bienTab='kiosko'; renderBienestar();
 }
 
@@ -13900,7 +14279,7 @@ function mcRDatos(){
   if(!pnl) return;
 
   var tiposMap = {entrenamiento:"Entrenamiento",partido:"Partido MD",recuperacion:"Recuperacion",descanso:"Descanso",viaje:"Viaje / vuelo"};
-  var relOpts = ["-6","-5","-4","-3","-2","-1","MD","+1","+2","+3"];
+  var relOpts = ["-5","-4","-3","-2","-1","MD","+1","+2"];
   var rows = "";
 
   mcData.forEach(function(d,i){
@@ -14147,7 +14526,7 @@ function mcRenderGridLog(){
   var nDias = MC_DIAS_ACTIVOS.length || 7;
   var rows = "";
   var tiposMap = {entrenamiento:"Entrenamiento",partido:"Partido MD",recuperacion:"Recuperacion",descanso:"Descanso",viaje:"Viaje / vuelo"};
-  var relOpts = ["-6","-5","-4","-3","-2","-1","MD","+1","+2","+3"];
+  var relOpts = ["-5","-4","-3","-2","-1","MD","+1","+2"];
   
   for(var i=0; i<nDias; i++){
     var d = mcData[i] || {tipo:"entrenamiento",rel:"",lugar:"",lugEnt:"",hRec:"",hLleg:"",hPres:"",hIng:"",hSal:"",obs:""};
@@ -14971,9 +15350,9 @@ function mcEjemplo(){
   var ejs=[
     {tipo:"entrenamiento",rel:"+2",lugar:"Bombona",lugEnt:"Bombona - Campo 1",hRec:"06:00",hLleg:"07:00",hIng:"07:20",hSal:"11:30",obs:"Crioterapia",carga:"baja-media",activ:"R. activa 12 min\nVideo analisis\nFuerza complementaria",post:true,postDesc:"Crioterapia 10 min + Hidratacion",lugTac:"Bombona",contenido:"Principios defensivos\nCierres y coberturas\nLinea defensiva alta",obsTac:""},
     {tipo:"entrenamiento",rel:"+1",lugar:"Bombona",hRec:"06:00",hLleg:"07:00",hIng:"07:20",hSal:"11:30",obs:"",carga:"baja",activ:"Preparacion del pilar 6 min\nPreparacion del movimiento 6 min",post:true,postDesc:"Video analisis 20 min",lugTac:"Bombona",contenido:"Plan de juego\nABP DEF y OF",obsTac:""},
-    {tipo:"viaje",rel:"MD-1",lugar:"Aeropuerto",hRec:"08:00",hLleg:"",hIng:"",hSal:"",obs:"Vuelo 8:50 AM",carga:"baja",activ:"Movilidad en el hotel\nVideo motivacional DEF",post:false,postDesc:"",lugTac:"Aeropuerto",contenido:"Vuelo de ida\nVideo motivacional DEF",obsTac:""},
+    {tipo:"viaje",rel:"-1",lugar:"Aeropuerto",hRec:"08:00",hLleg:"",hIng:"",hSal:"",obs:"Vuelo 8:50 AM",carga:"baja",activ:"Movilidad en el hotel\nVideo motivacional DEF",post:false,postDesc:"",lugTac:"Aeropuerto",contenido:"Vuelo de ida\nVideo motivacional DEF",obsTac:""},
     {tipo:"partido",rel:"MD",lugar:"",lugEnt:"",hRec:"06:00",hLleg:"07:00",hIng:"17:00",hSal:"11:30",obs:"Crioterapia",carga:"partido",activ:"Crioterapia\nHidratacion",post:true,postDesc:"Crioterapia 15 min + Video post-partido",lugTac:"Estadio Pascual Guerrero",contenido:"Partido Oficial",obsTac:""},
-    {tipo:"viaje",rel:"MD+1",lugar:"Aeropuerto",hRec:"08:55",hLleg:"",hIng:"",hSal:"",obs:"Vuelo regreso 8:55 AM",carga:"viaje",activ:"Vuelo de regreso",post:true,postDesc:"Restauracion en vuelo",lugTac:"Aeropuerto",contenido:"Vuelo de regreso",obsTac:""},
+    {tipo:"viaje",rel:"+1",lugar:"Aeropuerto",hRec:"08:55",hLleg:"",hIng:"",hSal:"",obs:"Vuelo regreso 8:55 AM",carga:"viaje",activ:"Vuelo de regreso",post:true,postDesc:"Restauracion en vuelo",lugTac:"Aeropuerto",contenido:"Vuelo de regreso",obsTac:""},
     {tipo:"descanso",rel:"DESCANSO",lugar:"",lugEnt:"",hRec:"",hLleg:"",hPres:"",hIng:"",hSal:"",obs:"",carga:"descanso",activ:"",post:false,postDesc:"",lugTac:"",contenido:"",obsTac:""},
     {tipo:"entrenamiento",rel:"-3",lugar:"Bombona",hRec:"06:00",hLleg:"07:00",hIng:"07:20",hSal:"11:30",obs:"Crioterapia",carga:"media",activ:"Restauracion y compensacion 15 min\nActivacion",post:false,postDesc:"",lugTac:"Bombona",contenido:"Fundamentos colectivos ofensivos\nEstructura - intenciones - hombres clave",obsTac:"Presentacion post partido"}
   ];
@@ -16020,7 +16399,7 @@ function genRI(){
   var n=safeArr(NEURO).filter(function(x){return x.pid===pid;}).slice(-1)[0];
   var prox=safeArr(EVS).filter(function(e){return e.fecha>=TODAY;}).sort(function(a,b){return a.fecha.localeCompare(b.fecha);}).slice(0,2);
   var ctx="Eres el preparador fisico de Barranquilla FC (Colombia, Liga BetPlay). Jugador: "+p.nombre+", "+p.pos+" #"+p.num+
-    ". Bienestar: "+(w?"score "+scoreW(w)+"/5 (sueno "+w.sueno+", fatiga "+w.fatiga+", humor "+w.humor+", estres "+w.estres+")":" sin datos")+
+    ". Bienestar: "+(w?"score "+scoreW(w)+"/5 (sueno "+w.sueno+", fatiga "+w.fatiga+", estres "+w.estres+", disposicion "+w.disposicion+")":" sin datos")+
     ". Carga ultima sesion: "+(c?c.fecha+" "+c.tipo+" "+c.distancia+"m HSR "+c.hsr+"m PLoad "+c.playerLoad:"sin datos")+
     ". CMJ: "+(n?n.cmj+"cm ("+pct(n.cmj,p.cmjBase||40)+"% baseline)":"sin datos")+
     ". Proximos eventos: "+(prox.map(function(e){return e.fecha+" "+e.titulo;}).join(", ")||"ninguno")+
@@ -16572,10 +16951,10 @@ function fichaGenerarInforme(jid, desde, hasta){
   // Tabla wellness
   if(bienWell.length>0){
     html += '<div class="card" style="margin-bottom:16px;"><div class="card-title">Wellness diario</div>'
-      +'<table><tr><th>Fecha</th><th>Sueño</th><th>Fatiga</th><th>Humor</th><th>Estrés</th><th>Mot.</th><th>Score</th><th>RPE</th></tr>';
+      +'<table><tr><th>Fecha</th><th>Sueño</th><th>Dolor</th><th>Fatiga</th><th>Estrés</th><th>Dispos.</th><th>Score</th><th>RPE</th></tr>';
     bienWell.forEach(function(b){
       var sc=scoreW(b)||0, col=wCol(sc);
-      html += '<tr><td>'+b.fecha+'</td><td>'+(b.sueno||'—')+'</td><td>'+(b.fatiga||'—')+'</td><td>'+(b.humor||'—')+'</td><td>'+(b.estres||'—')+'</td><td>'+(b.motivacion||'—')+'</td>'
+      html += '<tr><td>'+b.fecha+'</td><td>'+(b.sueno||'—')+'</td><td>'+(b.dolor||'—')+'</td><td>'+(b.fatiga||'—')+'</td><td>'+(b.estres||'—')+'</td><td>'+(b.disposicion||'—')+'</td>'
         +'<td><span class="pill" style="background:'+col+'33;color:'+col+'">'+sc+'</span></td>'
         +'<td>'+(b.rpe_post||'—')+'</td></tr>';
     });
@@ -20925,11 +21304,11 @@ function buildContextoBFC(){
     resumen_bienestar = "Registros bienestar hoy: "+hoy_bien.length+". Total histórico: "+BIEN.length+".";
     if(hoy_bien.length){
       var promedios = {};
-      ['sueño','fatiga','dolor','humor','estres'].forEach(function(k){
+      ['sueno','dolor','fatiga','estres','disposicion'].forEach(function(k){
         var vals = hoy_bien.map(function(b){ return parseFloat(b[k])||0; }).filter(Boolean);
         promedios[k] = vals.length ? (vals.reduce(function(a,b){ return a+b; },0)/vals.length).toFixed(1) : 'N/D';
       });
-      resumen_bienestar += " Promedios hoy — Sueño:"+promedios.sueño+" Fatiga:"+promedios.fatiga+" Dolor:"+promedios.dolor+" Humor:"+promedios.humor+" Estrés:"+promedios.estres+".";
+      resumen_bienestar += " Promedios hoy — Sueño:"+promedios.sueno+" Dolor:"+promedios.dolor+" Fatiga:"+promedios.fatiga+" Estrés:"+promedios.estres+" Disposición:"+promedios.disposicion+".";
     }
   }
 
@@ -21204,8 +21583,27 @@ function renderCargaInterna(){
 // ── TAB 1: RESUMEN HOY ───────────────────────────────────────────
 function ciTabResumen(plantel){
   ciLoad();
-  var hoy = TODAY;
+
+  // Fechas con datos disponibles (RPE o wellness)
+  var bAll = safeArr(BIEN);
+  var fechasDisp = [...new Set(bAll.filter(function(b){ return b.rpe_post>0 || bienScore6(b)!==null; }).map(function(b){ return b.fecha; }))].sort().reverse();
+  if(!fechasDisp.includes(TODAY)) fechasDisp.unshift(TODAY); // siempre incluir hoy
+  var hoy = window._ciResFecha || TODAY;
+  if(!fechasDisp.includes(hoy)) hoy = fechasDisp[0];
+
   var h = '';
+
+  // ── Selector de fecha ────────────────────────────────────────
+  h += "<div style='display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;'>";
+  h += "<div style='font-size:9px;font-weight:800;color:#888;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;'>📅 DÍA:</div>";
+  h += "<select onchange='window._ciResFecha=this.value;renderCargaInterna()' style='padding:8px 12px;border:1px solid var(--border-b);border-radius:var(--r-md);font-size:13px;font-weight:700;background:var(--bg-card);color:#e2e8f0;min-width:160px;'>";
+  fechasDisp.forEach(function(f){
+    var label = f===TODAY ? f+' (hoy)' : f;
+    h += "<option value='"+f+"'"+(f===hoy?' selected':'')+">"+label+"</option>";
+  });
+  h += "</select>";
+  if(hoy!==TODAY) h += "<button onclick='window._ciResFecha=null;renderCargaInterna()' style='padding:7px 14px;border:1px solid var(--border-b);border-radius:var(--r-md);background:transparent;color:#888;font-size:10px;font-weight:700;cursor:pointer;'>Volver a hoy</button>";
+  h += "</div>";
 
   // ── KPIs del día ────────────────────────────────────────────
   var bHoy = safeArr(BIEN).filter(function(b){ return b.fecha===hoy; });
@@ -21220,11 +21618,12 @@ function ciTabResumen(plantel){
   var sinReg  = plantel.length - Math.max(rpeHoy.length, wellHoy.length);
 
   h += "<div style='display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px;'>";
+  var dLabel = hoy===TODAY ? 'hoy' : hoy;
   var kpis = [
-    {l:'RPE promedio',      v:avgRPE!==null?avgRPE:'—',      u:'/ 10', c:'#ef4444', i:'💢', s:rpeHoy.length+' registros hoy'},
+    {l:'RPE promedio',      v:avgRPE!==null?avgRPE:'—',      u:'/ 10', c:'#ef4444', i:'💢', s:rpeHoy.length+' registros · '+dLabel},
     {l:'Wellness promedio', v:avgWell!==null?avgWell:'—',     u:'/ 10', c:'#8b5cf6', i:'💜', s:wellHoy.length+'/'+plantel.length+' completaron'},
-    {l:'CMJ promedio hoy',  v:avgCMJ!==null?avgCMJ+'cm':'—', u:'',     c:'#06b6d4', i:'🦵', s:cmjHoy.length+' mediciones'},
-    {l:'Sin registrar',     v:sinReg<0?0:sinReg,              u:'jugs', c:'#64748b', i:'⬜', s:'pendientes hoy'}
+    {l:'CMJ promedio',      v:avgCMJ!==null?avgCMJ+'cm':'—', u:'',     c:'#06b6d4', i:'🦵', s:cmjHoy.length+' mediciones · '+dLabel},
+    {l:'Sin registrar',     v:sinReg<0?0:sinReg,              u:'jugs', c:'#64748b', i:'⬜', s:'pendientes · '+dLabel}
   ];
   kpis.forEach(function(k){
     h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:16px;border-top:3px solid "+k.c+";'>";
@@ -21383,22 +21782,32 @@ function ciTabTendencia(plantel){
 // ── TAB 3: INDIVIDUAL ────────────────────────────────────────────
 function ciTabIndividualCI(plantel){
   var selId = window._ciJugSel||(plantel.length?plantel[0].id:'');
+  var selPer = window._ciIndPer||'30';
   var h = '';
 
   h += "<div style='margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;'>";
+  // Selector jugador
   h += "<select onchange='window._ciJugSel=this.value;renderCargaInterna()' style='padding:10px 14px;border:1px solid var(--border-b);border-radius:var(--r-md);font-size:13px;font-weight:700;min-width:200px;background:var(--bg-card);color:#e2e8f0;'>";
   plantel.forEach(function(j){
     var n=((j.apellido||j.nombre||'').toUpperCase())+' | '+(j.pos||j.posicion||'—');
     h += "<option value='"+j.id+"'"+(j.id===selId?' selected':'')+">"+n+"</option>";
   });
-  h += "</select></div>";
+  h += "</select>";
+  // Selector período
+  h += "<select onchange='window._ciIndPer=this.value;renderCargaInterna()' style='padding:10px 14px;border:1px solid var(--border-b);border-radius:var(--r-md);font-size:12px;background:var(--bg-card);color:#e2e8f0;'>";
+  [{v:'7',l:'7 días'},{v:'14',l:'14 días'},{v:'30',l:'30 días'},{v:'60',l:'60 días'},{v:'90',l:'3 meses'},{v:'365',l:'Todo'}].forEach(function(op){
+    h += "<option value='"+op.v+"'"+(selPer===op.v?' selected':'')+">"+op.l+"</option>";
+  });
+  h += "</select>";
+  h += "</div>";
   if(!selId) return h+"<div style='color:#9ca3af;padding:40px;text-align:center;'>Selecciona un jugador</div>";
 
   var jug = plantel.find(function(j){ return j.id===selId; });
   var nom = jug?(jug.nombre+' '+(jug.apellido||'')).trim():'Jugador';
   var bRegs = safeArr(BIEN).filter(function(b){ return (b.pid===selId||b.jugadorId===selId); }).sort(function(a,b){ return a.fecha.localeCompare(b.fecha); });
-  var dMin30 = new Date(TODAY+'T12:00:00'); dMin30.setDate(dMin30.getDate()-30);
-  var dMin30s = dMin30.toISOString().slice(0,10);
+  var diasAtras = parseInt(selPer)||30;
+  var dMin30 = new Date(TODAY+'T12:00:00'); dMin30.setDate(dMin30.getDate()-diasAtras);
+  var dMin30s = selPer==='365' ? '2000-01-01' : dMin30.toISOString().slice(0,10);
   var ultimas30 = bRegs.filter(function(b){ return b.fecha>=dMin30s; });
 
   if(!bRegs.length){
@@ -21422,9 +21831,9 @@ function ciTabIndividualCI(plantel){
   h += "<div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:16px;'>";
   var pctColJ = cmjPct!==null?(cmjPct>=95?'#22c55e':cmjPct>=88?'#f59e0b':'#ef4444'):'#64748b';
   var kJ=[
-    {l:'RPE promedio',   v:avgRpeJ!==null?avgRpeJ:'—',   c:'#ef4444', i:'💢', s:'últimas 30d'},
-    {l:'Wellness prom',  v:avgWellJ!==null?avgWellJ:'—',  c:'#8b5cf6', i:'💜', s:'últimas 30d'},
-    {l:'RPE máximo',     v:maxRpeJ!==null?maxRpeJ:'—',    c:'#dc2626', i:'🔺', s:'en 30 días'},
+    {l:'RPE promedio',   v:avgRpeJ!==null?avgRpeJ:'—',   c:'#ef4444', i:'💢', s:'últimos '+selPer+'d'},
+    {l:'Wellness prom',  v:avgWellJ!==null?avgWellJ:'—',  c:'#8b5cf6', i:'💜', s:'últimos '+selPer+'d'},
+    {l:'RPE máximo',     v:maxRpeJ!==null?maxRpeJ:'—',    c:'#dc2626', i:'🔺', s:'en '+selPer+' días'},
     {l:'CMJ último',     v:cmjUlt!==null?cmjUlt+'cm':'—', c:'#06b6d4', i:'🦵', s:cmjRegs.length+' mediciones'},
     {l:'CMJ vs máximo',  v:cmjPct!==null?cmjPct+'%':'—',  c:pctColJ,   i:'📊', s:'rendimiento relativo'}
   ];
@@ -21440,7 +21849,7 @@ function ciTabIndividualCI(plantel){
   var ultDias = ultimas30.filter(function(b){return b.rpe_post>0||bienScore6(b)!==null;});
   if(ultDias.length>1){
     h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px;'>";
-    h += "<div style='font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;'>📈 Evolución RPE y Wellness — últimos 30 días</div>";
+    h += "<div style='font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;'>📈 Evolución RPE y Wellness — últimos "+selPer+" días</div>";
     var svgW2=600,svgH2=160,pL=30,pR=10,pT=14,pB=30;
     var cW2=svgW2-pL-pR, cH2=svgH2-pT-pB;
     var n2=ultDias.length, stepX=n2>1?cW2/(n2-1):cW2;
@@ -21948,7 +22357,7 @@ function cruzarBienestarCarga(jugId, fecha){
   var bienScore = null;
   if(bienReg.length){
     var b = bienReg[bienReg.length-1];
-    var dims = [b.sueno||3, b.fatiga||3, b.humor||3, b.estres||3, b.dolor||3];
+    var dims = [b.sueno||3, b.fatiga||3, b.estres||3, b.dolor||3, b.disposicion||3];
     bienScore = (dims.reduce(function(a,v){ return a+v; },0) / dims.length) * 2;
   }
 
@@ -22428,7 +22837,7 @@ function dispTabSemaforo(plantel, hoy){
   h += "<div style='font-size:10px;font-weight:700;color:var(--accent);letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;'>🔬 Metodología de Cruce — BFC 2027-I</div>";
   h += "<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;'>";
   h += "<div style='font-size:10px;color:var(--text-2);'><span style='color:var(--accent);font-weight:700;'>ACWR (7:28d)</span><br>Rico-González 2024 · Zona óptima 0.8–1.3</div>";
-  h += "<div style='font-size:10px;color:var(--text-2);'><span style='color:var(--accent2);font-weight:700;'>Bienestar (5 ítems)</span><br>Hooper Index · Sueño + Fatiga + Humor + Estrés + Dolor</div>";
+  h += "<div style='font-size:10px;color:var(--text-2);'><span style='color:var(--accent2);font-weight:700;'>Bienestar (5 ítems)</span><br>Hooper Index · Sueño + Dolor + Fatiga + Estrés + Disposición</div>";
   h += "<div style='font-size:10px;color:var(--text-2);'><span style='color:var(--green);font-weight:700;'>CMJ Δ%</span><br>Claudino 2017 · Caída &gt;10% = recuperación incompleta</div>";
   h += "</div></div>";
 
@@ -23757,9 +24166,9 @@ function bfcLimpiarChat(){
     var B = arr(g('BIEN')); if (!B.length) B = ls('bfc_bien');
     B.forEach(function (r) {
       var pid = r.pid || r.jugadorId, f = f10(r.fecha); if (!pid || f < d0 || ya[pid + '|' + f]) return;
-      var v = {}, ok = true; ['sueno', 'fatiga', 'dolor', 'estres', 'humor'].forEach(function (c) { var n = num(r[c]); if (n === null || n < 1 || n > 5) ok = false; v[c] = n; });
+      var v = {}, ok = true; ['sueno', 'fatiga', 'dolor', 'estres', 'disposicion'].forEach(function (c) { var n = num(r[c]); if (n === null || n < 1 || n > 5) ok = false; v[c] = n; });
       if (!ok) return; ya[pid + '|' + f] = 1;
-      out.push({ fecha: f, jugadorId: pid, sueno: v.sueno, fatiga: 6 - v.fatiga, dolor: 6 - v.dolor, estres: 6 - v.estres, animo: v.humor });
+      out.push({ fecha: f, jugadorId: pid, sueno: v.sueno, fatiga: 6 - v.fatiga, dolor: 6 - v.dolor, estres: 6 - v.estres, disposicion: v.disposicion });
     });
     return out;
   }
