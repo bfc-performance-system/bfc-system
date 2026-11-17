@@ -2568,24 +2568,35 @@ function renderPlantilla(){
     var dispEstT = dispGetEstado(j.id, hoy);
     var dispKeyT = (dispEstT && dispEstT.estado) ? dispEstT.estado : 'disponible';
     var bloqT = (dispKeyT==='rehabilitacion'||dispKeyT==='baja'||dispKeyT==='readaptacion'||dispKeyT==='recuperacion'||dispKeyT==='restriccion');
+    // Badge alerta retorno estimado
+    var _retT = (dispEstT && dispEstT.retornoEstimado) ? dispEstT.retornoEstimado : '';
+    var _retVencT = _retT && _retT <= hoy;
+    var _retProxT = _retT && _retT > hoy && (function(){ var d=new Date(); d.setDate(d.getDate()+3); return d.toISOString().slice(0,10); })() >= _retT;
     h += "<td style='padding:9px 12px;'>";
     if(bloqT){
-      // Bloqueado por médico — solo mostrar etiqueta
       var _DL={'rehabilitacion':'Rehabilitación','baja':'Baja','readaptacion':'Readaptación','recuperacion':'Recuperación','restriccion':'Restricción'};
       var _DC={'rehabilitacion':'#a78bfa','baja':'#a78bfa','readaptacion':'#a78bfa','recuperacion':'#f87171','restriccion':'#fbbf24'};
+      h += "<div style='display:flex;flex-direction:column;gap:4px;'>";
       h += "<span style='display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:"+(_DC[dispKeyT]||'#a78bfa')+";background:"+(_DC[dispKeyT]||'#a78bfa')+"18;border:1px solid "+(_DC[dispKeyT]||'#a78bfa')+"44;border-radius:99px;padding:3px 9px;'>🔒 "+(_DL[dispKeyT]||dispKeyT)+"</span>";
+      if(_retVencT){
+        h += "<span onclick='plantillaMostrarJugador(\""+j.id+"\")' style='display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:700;color:#fca5a5;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:99px;padding:2px 7px;cursor:pointer;'>⚠️ Retorno vencido</span>";
+      } else if(_retProxT){
+        var _retDiasT = Math.round((new Date(_retT)-new Date(hoy))/86400000);
+        var _rdTxt = _retDiasT===0 ? "Retorno hoy" : ("Retorno en "+_retDiasT+"d");
+        h += "<span onclick='plantillaMostrarJugador(\""+j.id+"\")' style='display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:700;color:#fde68a;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);border-radius:99px;padding:2px 7px;cursor:pointer;'>🗓️ "+_rdTxt+"</span>";
+      }
+      h += "</div>";
     } else if(ovT && ovT.estado==='no_disponible'){
-      // Obs se muestra solo en columna OBSERVACIONES, no dentro del chip
       h += "<button onclick='plantillaModalDisp(\""+j.id+"\")' title='"+(ovT.obs?escHtml(ovT.obs):'No disponible')+"' style='display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#f87171;background:#ef444418;border:1px solid #ef444444;border-radius:99px;padding:3px 9px;cursor:pointer;'>❌ No disp.</button>";
     } else {
-      // Obs se muestra solo en columna OBSERVACIONES, no debajo del chip
       h += "<button onclick='plantillaModalDisp(\""+j.id+"\")' style='display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#4ade80;background:#22c55e18;border:1px solid #22c55e44;border-radius:99px;padding:3px 9px;cursor:pointer;'>✅ Disponible</button>";
     }
     h += "</td>";
     // Observaciones — médico (dispEstT.notas) + técnico (ovT.obs)
     var obsM = (dispEstT && dispEstT.notas) ? dispEstT.notas : '';
     var obsT = (ovT && ovT.obs) ? ovT.obs : '';
-    h += "<td style='padding:9px 12px;max-width:180px;'>";
+    var _obsClick = (obsM||obsT) ? "onclick='plantillaMostrarJugador(\""+j.id+"\")' style='padding:9px 12px;max-width:180px;cursor:pointer;'" : "style='padding:9px 12px;max-width:180px;'";
+    h += "<td "+_obsClick+">";
     if(obsM || obsT){
       if(obsM) h += "<div style='font-size:10px;color:#c084fc;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' title='"+escHtml(obsM)+"'>🏥 "+escHtml(obsM.length>30?obsM.slice(0,30)+'…':obsM)+"</div>";
       if(obsT) h += "<div style='font-size:10px;color:#fbbf24;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:"+(obsM?'3':'0')+"px;' title='"+escHtml(obsT)+"'>📋 "+escHtml(obsT.length>30?obsT.slice(0,30)+'…':obsT)+"</div>";
@@ -2612,38 +2623,76 @@ function plantillaSetFiltro(v){
   renderPlantilla();
 }
 
-function plantillaAgregarManual(){
+function plantillaAgregarManual(prefill){
+  // prefill: optional object {nombre, edad, fechaNac, pos, tag} for editing an existing manual player
+  prefill = prefill || {};
+  var editId = prefill._editId || null; // if set, we're editing an existing manual player
   var html = "<div style='padding:24px;max-width:400px;'>";
-  html += "<div style='font-size:16px;font-weight:900;color:#fff;margin-bottom:16px;'>➕ Agregar jugador a sesión</div>";
+  html += "<div style='font-size:16px;font-weight:900;color:#fff;margin-bottom:6px;'>"+(editId?'✏️ Editar jugador temporal':'➕ Agregar jugador a sesión')+"</div>";
   html += "<div style='font-size:11px;color:#64748b;margin-bottom:16px;'>Para sub-20, jugadores a prueba u otros que no están en el plantel registrado.</div>";
   var posOpts = ['Portero','Lateral Derecho','Lateral Izquierdo','Central Derecho','Central Izquierdo','Medio Centro','Volante Interior Derecho','Volante Interior Izquierdo','Media Punta','Extremo Derecho','Extremo Izquierdo','Delantero Centro'];
-  html += "<div class='fld' style='margin-bottom:10px;'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Nombre *</label><input id='pm-n' class='inp' placeholder='Carlos Amaya' style='width:100%;padding:8px 12px;background:#1e293b;border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-size:13px;'></div>";
-  html += "<div class='fld' style='margin-bottom:10px;'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Número</label><input id='pm-num' type='number' class='inp' placeholder='99' min='1' max='99' style='width:100%;padding:8px 12px;background:#1e293b;border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-size:13px;'></div>";
-  html += "<div class='fld' style='margin-bottom:10px;'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Posición</label><select id='pm-p' class='inp' style='width:100%;padding:8px 12px;background:#1e293b;border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-size:13px;'>";
-  posOpts.forEach(function(p){ html += "<option>"+p+"</option>"; });
+  var _inpStyle = "width:100%;padding:8px 12px;background:#1e293b;border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-size:13px;box-sizing:border-box;";
+  html += "<div class='fld' style='margin-bottom:10px;'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Nombre *</label><input id='pm-n' class='inp' placeholder='Carlos Amaya' value='"+escHtml(prefill.nombre||'')+"' style='"+_inpStyle+"'></div>";
+  // Edad + Fecha de nacimiento (en fila)
+  html += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;'>";
+  html += "<div class='fld'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Edad</label><input id='pm-edad' type='number' class='inp' placeholder='20' min='13' max='50' value='"+escHtml(prefill.edad||'')+"' style='"+_inpStyle+"'></div>";
+  html += "<div class='fld'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Fecha de nacimiento</label><input id='pm-fnac' type='date' class='inp' value='"+escHtml(prefill.fechaNac||'')+"' style='"+_inpStyle+"'></div>";
+  html += "</div>";
+  html += "<div class='fld' style='margin-bottom:10px;'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Posición</label><select id='pm-p' class='inp' style='"+_inpStyle+"'>";
+  posOpts.forEach(function(p){ html += "<option"+(p===(prefill.pos||'')?' selected':'')+">"+p+"</option>"; });
   html += "</select></div>";
-  html += "<div class='fld' style='margin-bottom:16px;'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Etiqueta</label><select id='pm-tag' class='inp' style='width:100%;padding:8px 12px;background:#1e293b;border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-size:13px;'><option>Sub-20</option><option>A prueba</option><option>Invitado</option><option>Recuperación</option></select></div>";
-  html += "<div style='display:flex;gap:8px;'>";
-  html += "<button onclick='plantillaConfirmarManual()' class='btn-y' style='flex:1;border-radius:10px;padding:10px;font-size:13px;'>Agregar a cancha</button>";
-  html += "<button onclick='closeModal()' style='background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:10px;padding:10px 16px;font-size:13px;cursor:pointer;'>Cancelar</button>";
+  html += "<div class='fld' style='margin-bottom:16px;'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Etiqueta</label><select id='pm-tag' class='inp' style='"+_inpStyle+"'>";
+  ['Sub-20','A prueba','Invitado','Recuperación'].forEach(function(t){ html += "<option"+(t===(prefill.tag||'Sub-20')?' selected':'')+">"+t+"</option>"; });
+  html += "</select></div>";
+  // Buttons
+  html += "<div style='display:flex;flex-direction:column;gap:8px;'>";
+  if(editId){
+    html += "<button onclick='plantillaConfirmarManual(\""+escHtml(editId)+"\")' class='btn-y' style='width:100%;border-radius:10px;padding:10px;font-size:13px;'>💾 Guardar cambios</button>";
+  } else {
+    html += "<button onclick='plantillaConfirmarManual()' class='btn-y' style='width:100%;border-radius:10px;padding:10px;font-size:13px;'>⚽ Agregar a cancha</button>";
+  }
+  html += "<button onclick='plantillaAgregarADB()' style='width:100%;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.35);color:#a5b4fc;border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;'>🗂️ Agregar a base de datos</button>";
+  html += "<button onclick='closeModal()' style='background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);color:#64748b;border-radius:10px;padding:9px 16px;font-size:12px;cursor:pointer;'>Cancelar</button>";
   html += "</div></div>";
   showModal(html);
 }
 
-function plantillaConfirmarManual(){
+function plantillaConfirmarManual(editId){
+  // editId: if provided, update existing manual player; otherwise create new one
   var n = (document.getElementById('pm-n')||{}).value||'';
   n = n.trim();
   if(!n){ alert('El nombre es obligatorio.'); return; }
-  var num = parseInt((document.getElementById('pm-num')||{}).value)||0;
+  var edad = parseInt((document.getElementById('pm-edad')||{}).value)||0;
+  var fnac = ((document.getElementById('pm-fnac')||{}).value||'').trim();
   var pos = (document.getElementById('pm-p')||{}).value||'';
   var tag = (document.getElementById('pm-tag')||{}).value||'Sub-20';
-  var jug = {id:'manual_'+Date.now(), nombre:n, pos:pos, numero:num, tag:tag, _esManual:true};
-  _plantillaManual.push(jug);
-  try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
-  if(typeof fbGuardar==='function') fbGuardar();
-  closeModal();
-  renderPlantilla();
-  toast(n+' agregado a la sesión ('+tag+')');
+
+  if(editId){
+    // Update existing manual player
+    var idx = _plantillaManual.findIndex(function(x){ return x.id===editId; });
+    if(idx>=0){
+      _plantillaManual[idx].nombre  = n;
+      _plantillaManual[idx].edad    = edad||_plantillaManual[idx].edad;
+      _plantillaManual[idx].fechaNac= fnac||_plantillaManual[idx].fechaNac;
+      _plantillaManual[idx].pos     = pos;
+      _plantillaManual[idx].posicion= pos;
+      _plantillaManual[idx].tag     = tag;
+    }
+    try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
+    if(typeof fbGuardar==='function') fbGuardar();
+    closeModal();
+    renderPlantilla();
+    toast(n+' actualizado');
+  } else {
+    // Create new manual player
+    var jug = {id:'manual_'+Date.now(), nombre:n, edad:edad, fechaNac:fnac, pos:pos, posicion:pos, tag:tag, _esManual:true};
+    _plantillaManual.push(jug);
+    try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
+    if(typeof fbGuardar==='function') fbGuardar();
+    closeModal();
+    renderPlantilla();
+    toast(n+' agregado a la sesión ('+tag+')');
+  }
 }
 
 function plantillaEliminarManual(id){
@@ -2659,6 +2708,177 @@ function plantillaLimpiarManual(){
   if(typeof fbGuardar==='function') fbGuardar();
   renderPlantilla();
   toast('Jugadores manuales eliminados de la sesión');
+}
+
+// ── Agregar jugador temporal a la base de datos principal ──────────────────
+function plantillaAgregarADB(){
+  // Leer datos actuales del formulario temporal (si está abierto)
+  var n    = ((document.getElementById('pm-n')||{}).value||'').trim();
+  var edad = parseInt((document.getElementById('pm-edad')||{}).value)||0;
+  var fnac = ((document.getElementById('pm-fnac')||{}).value||'').trim();
+  var pos  = (document.getElementById('pm-p')||{}).value||'';
+  var tag  = (document.getElementById('pm-tag')||{}).value||'Sub-20';
+
+  // Guardar los datos básicos en una variable global temporal para pre-rellenar el form
+  window._manualToDBPrefill = {nombre:n, edad:edad, fechaNac:fnac, pos:pos, tag:tag};
+
+  var posOpts = ['Portero','Lateral Derecho','Lateral Izquierdo','Central Derecho','Central Izquierdo','Medio Centro','Volante Interior Derecho','Volante Interior Izquierdo','Media Punta','Extremo Derecho','Extremo Izquierdo','Delantero Centro'];
+  var _fs = "width:100%;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:9px 12px;color:#fff;font-size:13px;outline:none;box-sizing:border-box;";
+
+  function fldDB(label, id, val, type){
+    type = type||'text';
+    return "<div style='margin-bottom:11px;'>"
+      +"<label style='display:block;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;'>"+label+"</label>"
+      +"<input id='adb_"+id+"' type='"+type+"' value='"+escHtml(val||'')+"' style='"+_fs+"'>"
+      +"</div>";
+  }
+
+  var html = "<div style='padding:24px;max-width:460px;'>";
+  html += "<div style='font-size:16px;font-weight:900;color:#fff;margin-bottom:4px;'>🗂️ Agregar a base de datos</div>";
+  html += "<div style='font-size:11px;color:#64748b;margin-bottom:16px;'>Completa la información para agregar este jugador al plantel permanente. También quedará en la sesión actual.</div>";
+
+  html += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:0 12px;'>";
+  html += fldDB('Nombre *','nombre', n);
+  html += fldDB('Apellido','apellido', '');
+  html += "</div>";
+
+  html += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:0 12px;'>";
+  html += fldDB('Edad','edad', edad||'', 'number');
+  html += fldDB('Fecha nac. (AAAA-MM-DD)','fechaNac', fnac, 'date');
+  html += "</div>";
+
+  html += "<div style='margin-bottom:11px;'><label style='display:block;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;'>Posición</label>";
+  html += "<select id='adb_pos' style='"+_fs+"'>";
+  posOpts.forEach(function(p){ html += "<option value='"+p+"'"+(p===pos?' selected':'')+">"+p+"</option>"; });
+  html += "</select></div>";
+
+  html += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:0 12px;'>";
+  html += fldDB('Dorsal','numero', '', 'number');
+  html += fldDB('Teléfono','telefono', '');
+  html += "</div>";
+  html += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:0 12px;'>";
+  html += fldDB('Correo','correo', '', 'email');
+  html += fldDB('Documento','doc', '');
+  html += "</div>";
+  html += fldDB('Sangre','sangre', '');
+  html += fldDB('Estatura (cm)','estatura', '', 'number');
+
+  html += "<div style='margin-bottom:14px;'><label style='display:block;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;'>Foto</label>";
+  html += "<input type='file' id='adb_foto' accept='image/*' onchange='(function(inp){var r=new FileReader();r.onload=function(e){window._adbFotoBase64=e.target.result;var pv=document.getElementById(\"adb_fprev\");if(pv)pv.innerHTML=\"<img src=\\\"\"+ e.target.result+\"\\\" style=\\\"width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid rgba(99,102,241,.5);\\\">\";};r.readAsDataURL(inp.files[0]);})(this)' style='width:100%;background:rgba(255,255,255,.05);border:1px dashed rgba(255,255,255,.2);border-radius:8px;padding:8px 12px;color:#94a3b8;font-size:12px;cursor:pointer;box-sizing:border-box;'>";
+  html += "<div id='adb_fprev' style='margin-top:6px;'></div></div>";
+
+  html += "<div style='display:flex;gap:8px;margin-top:4px;'>";
+  html += "<button onclick='plantillaGuardarADB()' class='btn-y' style='flex:1;border-radius:12px;padding:12px;font-size:13px;'>✅ Guardar en plantel</button>";
+  html += "<button onclick='closeModal()' style='flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:12px;padding:12px;font-size:13px;cursor:pointer;'>Cancelar</button>";
+  html += "</div></div>";
+  showModal(html);
+}
+
+function plantillaGuardarADB(){
+  var g = function(id){ var el=document.getElementById('adb_'+id); return el?(el.value||'').trim():''; };
+  var nombre = g('nombre');
+  if(!nombre){ alert('El nombre es obligatorio.'); return; }
+  var apellido = g('apellido');
+  var edad     = parseInt(g('edad'))||0;
+  var fechaNac = g('fechaNac');
+  var pos      = g('pos');
+  var numero   = parseInt(g('numero'))||0;
+  var telefono = g('telefono');
+  var correo   = g('correo');
+  var doc      = g('doc');
+  var sangre   = g('sangre');
+  var estatura = parseFloat(g('estatura'))||0;
+  var foto     = window._adbFotoBase64 || null;
+  window._adbFotoBase64 = null;
+
+  var newId = 'p'+Date.now();
+  var newJug = {
+    id: newId, nombre: nombre, apellido: apellido,
+    edad: edad, fechaNac: fechaNac,
+    pos: pos, posicion: pos,
+    numero: numero, dorsal: numero,
+    telefono: telefono, correo: correo, doc: doc,
+    sangre: sangre, estatura: estatura||null,
+    foto: foto||null,
+    _fromManual: true
+  };
+
+  // Add to main plantel (JDB preferred, fallback to PL)
+  if(safeArr(JDB).length>0){
+    JDB.push(newJug);
+    try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){}
+  } else {
+    PL.push(newJug);
+    try{ localStorage.setItem('bfc_pl', JSON.stringify(PL)); }catch(e){}
+  }
+
+  // Keep player visible on cancha this session:
+  // If this save came from an existing manual player (via plantillaAgregarADB_desde),
+  // remove that manual entry (player now lives in JDB/PL) to avoid duplication.
+  // Otherwise add a new manual entry so the player appears on cancha.
+  var prefill = window._manualToDBPrefill || {};
+  var sourceManualId = prefill._sourceManualId || null;
+  if(sourceManualId){
+    // Remove the original manual entry — player is now in the main plantel
+    _plantillaManual = _plantillaManual.filter(function(x){ return x.id !== sourceManualId; });
+  } else {
+    // Fresh "Agregar a BD" from the add-player form — add a manual entry so cancha shows them
+    var manualJug = {
+      id: 'manual_'+newId, nombre: nombre,
+      apellido: apellido, edad: edad, fechaNac: fechaNac,
+      pos: pos, posicion: pos, tag: prefill.tag||'A prueba',
+      foto: foto||null, _esManual: true
+    };
+    _plantillaManual.push(manualJug);
+  }
+  window._manualToDBPrefill = null;
+  try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
+
+  if(typeof fbGuardar==='function') fbGuardar();
+  if(typeof fbAuditLog==='function') fbAuditLog('plantel','Jugador agregado a BD desde sesión: '+nombre+(apellido?' '+apellido:''));
+  closeModal();
+  renderPlantilla();
+  toast('✅ '+nombre+' agregado al plantel y a la cancha');
+}
+
+// Called from "A base de datos" button on a manual player's detail modal — opens ADB form pre-filled
+function plantillaAgregarADB_desde(manualId){
+  var jm = safeArr(_plantillaManual).find(function(x){ return x.id===manualId; });
+  if(!jm){ plantillaAgregarADB(); return; }
+  window._manualToDBPrefill = {nombre:jm.nombre||'',edad:jm.edad||'',fechaNac:jm.fechaNac||jm.fecha_nac||'',pos:jm.pos||jm.posicion||'',tag:jm.tag||'Sub-20',_sourceManualId:manualId};
+  closeModal();
+  setTimeout(function(){
+    var pf = window._manualToDBPrefill||{};
+    var posOpts = ['Portero','Lateral Derecho','Lateral Izquierdo','Central Derecho','Central Izquierdo','Medio Centro','Volante Interior Derecho','Volante Interior Izquierdo','Media Punta','Extremo Derecho','Extremo Izquierdo','Delantero Centro'];
+    var _fs = "width:100%;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:9px 12px;color:#fff;font-size:13px;outline:none;box-sizing:border-box;";
+    function fADB(label,id,val,type){ type=type||'text'; return "<div style='margin-bottom:11px;'><label style='display:block;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;'>"+label+"</label><input id='adb_"+id+"' type='"+type+"' value='"+escHtml(val||'')+"' style='"+_fs+"'></div>"; }
+    var html = "<div style='padding:24px;max-width:460px;'>";
+    html += "<div style='font-size:16px;font-weight:900;color:#fff;margin-bottom:4px;'>🗂️ Agregar a base de datos</div>";
+    html += "<div style='font-size:11px;color:#64748b;margin-bottom:16px;'>Completa la información. El jugador quedará en el plantel permanente y en la sesión actual.</div>";
+    html += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:0 12px;'>";
+    html += fADB('Nombre *','nombre',pf.nombre); html += fADB('Apellido','apellido','');
+    html += "</div>";
+    html += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:0 12px;'>";
+    html += fADB('Edad','edad',pf.edad||'','number'); html += fADB('Fecha nac. (AAAA-MM-DD)','fechaNac',pf.fechaNac||'','date');
+    html += "</div>";
+    html += "<div style='margin-bottom:11px;'><label style='display:block;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;'>Posición</label><select id='adb_pos' style='"+_fs+"'>";
+    posOpts.forEach(function(p){ html += "<option value='"+p+"'"+(p===(pf.pos||'')?' selected':'')+">"+p+"</option>"; }); html += "</select></div>";
+    html += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:0 12px;'>";
+    html += fADB('Dorsal','numero','','number'); html += fADB('Teléfono','telefono','');
+    html += "</div>";
+    html += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:0 12px;'>";
+    html += fADB('Correo','correo','','email'); html += fADB('Documento','doc','');
+    html += "</div>";
+    html += fADB('Sangre','sangre',''); html += fADB('Estatura (cm)','estatura','','number');
+    html += "<div style='margin-bottom:14px;'><label style='display:block;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;'>Foto</label>";
+    html += "<input type='file' id='adb_foto' accept='image/*' onchange='(function(inp){var r=new FileReader();r.onload=function(e){window._adbFotoBase64=e.target.result;var pv=document.getElementById(\"adb_fprev\");if(pv)pv.innerHTML=\"<img src=\\\"\"+ e.target.result+\"\\\" style=\\\"width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid rgba(99,102,241,.5);\\\">\";};r.readAsDataURL(inp.files[0]);})(this)' style='width:100%;background:rgba(255,255,255,.05);border:1px dashed rgba(255,255,255,.2);border-radius:8px;padding:8px 12px;color:#94a3b8;font-size:12px;cursor:pointer;box-sizing:border-box;'>";
+    html += "<div id='adb_fprev' style='margin-top:6px;'></div></div>";
+    html += "<div style='display:flex;gap:8px;margin-top:4px;'>";
+    html += "<button onclick='plantillaGuardarADB()' class='btn-y' style='flex:1;border-radius:12px;padding:12px;font-size:13px;'>✅ Guardar en plantel</button>";
+    html += "<button onclick='closeModal()' style='flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:12px;padding:12px;font-size:13px;cursor:pointer;'>Cancelar</button>";
+    html += "</div></div>";
+    showModal(html);
+  }, 50);
 }
 
 function plantillaMostrarJugador(jid){
@@ -2683,7 +2903,7 @@ function plantillaMostrarJugador(jid){
   var semLbl = est==='lesion'?'Lesionado / Rehab.':est==='ok'?'Disponible':est==='warn'?'Restricción (médica)':'No disponible';
   var acwrCol = !acwr?'#64748b':acwr>1.5?'#ef4444':acwr>1.3?'#f97316':acwr>=0.8?'#22c55e':'#3b82f6';
 
-  // Calcular edad si hay fechaNac
+  // Calcular edad si hay fechaNac; fallback a campo edad directo (jugadores manuales)
   var edadStr = '';
   var fn = j.fechaNac||j.fecha_nac||'';
   if(fn){
@@ -2692,6 +2912,8 @@ function plantillaMostrarJugador(jid){
     var m=hoyD.getMonth()-nacD.getMonth();
     if(m<0||(m===0&&hoyD.getDate()<nacD.getDate())) age--;
     if(age>0&&age<60) edadStr=age+' años';
+  } else if(j.edad && j.edad>0){
+    edadStr = j.edad+' años';
   }
 
   function fRow(label, val){
@@ -2771,21 +2993,58 @@ function plantillaMostrarJugador(jid){
   var _bloqM = (_dispKeyM==='rehabilitacion'||_dispKeyM==='baja'||_dispKeyM==='readaptacion'||_dispKeyM==='recuperacion'||_dispKeyM==='restriccion');
   html += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:14px;margin-bottom:14px;'>";
   html += "<div style='font-size:10px;font-weight:700;color:#94a3b8;margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em;'>Disponibilidad técnica</div>";
+  // Badge retorno estimado (aplica tanto a bloqueado como disponible con estado médico)
+  var _retEst = (_dispEstM && _dispEstM.retornoEstimado) ? _dispEstM.retornoEstimado : '';
+  var _retVencido = _retEst && _retEst <= TODAY;
+  var _retHoy     = _retEst && _retEst === TODAY;
+  var _retProximo = _retEst && _retEst > TODAY && _retEst <= (function(){ var d=new Date(); d.setDate(d.getDate()+3); return d.toISOString().slice(0,10); })();
+  if(_retEst && (_retVencido || _retProximo)){
+    var _retMs = new Date(_retEst) - new Date(TODAY);
+    var _retDias = Math.round(_retMs / 86400000);
+    var _retTxt = _retHoy ? "⚠️ Hoy es el día estimado de retorno" : _retVencido ? "🔴 Retorno estimado venció hace "+Math.abs(_retDias)+" día"+(Math.abs(_retDias)>1?"s":"") : "🟡 Retorno estimado en "+_retDias+" día"+(_retDias>1?"s":"")+" ("+_retEst+")";
+    var _retBg  = _retVencido ? "rgba(239,68,68,.12)" : "rgba(251,191,36,.1)";
+    var _retBor = _retVencido ? "rgba(239,68,68,.4)"  : "rgba(251,191,36,.4)";
+    var _retCol = _retVencido ? "#fca5a5"              : "#fde68a";
+    html += "<div style='display:flex;align-items:center;justify-content:space-between;gap:10px;background:"+_retBg+";border:1px solid "+_retBor+";border-radius:10px;padding:9px 13px;margin-bottom:8px;'>";
+    html += "<div style='font-size:11px;font-weight:700;color:"+_retCol+";'>"+_retTxt+"</div>";
+    html += "<button onclick='closeModal();setTimeout(function(){dispAbrirModal(\""+jid+"\",\""+TODAY+"\")},80)' style='background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:8px;padding:5px 11px;font-size:10px;font-weight:700;cursor:pointer;'>✏️ Actualizar estado</button>";
+    html += "</div>";
+  }
   if(_bloqM){
     var _DLM={'rehabilitacion':'Rehabilitación','baja':'Baja','readaptacion':'Readaptación','recuperacion':'Recuperación','restriccion':'Restricción'};
     var _DCM={'rehabilitacion':'#a78bfa','baja':'#a78bfa','readaptacion':'#a78bfa','recuperacion':'#f87171','restriccion':'#fbbf24'};
     html += "<div style='display:flex;align-items:center;gap:8px;background:"+(_DCM[_dispKeyM]||'#a78bfa')+"12;border:1px solid "+(_DCM[_dispKeyM]||'#a78bfa')+"44;border-radius:10px;padding:10px 12px;'>";
     html += "<span style='font-size:16px;'>🔒</span><div><div style='font-size:11px;font-weight:700;color:"+(_DCM[_dispKeyM]||'#a78bfa')+";'>"+(_DLM[_dispKeyM]||_dispKeyM)+"</div>";
     html += "<div style='font-size:10px;color:#64748b;margin-top:2px;'>Estado registrado por área médica — no modificable desde Plantilla</div></div></div>";
+    // Notas médicas (en estado bloqueado)
+    if(_dispEstM && _dispEstM.notas){
+      html += "<div style='display:flex;align-items:flex-start;gap:8px;background:rgba(192,132,252,.08);border:1px solid rgba(192,132,252,.2);border-radius:10px;padding:9px 12px;margin-top:8px;'>";
+      html += "<span style='font-size:14px;flex-shrink:0;'>🏥</span>";
+      html += "<div><div style='font-size:9px;font-weight:700;color:#c084fc;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;'>Observación médica</div>";
+      html += "<div style='font-size:11px;color:#e2e8f0;line-height:1.4;'>"+escHtml(_dispEstM.notas)+"</div></div></div>";
+    }
   } else {
     var _estadoTxt = (_ovTM && _ovTM.estado==='no_disponible') ? '❌ No disponible' : '✅ Disponible';
     var _estadoCol = (_ovTM && _ovTM.estado==='no_disponible') ? '#f87171' : '#4ade80';
-    html += "<div style='display:flex;align-items:center;justify-content:space-between;gap:8px;'>";
-    html += "<div><div style='font-size:13px;font-weight:700;color:"+_estadoCol+";'>"+_estadoTxt+"</div>";
-    if(_ovTM && _ovTM.obs) html += "<div style='font-size:11px;color:#94a3b8;margin-top:2px;font-style:italic;'>"+escHtml(_ovTM.obs)+"</div>";
+    var _obsT = (_ovTM && _ovTM.obs) ? _ovTM.obs : '';
+    var _obsM = (_dispEstM && _dispEstM.notas) ? _dispEstM.notas : '';
+    html += "<div style='display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:"+(_obsT||_obsM?'10':'0')+"px;'>";
+    html += "<div><div style='font-size:13px;font-weight:700;color:"+_estadoCol+";'>"+_estadoTxt+"</div></div>";
+    html += "<button onclick='closeModal();setTimeout(function(){plantillaModalDisp(\""+jid+"\")},50)' style='background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:10px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;'>✏️ Cambiar</button>";
     html += "</div>";
-    html += "<button onclick='closeModal();setTimeout(function(){plantillaModalDisp(\""+jid+"\")},50)' style='background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:10px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;'>✏️ Cambiar</button>";
-    html += "</div>";
+    // Observaciones (técnica + médica) — siempre visibles cuando existen
+    if(_obsM){
+      html += "<div style='display:flex;align-items:flex-start;gap:8px;background:rgba(192,132,252,.08);border:1px solid rgba(192,132,252,.2);border-radius:10px;padding:9px 12px;margin-bottom:6px;'>";
+      html += "<span style='font-size:14px;flex-shrink:0;'>🏥</span>";
+      html += "<div><div style='font-size:9px;font-weight:700;color:#c084fc;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;'>Observación médica</div>";
+      html += "<div style='font-size:11px;color:#e2e8f0;line-height:1.4;'>"+escHtml(_obsM)+"</div></div></div>";
+    }
+    if(_obsT){
+      html += "<div style='display:flex;align-items:flex-start;gap:8px;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:9px 12px;'>";
+      html += "<span style='font-size:14px;flex-shrink:0;'>📋</span>";
+      html += "<div><div style='font-size:9px;font-weight:700;color:#fbbf24;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;'>Observación técnica</div>";
+      html += "<div style='font-size:11px;color:#e2e8f0;line-height:1.4;'>"+escHtml(_obsT)+"</div></div></div>";
+    }
   }
   html += "</div>";
 
@@ -2819,9 +3078,25 @@ function plantillaMostrarJugador(jid){
   html += "</div></details>";
   // ────────────────────────────────────────────────────────────────────
 
+  // Store prefill in a global for the edit/ADB flow (safe: modal is about to close)
+  window._manualEditPrefill = j._esManual ? {
+    _editId: jid,
+    nombre:  j.nombre||'',
+    edad:    j.edad||'',
+    fechaNac:j.fechaNac||j.fecha_nac||'',
+    pos:     j.pos||j.posicion||'',
+    tag:     j.tag||'Sub-20'
+  } : null;
+
   // ── Acciones ──
   html += "<div style='display:flex;gap:8px;'>";
-  html += "<button onclick='plantillaEditarJugador(\""+jid+"\")' style='flex:1;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:12px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;'>✏️ Editar</button>";
+  if(j._esManual){
+    // Manual players: open the temp-player edit form (not the full DB editor)
+    html += "<button onclick='closeModal();setTimeout(function(){plantillaAgregarManual(window._manualEditPrefill);},50)' style='flex:1;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:12px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;'>✏️ Editar</button>";
+    html += "<button onclick='plantillaAgregarADB_desde(\""+escHtml(jid)+"\")' style='flex:1;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.25);color:#818cf8;border-radius:12px;padding:11px;font-size:12px;font-weight:700;cursor:pointer;'>🗂️ A base de datos</button>";
+  } else {
+    html += "<button onclick='plantillaEditarJugador(\""+jid+"\")' style='flex:1;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:12px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;'>✏️ Editar</button>";
+  }
   html += "<button onclick='closeModal()' style='flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:12px;padding:11px;font-size:13px;cursor:pointer;'>Cerrar</button>";
   html += "</div>";
   html += "</div>";
@@ -5752,32 +6027,40 @@ function jornadaMonitorPanel(plantelAll, fechaEf){
   h += "<div style='height:100%;width:"+pctComp+"%;background:linear-gradient(90deg,#6366f1,#22c55e);border-radius:99px;transition:width .4s;'></div></div>";
   h += "</div></div>";
 
+  // ── Helper: modal de desglose wellness por jugador ──────────────────
+  // Guardamos los registros en una variable global temporal para acceder desde onclick
+  window._jornadaWellRegs = window._jornadaWellRegs || {};
+
+  function _wellChip(e, borderColor, bgColor, textColor){
+    var jid = e.j.id;
+    // Guardar registro para el modal
+    window._jornadaWellRegs[jid] = e.reg;
+    var chip = "<div onclick='jornadaWellnessDetalle(\""+jid+"\",\""+escHtml(e.nombre)+"\")' "
+      + "style='background:"+bgColor+";border:1px solid "+borderColor+";border-radius:10px;"
+      + "padding:5px 10px;cursor:pointer;transition:opacity .15s;' "
+      + "onmouseover=\"this.style.opacity='.8'\" onmouseout=\"this.style.opacity='1'\" "
+      + "title='Clic para ver desglose'>";
+    chip += "<span style='font-size:11px;font-weight:800;color:"+textColor+";'>"+escHtml(e.nombre)+"</span>";
+    if(e.alertas.length) chip += "<span style='font-size:9px;color:#fca5a5;margin-left:4px;'>⚠️</span>";
+    if(e.rpe) chip += "<span style='font-size:9px;color:#94a3b8;margin-left:5px;'>RPE "+e.rpe+"</span>";
+    chip += "</div>";
+    return chip;
+  }
+
   // Filas de semáforo
   if(rojo.length){
     h += "<div style='margin-bottom:10px;'>";
-    h += "<div style='font-size:10px;font-weight:800;color:#f87171;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;'>🔴 Alerta ("+rojo.length+")</div>";
+    h += "<div style='font-size:10px;font-weight:800;color:#f87171;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;'>🔴 Alerta ("+rojo.length+") <span style='font-size:9px;color:#64748b;font-weight:600;text-transform:none;'>· clic para ver detalle</span></div>";
     h += "<div style='display:flex;flex-wrap:wrap;gap:6px;'>";
-    rojo.forEach(function(e){
-      var alertTxt = e.alertas.length ? ' — ⚠️ '+e.alertas.join(', ')+' en 1' : '';
-      h += "<div style='background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);border-radius:10px;padding:5px 10px;cursor:default;' title='"+escHtml(e.detalle.join(' | '))+alertTxt+"'>";
-      h += "<span style='font-size:11px;font-weight:800;color:#f87171;'>"+escHtml(e.nombre)+"</span>";
-      if(e.alertas.length) h += "<span style='font-size:9px;color:#fca5a5;margin-left:4px;'>⚠️</span>";
-      if(e.rpe) h += "<span style='font-size:9px;color:#94a3b8;margin-left:5px;'>RPE "+e.rpe+"</span>";
-      h += "</div>";
-    });
+    rojo.forEach(function(e){ h += _wellChip(e,'rgba(239,68,68,.45)','rgba(239,68,68,.15)','#f87171'); });
     h += "</div></div>";
   }
 
   if(amarillo.length){
     h += "<div style='margin-bottom:10px;'>";
-    h += "<div style='font-size:10px;font-weight:800;color:#fbbf24;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;'>🟡 Precaución ("+amarillo.length+")</div>";
+    h += "<div style='font-size:10px;font-weight:800;color:#fbbf24;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;'>🟡 Precaución ("+amarillo.length+") <span style='font-size:9px;color:#64748b;font-weight:600;text-transform:none;'>· clic para ver detalle</span></div>";
     h += "<div style='display:flex;flex-wrap:wrap;gap:6px;'>";
-    amarillo.forEach(function(e){
-      h += "<div style='background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.3);border-radius:10px;padding:5px 10px;cursor:default;' title='"+escHtml(e.detalle.join(' | '))+"'>";
-      h += "<span style='font-size:11px;font-weight:800;color:#fbbf24;'>"+escHtml(e.nombre)+"</span>";
-      if(e.rpe) h += "<span style='font-size:9px;color:#94a3b8;margin-left:5px;'>RPE "+e.rpe+"</span>";
-      h += "</div>";
-    });
+    amarillo.forEach(function(e){ h += _wellChip(e,'rgba(234,179,8,.4)','rgba(234,179,8,.1)','#fbbf24'); });
     h += "</div></div>";
   }
 
@@ -5786,7 +6069,12 @@ function jornadaMonitorPanel(plantelAll, fechaEf){
     h += "<div style='font-size:10px;font-weight:800;color:#4ade80;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;'>🟢 Bien ("+verde.length+")</div>";
     h += "<div style='display:flex;flex-wrap:wrap;gap:6px;'>";
     verde.forEach(function(e){
-      h += "<div style='background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:10px;padding:5px 10px;cursor:default;' title='"+escHtml(e.detalle.join(' | '))+"'>";
+      var jid = e.j.id;
+      window._jornadaWellRegs[jid] = e.reg;
+      h += "<div onclick='jornadaWellnessDetalle(\""+jid+"\",\""+escHtml(e.nombre)+"\")' "
+        + "style='background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:10px;"
+        + "padding:5px 10px;cursor:pointer;transition:opacity .15s;' "
+        + "onmouseover=\"this.style.opacity='.8'\" onmouseout=\"this.style.opacity='1'\">";
       h += "<span style='font-size:11px;font-weight:700;color:#4ade80;'>"+escHtml(e.nombre)+"</span>";
       if(e.rpe) h += "<span style='font-size:9px;color:#94a3b8;margin-left:5px;'>RPE "+e.rpe+"</span>";
       h += "</div>";
@@ -5819,6 +6107,85 @@ function jornadaMonitorPanel(plantelAll, fechaEf){
 
   return h;
 }
+
+// ── Modal desglose wellness individual ───────────────────────────────────────
+// Llamable desde Jornada (monitor en vivo) y desde Programación (panel alertas)
+function jornadaWellnessDetalle(jid, nombre){
+  // Buscar registro primero en caché del monitor, luego en BIEN directamente
+  var reg = (window._jornadaWellRegs && window._jornadaWellRegs[jid]) || null;
+  if(!reg){
+    // Buscar el registro más reciente del día en BIEN
+    var hoy = TODAY;
+    var sesActiva = window._jornadaSesionActiva;
+    var sesId = sesActiva && sesActiva.id ? sesActiva.id : null;
+    var candidatos = safeArr(BIEN).filter(function(b){
+      if(!((b.pid===jid||b.jugadorId===jid) && (b.sueno||b.fatiga))) return false;
+      if(sesId) return b.sesId===sesId;
+      return b.fecha===hoy;
+    });
+    reg = candidatos.length ? candidatos[candidatos.length-1] : null;
+  }
+  if(!reg){ showModal("<div style='padding:20px;text-align:center;color:#94a3b8;'>Sin datos de wellness para este jugador hoy.</div><button onclick='closeModal()' style='margin-top:10px;width:100%;padding:9px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:9px;color:#94a3b8;font-size:12px;font-weight:700;cursor:pointer;'>Cerrar</button>"); return; }
+
+  var dims = [
+    { key:'sueno',       label:'Sueño',          icon:'🌙', desc:['Muy mal','Mal','Regular','Bien','Muy bien'] },
+    { key:'fatiga',      label:'Fatiga',          icon:'⚡', desc:['Extenuado','Muy cansado','Algo cansado','Descansado','Muy descansado'] },
+    { key:'dolor',       label:'Dolor muscular',  icon:'🦵', desc:['Mucho dolor','Bastante','Leve','Mínimo','Sin dolor'] },
+    { key:'estres',      label:'Estrés',          icon:'🧠', desc:['Muy estresado','Bastante','Algo','Poco','Sin estrés'] },
+    { key:'disposicion', label:'Disposición',     icon:'🔥', desc:['Muy baja','Baja','Normal','Buena','Muy alta'] }
+  ];
+
+  function _col(v){ if(!v) return '#334155'; if(v<=1) return '#ef4444'; if(v<=2) return '#f97316'; if(v<=3) return '#eab308'; if(v<=4) return '#22c55e'; return '#4ade80'; }
+  function _lbl(v, arr){ return v ? arr[v-1]+' ('+v+'/5)' : '—'; }
+
+  var vals = dims.map(function(d){ return reg[d.key]; }).filter(function(v){ return v && v > 0; });
+  var prom = vals.length ? (vals.reduce(function(a,b){return a+b;},0) / vals.length) : 0;
+  var promCol = _col(Math.round(prom));
+  var semLabel = prom <= 2.4 ? '🔴 Alerta' : (prom < 4.0 ? '🟡 Precaución' : '🟢 Bien');
+
+  var h = "<div style='min-width:300px;max-width:380px;'>";
+  h += "<div style='font-size:16px;font-weight:900;color:#f1f5f9;margin-bottom:2px;'>"+escHtml(nombre)+"</div>";
+  h += "<div style='font-size:11px;color:#64748b;margin-bottom:16px;'>Wellness · "+escHtml(reg.fecha||TODAY)+"</div>";
+
+  // Score general
+  h += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px 14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;'>";
+  h += "<div><div style='font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;'>Puntuación general</div>";
+  h += "<div style='font-size:28px;font-weight:900;color:"+promCol+";line-height:1;'>"+prom.toFixed(1)+"<span style='font-size:12px;color:#475569;font-weight:600;'>/5</span></div></div>";
+  h += "<div style='font-size:16px;font-weight:800;color:"+promCol+";'>"+semLabel+"</div>";
+  h += "</div>";
+
+  // Barras por dimensión
+  h += "<div style='display:flex;flex-direction:column;gap:7px;'>";
+  dims.forEach(function(d){
+    var v = reg[d.key] || 0;
+    var col = _col(v);
+    var pct = v ? (v/5*100) : 0;
+    var esCritico = (v === 1);
+    h += "<div style='background:"+(esCritico?'rgba(239,68,68,.09)':'rgba(255,255,255,.03)')+";border:1px solid "+(esCritico?'rgba(239,68,68,.3)':'rgba(255,255,255,.07)')+";border-radius:10px;padding:8px 12px;'>";
+    h += "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;'>";
+    h += "<span style='font-size:12px;font-weight:700;color:#e2e8f0;'>"+d.icon+" "+d.label+"</span>";
+    h += "<span style='font-size:11px;font-weight:800;color:"+col+";'>"+(v ? v+"/5" : "—")+(esCritico?" ⚠️":"")+"</span>";
+    h += "</div>";
+    h += "<div style='background:rgba(255,255,255,.07);border-radius:99px;height:7px;overflow:hidden;'>";
+    h += "<div style='width:"+pct+"%;height:100%;background:"+col+";border-radius:99px;'></div>";
+    h += "</div>";
+    h += "<div style='font-size:9px;color:#64748b;font-weight:600;margin-top:3px;'>"+_lbl(v, d.desc)+"</div>";
+    h += "</div>";
+  });
+  h += "</div>";
+
+  if(reg.notas){
+    h += "<div style='margin-top:10px;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:10px;padding:9px 12px;'>";
+    h += "<div style='font-size:9px;color:#6366f1;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;'>📝 Notas</div>";
+    h += "<div style='font-size:11px;color:#cbd5e1;'>"+escHtml(reg.notas)+"</div>";
+    h += "</div>";
+  }
+
+  h += "<button onclick='closeModal()' style='margin-top:12px;width:100%;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#94a3b8;font-size:12px;font-weight:700;cursor:pointer;'>Cerrar</button>";
+  h += "</div>";
+  showModal(h);
+}
+window.jornadaWellnessDetalle = jornadaWellnessDetalle;
 
 function renderJornada(){
   var el = document.getElementById('page-jornada');
@@ -5917,6 +6284,29 @@ function renderJornada(){
     h += jornadaEvaluacionPRE(plantelAll, fechaEfectiva);
 
   } else if(paso==='rpe'){
+    // ── Mini-panel configuración UA antes del Kiosko POST ──────
+    var _jTeVal = parseInt(window._ciTiempoExtra)||0;
+    var _jSinGPS = window._ciSinGPS || false;
+    h += "<div style='background:rgba(99,102,241,.07);border:1px solid rgba(99,102,241,.18);border-radius:12px;padding:11px 16px;margin-bottom:12px;'>";
+    h += "<div style='font-size:10px;font-weight:800;color:#818cf8;margin-bottom:8px;letter-spacing:.04em;'>⚡ CONFIGURAR UA ANTES DE ACTIVAR KIOSKO</div>";
+    h += "<div style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;'>";
+    // Toggle GPS
+    h += "<div style='display:flex;border:1px solid rgba(255,255,255,.12);border-radius:7px;overflow:hidden;'>";
+    h += "<button onclick='window._ciSinGPS=false;window._ciTiempoExtra=0;renderJornada();' style='padding:5px 12px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(_jSinGPS?'rgba(255,255,255,.04)':'rgba(99,102,241,.3)')+";color:"+(_jSinGPS?'#64748b':'#a5b4fc')+";'>📡 Con GPS</button>";
+    h += "<button onclick='window._ciSinGPS=true;renderJornada();' style='padding:5px 12px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(_jSinGPS?'rgba(124,58,237,.3)':'rgba(255,255,255,.04)')+";color:"+(_jSinGPS?'#c084fc':'#64748b')+";'>🚫 Sin GPS</button>";
+    h += "</div>";
+    // Input tiempo
+    h += "<div style='display:flex;align-items:center;gap:5px;'>";
+    h += "<span style='font-size:10px;color:#64748b;'>"+(_jSinGPS?'Tiempo sesión:':'Tiempo sala/pre:')+"</span>";
+    h += "<input type='number' min='0' max='240' value='"+_jTeVal+"' onchange='window._ciTiempoExtra=parseInt(this.value)||0;' style='width:55px;padding:4px 8px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:rgba(255,255,255,.06);color:#e2e8f0;font-size:12px;font-weight:700;text-align:center;'>";
+    h += "<span style='font-size:10px;color:#64748b;'>min</span>";
+    h += "</div>";
+    // Resumen fórmula
+    if(_jSinGPS && _jTeVal>0) h += "<span style='font-size:10px;color:#c084fc;background:rgba(124,58,237,.12);border-radius:5px;padding:3px 8px;'>UA = RPE × "+_jTeVal+" min</span>";
+    else if(_jTeVal>0)         h += "<span style='font-size:10px;color:#fbbf24;background:rgba(245,158,11,.1);border-radius:5px;padding:3px 8px;'>UA = RPE × (GPS + "+_jTeVal+" min)</span>";
+    else                        h += "<span style='font-size:10px;color:#475569;'>UA = RPE × tiempo GPS (estándar)</span>";
+    h += "</div></div>";
+
     h += "<div style='display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;'>";
     h += "<button onclick='kioskoActivarPOST()' style='padding:8px 18px;border-radius:99px;border:none;background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;font-size:11px;font-weight:800;cursor:pointer;box-shadow:0 2px 12px rgba(249,115,22,.4);'>🏋️ Activar Kiosko POST</button>";
     if(_kioskoModoForzado==='post') h += "<span style='font-size:10px;background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.3);border-radius:20px;padding:4px 12px;color:#fb923c;'>🏋️ Kiosko POST activo</span>";
@@ -5965,13 +6355,16 @@ function jornadaAnalisisPRE(plantelAll, fechaEf){
     if(g.list.length){
       g.list.forEach(function(item){
         var nm = ((item.j.apellido||item.j.lastname||item.j.nombre||'').split(' ')[0]||'').toUpperCase();
-        h += "<div style='display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);'>";
+        var nmFull = ((item.j.nombre||item.j.name||'')+(item.j.apellido||item.j.lastname?' '+(item.j.apellido||item.j.lastname):''))||nm;
+        var jid = item.j.id||item.j._id||'';
+        h += "<div onclick='jornadaWellnessDetalle(\""+escHtml(jid)+"\",\""+escHtml(nmFull)+"\")' style='display:flex;justify-content:space-between;padding:5px 6px;border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer;border-radius:7px;transition:background .15s;' onmouseover=\"this.style.background='rgba(255,255,255,.05)'\" onmouseout=\"this.style.background='transparent'\">";
         h += "<span style='font-size:11px;color:#e2e8f0;'>"+escHtml(nm)+"</span>";
-        h += "<span style='font-size:11px;font-weight:800;color:"+g.col+";'>"+item.sc+"/10</span></div>";
+        h += "<span style='font-size:11px;font-weight:800;color:"+g.col+";'>"+item.sc+"/10 <span style='font-size:9px;color:#475569;font-weight:600;'>→</span></span></div>";
       });
     } else {
       h += "<div style='font-size:11px;color:#334155;'>Ninguno</div>";
     }
+    h += "<div style='font-size:9px;color:#334155;font-weight:600;margin-top:8px;'>· clic para ver detalle</div>";
     h += "</div>";
   });
   h += "</div>";
@@ -7192,6 +7585,76 @@ function renderProgramacion() {
   })();
 
   h += "</div>"; // end cards row
+
+  // ── PANEL SEMÁFORO WELLNESS (jugadores de hoy por estado) ──────────────
+  (function(){
+    var _bHoy = safeArr(BIEN).filter(function(b){
+      return b.fecha===todayStr && (b.sueno||b.fatiga||b.dolor||b.estres||b.disposicion);
+    });
+    if(!_bHoy.length) return; // Sin registros hoy: no mostrar panel
+
+    // Clasificar usando jornadaSemaforoWellness si existe, si no, calcular inline
+    var _wRojo=[], _wAmarill=[], _wVerde=[];
+    _bHoy.forEach(function(b){
+      var pid = b.pid||b.jugadorId||'';
+      var jug = plantelAll.find(function(p){ return (p.id||p._id)===pid; });
+      var nm = jug ? ((jug.nombre||'')+(jug.apellido?' '+jug.apellido:'')) : (b.jugadorNombre||pid);
+      var sem = typeof jornadaSemaforoWellness==='function' ? jornadaSemaforoWellness(b) : null;
+      if(!sem){
+        var dims=['sueno','fatiga','dolor','estres','disposicion'];
+        var vals=dims.map(function(k){return b[k];}).filter(function(v){return v&&v>0;});
+        var avg=vals.length?(vals.reduce(function(a,v){return a+v;},0)/vals.length):0;
+        var hayUno=dims.some(function(k){return b[k]===1;});
+        sem=hayUno||avg<=2.4?'rojo':avg<4.0?'amarillo':'verde';
+      }
+      var entry={jid:pid,nombre:nm,reg:b};
+      if(sem==='rojo') _wRojo.push(entry);
+      else if(sem==='amarillo') _wAmarill.push(entry);
+      else _wVerde.push(entry);
+    });
+
+    h += "<div style='padding:0 28px 16px;'>";
+    h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:16px 18px;'>";
+    h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;'>";
+    h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;'>Wellness · Semáforo hoy</div>";
+    h += "<div style='font-size:9px;color:#475569;font-weight:600;'>clic para ver detalle</div>";
+    h += "</div>";
+
+    function _progWChip(e, bgCol, bdrCol, txtCol){
+      var safeName = escHtml(e.nombre||'');
+      var jid = escHtml(e.jid||'');
+      return "<div onclick='jornadaWellnessDetalle(\""+jid+"\",\""+safeName+"\")'  style='display:inline-flex;align-items:center;gap:6px;padding:7px 11px;background:"+bgCol+";border:1px solid "+bdrCol+";border-radius:99px;cursor:pointer;transition:box-shadow .15s;' onmouseover=\"this.style.boxShadow='0 0 0 2px "+bdrCol+"'\" onmouseout=\"this.style.boxShadow='none'\">"
+        +"<span style='font-size:11px;font-weight:800;color:"+txtCol+";'>"+safeName.toUpperCase()+"</span>"
+        +"</div>";
+    }
+
+    h += "<div style='display:flex;flex-direction:column;gap:10px;'>";
+
+    if(_wRojo.length){
+      h += "<div>";
+      h += "<div style='font-size:9px;font-weight:800;color:#f87171;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;'>🔴 Alerta ("+_wRojo.length+")</div>";
+      h += "<div style='display:flex;flex-wrap:wrap;gap:6px;'>";
+      _wRojo.forEach(function(e){ h += _progWChip(e,'rgba(239,68,68,.15)','rgba(239,68,68,.45)','#f87171'); });
+      h += "</div></div>";
+    }
+    if(_wAmarill.length){
+      h += "<div>";
+      h += "<div style='font-size:9px;font-weight:800;color:#fbbf24;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;'>🟡 Precaución ("+_wAmarill.length+")</div>";
+      h += "<div style='display:flex;flex-wrap:wrap;gap:6px;'>";
+      _wAmarill.forEach(function(e){ h += _progWChip(e,'rgba(234,179,8,.1)','rgba(234,179,8,.4)','#fbbf24'); });
+      h += "</div></div>";
+    }
+    if(_wVerde.length){
+      h += "<div>";
+      h += "<div style='font-size:9px;font-weight:800;color:#4ade80;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;'>🟢 Bien ("+_wVerde.length+")</div>";
+      h += "<div style='display:flex;flex-wrap:wrap;gap:6px;'>";
+      _wVerde.forEach(function(e){ h += _progWChip(e,'rgba(34,197,94,.12)','rgba(34,197,94,.4)','#4ade80'); });
+      h += "</div></div>";
+    }
+
+    h += "</div>"; // end column
+    h += "</div></div>"; // end card + padding
+  })();
 
   // ── PANEL CARGA & RENDIMIENTO (mini-dashboard) ──────────────────────────
   (function(){
@@ -9099,6 +9562,29 @@ function _dbTabIndividual(plantelAll){
 function _dbTabAlertas(plantelAll){
   var h = "";
 
+  // ── ALERTA RETORNO ESTIMADO VENCIDO ──────────────────────────────────────
+  (function(){
+    var vencidos = dispGetRetornosVencidos();
+    if(!vencidos.length) return;
+    h += "<div style='background:linear-gradient(135deg,rgba(239,68,68,.12),rgba(251,146,60,.08));border:1px solid rgba(239,68,68,.35);border-radius:14px;padding:16px;margin-bottom:16px;'>";
+    h += "<div style='display:flex;align-items:center;gap:10px;margin-bottom:12px;'>";
+    h += "<div style='width:36px;height:36px;border-radius:50%;background:rgba(239,68,68,.2);border:2px solid rgba(239,68,68,.5);display:flex;align-items:center;justify-content:center;font-size:18px;'>⚠️</div>";
+    h += "<div><div style='font-size:14px;font-weight:800;color:#fca5a5;'>Retorno estimado vencido ("+vencidos.length+")</div>";
+    h += "<div style='font-size:11px;color:#94a3b8;margin-top:2px;'>Estos jugadores tienen fecha de retorno que ya pasó. El área médica debe actualizar el estado o ampliar el tiempo estimado.</div></div></div>";
+    vencidos.forEach(function(v){
+      var diasTxt = v.diasVencido===0 ? "Hoy es el día estimado de retorno" : "Venció hace "+v.diasVencido+" día"+(v.diasVencido>1?"s":"");
+      var _DE = {rehabilitacion:'Rehabilitación',baja:'Baja',readaptacion:'Readaptación',recuperacion:'Recuperación',restriccion:'Restricción'};
+      h += "<div style='display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(0,0,0,.2);border-radius:10px;padding:10px 14px;margin-bottom:7px;'>";
+      h += "<div style='display:flex;align-items:center;gap:10px;'>";
+      h += "<div style='width:34px;height:34px;border-radius:50%;background:#1e293b;border:2px solid #ef4444;display:flex;align-items:center;justify-content:center;font-size:15px;'>🏥</div>";
+      h += "<div><div style='font-size:12px;font-weight:700;color:#f1f5f9;'>"+escHtml(v.nombre)+"</div>";
+      h += "<div style='font-size:10px;color:#94a3b8;margin-top:2px;'>"+(_DE[v.estado]||v.estado)+" &middot; "+diasTxt+" &middot; Retorno: "+v.retornoEstimado+"</div></div></div>";
+      h += "<button onclick='dispAbrirModal(\""+v.jugadorId+"\",\""+TODAY+"\")' style='background:#ef4444;border:none;color:#fff;border-radius:9px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;'>✏️ Actualizar</button>";
+      h += "</div>";
+    });
+    h += "</div>";
+  })();
+
   // ── ALERTA ACUMULACIÓN PRE-PARTIDO ──
   ciLoad();
   var todayStrAP = TODAY;
@@ -9190,12 +9676,14 @@ function _dbTabAlertas(plantelAll){
 
   if(alertaBien.length){
     h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px;'>";
-    h += "<div style='font-size:12px;font-weight:700;color:#eab308;margin-bottom:12px;'>💚 ALERTAS DE BIENESTAR</div>";
+    h += "<div style='font-size:12px;font-weight:700;color:#eab308;margin-bottom:4px;'>💚 ALERTAS DE BIENESTAR</div>";
+    h += "<div style='font-size:10px;color:#64748b;font-weight:600;margin-bottom:12px;'>· clic en un jugador para ver detalle</div>";
     h += "<div style='display:flex;flex-wrap:wrap;gap:8px;'>";
     alertaBien.forEach(function(d){
       var col=d.est.bienestar.estado==="danger"?"#ef4444":"#eab308";
       var nm=(d.p.nombre||'')+(d.p.apellido?' '+d.p.apellido:'');
-      h += "<div style='display:flex;align-items:center;gap:10px;padding:10px 14px;background:"+col+"10;border:1px solid "+col+"30;border-radius:10px;'>";
+      var jid=d.p.id||d.p._id||'';
+      h += "<div onclick='jornadaWellnessDetalle(\""+jid+"\",\""+escHtml(nm)+"\")' style='display:flex;align-items:center;gap:10px;padding:10px 14px;background:"+col+"10;border:1px solid "+col+"30;border-radius:10px;cursor:pointer;transition:box-shadow .15s;' onmouseover=\"this.style.boxShadow='0 0 0 2px "+col+"55'\" onmouseout=\"this.style.boxShadow='none'\">";
       h += avEl(d.p,32);
       h += "<div>";
       h += "<div style='font-size:11px;font-weight:800;color:var(--text-1);'>"+nm.toUpperCase()+"</div>";
@@ -12357,8 +12845,15 @@ function kioskoGuardarRpe(){
       if(_seHoy && _seHoy.tiempo) _tiempoSes = parseInt(_seHoy.tiempo) || 0;
     } catch(e) {}
   }
-  if(_tiempoSes > 0) {
-    var _ua = ciUA(_kioskoRpe, _tiempoSes);
+  // Tiempo extra (sala/pre-campo o sesión sin GPS) configurado por el cuerpo técnico
+  var _tiempoExtra = parseInt(window._ciTiempoExtra)||0;
+  var _sinGPS = window._ciSinGPS || false;
+  // Modo sin GPS: usar tiempoExtra como tiempo total; tiempo GPS = 0
+  var _tiempoBase = _sinGPS ? 0 : _tiempoSes;
+  var _tiempoTotal = _sinGPS ? _tiempoExtra : (_tiempoSes + _tiempoExtra);
+
+  if(_tiempoTotal > 0) {
+    var _ua = ciUA(_kioskoRpe, _tiempoTotal);
     // Eliminar entrada previa auto-generada del mismo jugador/sesión para no duplicar
     var _fechaCI = (_sesIdRpe && window._jornadaSesionActiva && window._jornadaSesionActiva.fecha) ? window._jornadaSesionActiva.fecha : TODAY;
     CI_DB = safeArr(CI_DB).filter(function(r){
@@ -12366,6 +12861,11 @@ function kioskoGuardarRpe(){
       if(_sesIdRpe && r.sesId) return r.sesId !== _sesIdRpe;
       return !(!r.sesId && r.fecha===_fechaCI);
     });
+    var _notaUA = _sinGPS
+      ? 'Sin GPS: RPE Kiosko × '+_tiempoExtra+' min sesión'
+      : (_tiempoExtra>0
+          ? 'RPE Kiosko × ('+_tiempoBase+' min GPS + '+_tiempoExtra+' min sala)'
+          : 'Auto: RPE Kiosko × duración sesión');
     CI_DB.push({
       id: 'ci_kiosko_'+Date.now()+'_'+_kioskoJugId,
       pid: _kioskoJugId,
@@ -12376,13 +12876,17 @@ function kioskoGuardarRpe(){
       tipoEvt: 'Sesión',
       rival: '', resultado: '',
       rpe: _kioskoRpe,
-      tiempo: _tiempoSes,
+      tiempo: _tiempoBase,
+      tiempoExtra: _tiempoExtra,
       ua: _ua,
-      notas: 'Auto: RPE Kiosko × duración sesión',
+      notas: _notaUA,
       fuente: 'kiosko_auto'
     });
     ciSave();
-    fbAuditLog('carga-interna','UA auto-calculada desde Kiosko (jugador '+_kioskoJugId+'): RPE '+_kioskoRpe+' × '+_tiempoSes+' min = '+_ua);
+    fbAuditLog('carga-interna','UA auto-calculada desde Kiosko (jugador '+_kioskoJugId+'): RPE '+_kioskoRpe+' × '+_tiempoTotal+' min = '+_ua+(_tiempoExtra?' [+'+_tiempoExtra+' min extra]':''));
+  } else if(_tiempoSes === 0 && _tiempoExtra === 0) {
+    // Sin GPS y sin tiempo configurado: registrar igualmente si hay RPE, sin UA
+    // (el staff puede ingresar el tiempo después y recalcular)
   }
   // ────────────────────────────────────────────────────────────────────
 
@@ -21511,11 +22015,17 @@ function ciGuardarSesion(){
     if(!gpsR) sinGPS.push(j.apellido||j.nombre||j.id);
     if(!rpe)  sinRpe.push(j.apellido||j.nombre||j.id);
 
-    if(tiempo>0 && rpe>0){
-      var ua = ciUA(rpe, tiempo);
+    // Tiempo extra (sala/pre) o modo sin GPS
+    var tiempoExtra = parseInt(window._ciTiempoExtra)||0;
+    var modoSinGPS = window._ciSinGPS || false;
+    var tiempoBase = modoSinGPS ? 0 : tiempo;
+    var tiempoTotal = modoSinGPS ? tiempoExtra : (tiempo + tiempoExtra);
+
+    if(tiempoTotal>0 && rpe>0){
+      var ua = ciUA(rpe, tiempoTotal);
       CI_DB.push({ id:'ci_'+Date.now()+'_'+j.id, pid:j.id, fecha:fecha,
                    tipo:tipo, tipoEvt:tipoEvt, rival:rival, resultado:resultado,
-                   rpe:rpe, tiempo:tiempo, ua:ua, notas:notas });
+                   rpe:rpe, tiempo:tiempoBase, tiempoExtra:tiempoExtra, ua:ua, notas:notas });
       jugadoresCon.push(j.apellido||j.nombre||'');
     }
   });
@@ -21610,6 +22120,51 @@ function ciTabResumen(plantel){
   if(!fechasDisp.includes(hoy)) hoy = fechasDisp[0];
 
   var h = '';
+
+  // ── Panel configuración de sesión (tiempoExtra / sin GPS) ────────────
+  var _teVal = window._ciTiempoExtra || 0;
+  var _noGPS = window._ciSinGPS || false;
+  h += "<div id='ci-config-sesion' style='background:rgba(99,102,241,.07);border:1px solid rgba(99,102,241,.2);border-radius:14px;padding:14px 18px;margin-bottom:16px;'>";
+  h += "<div style='font-size:11px;font-weight:800;color:#818cf8;margin-bottom:10px;'>⚡ CONFIGURACIÓN DE SESIÓN — UA</div>";
+  h += "<div style='display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;'>";
+
+  // Toggle GPS / Sin GPS
+  h += "<div style='display:flex;flex-direction:column;gap:4px;'>";
+  h += "<div style='font-size:9px;font-weight:800;color:#888;letter-spacing:.06em;text-transform:uppercase;'>GPS</div>";
+  h += "<div style='display:flex;border:1px solid rgba(255,255,255,.12);border-radius:8px;overflow:hidden;'>";
+  h += "<button onclick='window._ciSinGPS=false;window._ciTiempoExtra=0;document.getElementById(\"ci-te-wrap\").style.display=\"flex\";document.getElementById(\"ci-nogps-wrap\").style.display=\"none\";var el=document.getElementById(\"ci-te-input\");if(el)el.value=\"0\";' style='padding:6px 14px;border:none;cursor:pointer;font-size:11px;font-weight:700;background:"+(_noGPS?'rgba(255,255,255,.05)':'rgba(99,102,241,.35)')+";color:"+(_noGPS?'#64748b':'#a5b4fc')+";'>📡 Con GPS</button>";
+  h += "<button onclick='window._ciSinGPS=true;document.getElementById(\"ci-te-wrap\").style.display=\"none\";document.getElementById(\"ci-nogps-wrap\").style.display=\"flex\";' style='padding:6px 14px;border:none;cursor:pointer;font-size:11px;font-weight:700;background:"+(_noGPS?'rgba(124,58,237,.35)':'rgba(255,255,255,.05)')+";color:"+(_noGPS?'#c084fc':'#64748b')+";'>🚫 Sin GPS</button>";
+  h += "</div></div>";
+
+  // Campo tiempoExtra (sala/pre) — visible solo con GPS
+  h += "<div id='ci-te-wrap' style='display:"+(_noGPS?'none':'flex')+";flex-direction:column;gap:4px;'>";
+  h += "<div style='font-size:9px;font-weight:800;color:#888;letter-spacing:.06em;text-transform:uppercase;'>Tiempo sala / pre-campo <span style='color:#f59e0b;'>(grupal)</span></div>";
+  h += "<div style='display:flex;align-items:center;gap:6px;'>";
+  h += "<input id='ci-te-input' type='number' min='0' max='120' value='"+_teVal+"' onchange='window._ciTiempoExtra=parseInt(this.value)||0;' style='width:70px;padding:6px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:rgba(255,255,255,.06);color:#e2e8f0;font-size:13px;font-weight:700;text-align:center;'>";
+  h += "<span style='font-size:11px;color:#64748b;'>min · UA += RPE × este tiempo</span>";
+  h += "</div></div>";
+
+  // Campo tiempo sesión sin GPS — visible solo sin GPS
+  h += "<div id='ci-nogps-wrap' style='display:"+(_noGPS?'flex':'none')+";flex-direction:column;gap:4px;'>";
+  h += "<div style='font-size:9px;font-weight:800;color:#888;letter-spacing:.06em;text-transform:uppercase;'>Tiempo total sesión <span style='color:#c084fc;'>(grupal)</span></div>";
+  h += "<div style='display:flex;align-items:center;gap:6px;'>";
+  h += "<input id='ci-nogps-input' type='number' min='0' max='240' value='"+_teVal+"' onchange='window._ciTiempoExtra=parseInt(this.value)||0;' style='width:70px;padding:6px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:rgba(255,255,255,.06);color:#e2e8f0;font-size:13px;font-weight:700;text-align:center;'>";
+  h += "<span style='font-size:11px;color:#64748b;'>min · UA = RPE × este tiempo (sin GPS)</span>";
+  h += "</div></div>";
+
+  // Resumen fórmula activa
+  if(_noGPS){
+    h += "<div style='padding:6px 12px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.2);border-radius:8px;font-size:10px;color:#c084fc;align-self:flex-end;'>";
+    h += "🚫 Sin GPS → <b>UA = RPE × "+(_teVal||'?')+" min sesión</b></div>";
+  } else if(_teVal > 0){
+    h += "<div style='padding:6px 12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);border-radius:8px;font-size:10px;color:#fbbf24;align-self:flex-end;'>";
+    h += "⚡ UA = RPE × (GPS + "+_teVal+" min sala)</div>";
+  } else {
+    h += "<div style='padding:6px 12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;font-size:10px;color:#475569;align-self:flex-end;'>";
+    h += "📡 UA = RPE × tiempo GPS (modo estándar)</div>";
+  }
+
+  h += "</div></div>"; // fin panel config
 
   // ── Selector de fecha ────────────────────────────────────────
   h += "<div style='display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;'>";
@@ -22329,9 +22884,38 @@ function novLoad(){ try{ var d=localStorage.getItem('BFC_NOV'); if(d) NOVEDADES_
 
 function dispGetEstado(jugId, fecha){
   dispLoad();
-  var registros = safeArr(DISP_DB).filter(function(r){ return r.jugadorId===jugId && r.fecha===fecha; });
+  // Buscar el registro más reciente cuya fecha sea <= la fecha pedida
+  // (no solo exactamente ese día — un estado de baja del lunes debe seguir vigente el martes)
+  var registros = safeArr(DISP_DB).filter(function(r){ return r.jugadorId===jugId && r.fecha<=fecha; });
   if(!registros.length) return {estado:'disponible', restriccion:'', protocolo:'', notas:''};
-  return registros[registros.length-1];
+  // Ordenar por fecha desc y tomar el más reciente
+  registros.sort(function(a,b){ return (b.fecha||'').localeCompare(a.fecha||''); });
+  return registros[0];
+}
+
+// Devuelve array de jugadores con retorno estimado llegado o pasado hoy
+// {jugadorId, nombre, retornoEstimado, estado, diasVencido}
+function dispGetRetornosVencidos(){
+  dispLoad();
+  var hoy = TODAY;
+  var plantel = (safeArr(JDB).length>0) ? safeArr(JDB) : safeArr(PL);
+  var vistos = {};
+  var resultado = [];
+  // Para cada jugador, obtener su estado vigente
+  plantel.forEach(function(j){
+    var est = dispGetEstado(j.id, hoy);
+    if(!est || est.estado==='disponible') return;
+    var ret = est.retornoEstimado || '';
+    if(!ret) return;
+    if(ret > hoy) return; // aún no llega
+    if(vistos[j.id]) return;
+    vistos[j.id] = true;
+    var ms = new Date(hoy) - new Date(ret);
+    var diasVencido = Math.round(ms / 86400000);
+    var nombre = ((j.nombre||j.name||'')+ ' ' +(j.apellido||j.lastname||'')).trim();
+    resultado.push({ jugadorId: j.id, nombre: nombre, retornoEstimado: ret, estado: est.estado, diasVencido: diasVencido });
+  });
+  return resultado;
 }
 
 var DISP_ESTADOS = [
@@ -22448,6 +23032,29 @@ function renderDisponibilidad(){
     + "<div class='ph-sub'>Control diario · Protocolos de recuperación · Prevención lesional</div></div>"
     + "<button onclick='dispExportarResumen()' style='background:#1a1a1a;color:#f5c800;border:none;padding:8px 16px;border-radius:var(--r-sm);cursor:pointer;font-weight:700;font-size:11px;'>📋 Exportar Reporte</button>"
     + "</div>";
+
+  // ── Alertas de retorno estimado vencido ──────────────────────────
+  (function(){
+    var vencidos = dispGetRetornosVencidos();
+    if(!vencidos.length) return;
+    h += "<div style='background:linear-gradient(135deg,rgba(239,68,68,.12),rgba(251,146,60,.08));border:1px solid rgba(239,68,68,.35);border-radius:14px;padding:14px 16px;margin-bottom:16px;'>";
+    h += "<div style='display:flex;align-items:center;gap:8px;margin-bottom:10px;'>";
+    h += "<span style='font-size:18px;'>⚠️</span>";
+    h += "<div><div style='font-size:13px;font-weight:800;color:#fca5a5;'>Retorno estimado vencido</div>";
+    h += "<div style='font-size:10px;color:#94a3b8;margin-top:1px;'>"+vencidos.length+" jugador"+(vencidos.length>1?"es tienen":"tiene")+" fecha de retorno que ya pasó — se requiere actualizar el estado médico.</div></div></div>";
+    vencidos.forEach(function(v){
+      var diasTxt = v.diasVencido===0 ? "Hoy es el día estimado de retorno" : "Venció hace "+v.diasVencido+" día"+(v.diasVencido>1?"s":"");
+      var _DE = {rehabilitacion:'Rehabilitación',baja:'Baja',readaptacion:'Readaptación',recuperacion:'Recuperación',restriccion:'Restricción'};
+      h += "<div style='display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(0,0,0,.2);border-radius:10px;padding:9px 12px;margin-bottom:6px;'>";
+      h += "<div style='display:flex;align-items:center;gap:10px;'>";
+      h += "<div style='width:32px;height:32px;border-radius:50%;background:#1e293b;border:2px solid #ef4444;display:flex;align-items:center;justify-content:center;font-size:14px;'>🏥</div>";
+      h += "<div><div style='font-size:12px;font-weight:700;color:#f1f5f9;'>"+escHtml(v.nombre)+"</div>";
+      h += "<div style='font-size:10px;color:#94a3b8;margin-top:1px;'>"+(_DE[v.estado]||v.estado)+" · "+diasTxt+"</div></div></div>";
+      h += "<button onclick='dispAbrirModal(\""+v.jugadorId+"\",\""+hoy+"\")' style='background:#ef4444;border:none;color:#fff;border-radius:9px;padding:7px 13px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;'>✏️ Actualizar</button>";
+      h += "</div>";
+    });
+    h += "</div>";
+  })();
 
   var tabs = [
     {k:'diaria',       l:'📋 Control Diario'},
@@ -22744,6 +23351,24 @@ function dispSelEstado(key){
   if(rehabFields){
     rehabFields.style.display = (key==='rehabilitacion'||key==='readaptacion') ? 'block' : 'none';
   }
+}
+
+// Abrir modal de disponibilidad médica desde cualquier módulo
+// Navega al módulo de disponibilidad y luego abre el modal
+function dispAbrirModal(jid, fecha){
+  var plantel = (safeArr(JDB).length>0) ? safeArr(JDB) : safeArr(PL);
+  var j = plantel.find(function(x){ return x.id===jid; });
+  var nombre = j ? ((j.nombre||j.name||'')+ ' ' +(j.apellido||j.lastname||'')).trim() : jid;
+  var pgDisp = document.getElementById('page-disponibilidad');
+  if(pgDisp && pgDisp.classList.contains('on')){
+    dispEditarEstado(jid, fecha, nombre);
+    return;
+  }
+  if(typeof showPage === 'function') showPage('disponibilidad');
+  setTimeout(function(){
+    renderDisponibilidad();
+    setTimeout(function(){ dispEditarEstado(jid, fecha, nombre); }, 200);
+  }, 250);
 }
 
 function dispEditarEstado(jid, fecha, nombre){
