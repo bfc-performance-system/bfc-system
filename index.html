@@ -2044,6 +2044,8 @@ function plantillaGrupo(linea){
 // Solo si el área médica marcó 'disponible', el cuerpo técnico puede
 // marcar al jugador como no_disponible (por motivos tácticos/logísticos).
 function plantillaEstado(j){
+  // Jugadores manuales (sub-20, a prueba) siempre son 'ok' — fueron agregados intencionalmente
+  if(j._esManual) return 'ok';
   // 1. Leer estado clínico de Disponibilidad
   var dispEst = dispGetEstado(j.id, TODAY);
   var dispKey = (dispEst && dispEst.estado) ? dispEst.estado : 'disponible';
@@ -2632,7 +2634,10 @@ function plantillaAgregarManual(prefill){
   html += "<div style='font-size:11px;color:#64748b;margin-bottom:16px;'>Para sub-20, jugadores a prueba u otros que no están en el plantel registrado.</div>";
   var posOpts = ['Portero','Lateral Derecho','Lateral Izquierdo','Central Derecho','Central Izquierdo','Medio Centro','Volante Interior Derecho','Volante Interior Izquierdo','Media Punta','Extremo Derecho','Extremo Izquierdo','Delantero Centro'];
   var _inpStyle = "width:100%;padding:8px 12px;background:#1e293b;border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-size:13px;box-sizing:border-box;";
-  html += "<div class='fld' style='margin-bottom:10px;'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Nombre *</label><input id='pm-n' class='inp' placeholder='Carlos Amaya' value='"+escHtml(prefill.nombre||'')+"' style='"+_inpStyle+"'></div>";
+  html += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;'>";
+  html += "<div class='fld'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Nombre *</label><input id='pm-n' class='inp' placeholder='Carlos' value='"+escHtml(prefill.nombre||'')+"' style='"+_inpStyle+"'></div>";
+  html += "<div class='fld'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Apellido *</label><input id='pm-ap' class='inp' placeholder='Amaya' value='"+escHtml(prefill.apellido||'')+"' style='"+_inpStyle+"'></div>";
+  html += "</div>";
   // Edad + Fecha de nacimiento (en fila)
   html += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;'>";
   html += "<div class='fld'><label style='font-size:11px;color:#94a3b8;display:block;margin-bottom:4px;'>Edad</label><input id='pm-edad' type='number' class='inp' placeholder='20' min='13' max='50' value='"+escHtml(prefill.edad||'')+"' style='"+_inpStyle+"'></div>";
@@ -2661,7 +2666,10 @@ function plantillaConfirmarManual(editId){
   // editId: if provided, update existing manual player; otherwise create new one
   var n = (document.getElementById('pm-n')||{}).value||'';
   n = n.trim();
+  var ap = (document.getElementById('pm-ap')||{}).value||'';
+  ap = ap.trim();
   if(!n){ alert('El nombre es obligatorio.'); return; }
+  if(!ap){ alert('El apellido es obligatorio.'); return; }
   var edad = parseInt((document.getElementById('pm-edad')||{}).value)||0;
   var fnac = ((document.getElementById('pm-fnac')||{}).value||'').trim();
   var pos = (document.getElementById('pm-p')||{}).value||'';
@@ -2671,27 +2679,28 @@ function plantillaConfirmarManual(editId){
     // Update existing manual player
     var idx = _plantillaManual.findIndex(function(x){ return x.id===editId; });
     if(idx>=0){
-      _plantillaManual[idx].nombre  = n;
-      _plantillaManual[idx].edad    = edad||_plantillaManual[idx].edad;
-      _plantillaManual[idx].fechaNac= fnac||_plantillaManual[idx].fechaNac;
-      _plantillaManual[idx].pos     = pos;
-      _plantillaManual[idx].posicion= pos;
-      _plantillaManual[idx].tag     = tag;
+      _plantillaManual[idx].nombre   = n;
+      _plantillaManual[idx].apellido = ap;
+      _plantillaManual[idx].edad     = edad||_plantillaManual[idx].edad;
+      _plantillaManual[idx].fechaNac = fnac||_plantillaManual[idx].fechaNac;
+      _plantillaManual[idx].pos      = pos;
+      _plantillaManual[idx].posicion = pos;
+      _plantillaManual[idx].tag      = tag;
     }
     try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
     if(typeof fbGuardar==='function') fbGuardar();
     closeModal();
     renderPlantilla();
-    toast(n+' actualizado');
+    toast(n+' '+ap+' actualizado');
   } else {
     // Create new manual player
-    var jug = {id:'manual_'+Date.now(), nombre:n, edad:edad, fechaNac:fnac, pos:pos, posicion:pos, tag:tag, _esManual:true};
+    var jug = {id:'manual_'+Date.now(), nombre:n, apellido:ap, edad:edad, fechaNac:fnac, pos:pos, posicion:pos, tag:tag, _esManual:true};
     _plantillaManual.push(jug);
     try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
     if(typeof fbGuardar==='function') fbGuardar();
     closeModal();
     renderPlantilla();
-    toast(n+' agregado a la sesión ('+tag+')');
+    toast(n+' '+ap+' agregado a la sesión ('+tag+')');
   }
 }
 
@@ -17966,13 +17975,16 @@ function sesSyncFb(){
     // Marcar badge como "guardando"
     var badge = document.getElementById('ses-sync-badge');
     if(badge){ badge.textContent='💾 Guardando…'; badge.style.color='#fbbf24'; }
+    var _syncTs = Date.now();
     var payload = Object.assign({}, sesData, {
-      _ts: Date.now(),
+      _ts: _syncTs,
       _fecha: sesData.fecha || new Date().toISOString().slice(0,10)
     });
+    // Marcar inmediatamente para que el listener no re-aplique nuestro propio update
+    _sesLastSyncTs = _syncTs;
     window.fbDB.ref('bfc/sesion_activa').set(payload)
       .then(function(){
-        _sesLastSyncTs = Date.now();
+        _sesLastSyncTs = _syncTs;
         var badge2 = document.getElementById('ses-sync-badge');
         if(badge2){ badge2.textContent='🟢 Guardado'; badge2.style.color='#34d399'; }
         setTimeout(function(){
@@ -18473,6 +18485,13 @@ function renderSesion(){
   var el = document.getElementById("page-sesion");
   if(!el) return;
 
+  // No re-renderizar si el usuario está escribiendo en un campo de la sesión
+  // (evita destruir texto mientras se escribe)
+  var _ae = document.activeElement;
+  if(_ae && (_ae.tagName==='INPUT'||_ae.tagName==='TEXTAREA') && el.contains(_ae)){
+    return; // el usuario tiene foco en un campo — no destruir el DOM
+  }
+
   var plantelAll = JDB.length>0 ? JDB : PL;
   // Agrupar jugadores por posición
   var grupos = {};
@@ -18761,7 +18780,7 @@ function renderSesion(){
     h += "<span style='font-size:9px;font-weight:700;color:rgba(255,255,255,.8);letter-spacing:.08em;text-transform:uppercase;'>"+f[1]+"</span>";
     h += "</div>";
     h += "<div style='padding:6px 8px;'>";
-    h += "<textarea id='"+f[0]+"' class='inp' style='width:100%;min-height:60px;font-size:10px;resize:none;border:none;padding:0;background:transparent;' placeholder='"+f[2]+"'>"+( sesData[f[0]]||"")+"</textarea>";
+    h += "<textarea id='"+f[0]+"' class='inp' style='width:100%;min-height:60px;font-size:10px;resize:none;border:none;padding:0;background:transparent;' placeholder='"+f[2]+"' oninput=\"sesData['"+f[0]+"']=this.value;\" onblur='sesSave();'>"+( sesData[f[0]]||"")+"</textarea>";
     h += "</div></div>";
   });
   h += "</div></div>";
@@ -18822,12 +18841,12 @@ function renderSesion(){
     h += "<div style='background:#1a1a1a;height:26px;display:flex;align-items:center;justify-content:center;flex-shrink:0;'>"
        + "<span style='font-size:9px;font-weight:700;color:var(--text-2);letter-spacing:.08em;text-transform:uppercase;'>OBJETIVO</span></div>";
     h += "<textarea id='ses-to-"+i+"' class='inp' style='flex:1;min-height:60px;resize:none;border-radius:0;border:1px solid var(--border-b);border-top:none;border-bottom:none;font-size:11px;padding:6px 8px;'"
-       + " placeholder='Objetivo de la tarea...'>"+escHtml(t.objetivo||"")+"</textarea>";
+       + " placeholder='Objetivo de la tarea...' oninput='sesData.tareas["+i+"].objetivo=this.value;' onblur='sesSave();'>"+escHtml(t.objetivo||"")+"</textarea>";
     // Header DESCRIPCIÓN
     h += "<div style='background:#e8e8e8;height:26px;display:flex;align-items:center;justify-content:center;border-top:1px solid #d1d5db;border-bottom:1px solid #d1d5db;flex-shrink:0;'>"
        + "<span style='font-size:9px;font-weight:700;color:var(--text-2);letter-spacing:.08em;text-transform:uppercase;'>DESCRIPCIÓN</span></div>";
     h += "<textarea id='ses-td-"+i+"' class='inp' style='flex:1;min-height:70px;resize:none;border-radius:0;border:1px solid var(--border-b);border-top:none;font-size:11px;padding:6px 8px;'"
-       + " placeholder='Descripción del ejercicio, dimensiones, reglas...'>"+escHtml(t.descripcion||"")+"</textarea>";
+       + " placeholder='Descripción del ejercicio, dimensiones, reglas...' oninput='sesData.tareas["+i+"].descripcion=this.value;' onblur='sesSave();'>"+escHtml(t.descripcion||"")+"</textarea>";
     h += "</div>";
 
     // COL 3: Zona de trabajo (campo interactivo)
@@ -18846,12 +18865,12 @@ function renderSesion(){
   // Fase final
   h += "<div style='margin-bottom:6px;'>";
   h += "<label style='background:#0f1623;color:#fff;padding:3px 10px;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:.06em;display:inline-block;margin-bottom:4px;'>FASE FINAL</label>";
-  h += "<textarea id='ses-ff' class='inp' style='width:100%;min-height:40px;resize:vertical;font-size:11px;' placeholder=\"ej. Crioterapia 5', vuelta a la calma, estiramientos...\">"+(sesData.faseFinal||"")+"</textarea>";
+  h += "<textarea id='ses-ff' class='inp' style='width:100%;min-height:40px;resize:vertical;font-size:11px;' placeholder=\"ej. Crioterapia 5', vuelta a la calma, estiramientos...\" oninput='sesData.faseFinal=this.value;' onblur='sesSave();'>"+(sesData.faseFinal||"")+"</textarea>";
   h += "</div>";
   // Observaciones
   h += "<div style='border-top:1px solid var(--border);padding-top:6px;margin-bottom:6px;'>";
   h += "<label style='background:#1a1a1a;color:rgba(255,255,255,.7);padding:3px 10px;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:.06em;display:inline-block;margin-bottom:4px;'>OBSERVACIONES</label>";
-  h += "<textarea id='ses-obs' class='inp' style='width:100%;min-height:40px;resize:vertical;font-size:11px;' placeholder='Observaciones generales de la sesión...'>"+(sesData.observaciones||"")+"</textarea>";
+  h += "<textarea id='ses-obs' class='inp' style='width:100%;min-height:40px;resize:vertical;font-size:11px;' placeholder='Observaciones generales de la sesión...' oninput='sesData.observaciones=this.value;' onblur='sesSave();'>"+(sesData.observaciones||"")+"</textarea>";
   h += "</div>";
   // Video análisis
   h += "<div style='border-top:1px solid var(--border);padding-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;'>";
@@ -18864,8 +18883,9 @@ function renderSesion(){
   h += "<div class='card' style='margin-bottom:8px;padding:8px 12px;'>";
   h += "<div class='lbl' style='margin-bottom:6px;'>Roles del staff</div>";
   h += "<div style='display:grid;grid-template-columns:repeat(5,1fr);gap:6px;'>";
-  [["ses-rdt","DT",sesData.rolDT],["ses-rat1","AT1",sesData.rolAT1],["ses-rat2","AT2",sesData.rolAT2],["ses-rpf","PF",sesData.rolPF],["ses-rva","VA/PF",sesData.rolVA]].forEach(function(r){
-    h += "<div><label style='font-size:9px;font-weight:700;color:#fff;background:#0f1623;padding:2px 6px;border-radius:3px;display:inline-block;margin-bottom:3px;'>"+r[1]+"</label><textarea id='"+r[0]+"' class='inp' style='min-height:44px;font-size:10px;resize:none;' placeholder='Tareas del "+r[1]+"...'>"+( r[2]||"")+"</textarea></div>";
+  [["ses-rdt","DT","rolDT"],["ses-rat1","AT1","rolAT1"],["ses-rat2","AT2","rolAT2"],["ses-rpf","PF","rolPF"],["ses-rva","VA/PF","rolVA"]].forEach(function(r){
+    var rVal = sesData[r[2]]||"";
+    h += "<div><label style='font-size:9px;font-weight:700;color:#fff;background:#0f1623;padding:2px 6px;border-radius:3px;display:inline-block;margin-bottom:3px;'>"+r[1]+"</label><textarea id='"+r[0]+"' class='inp' style='min-height:44px;font-size:10px;resize:none;' placeholder='Tareas del "+r[1]+"...' oninput=\"sesData['"+r[2]+"']=this.value;\" onblur='sesSave();'>"+rVal+"</textarea></div>";
   });
   h += "</div></div>";
 
@@ -19793,7 +19813,6 @@ function trigCampoZona(el){
 }
 
 function campoSelZona(tareaIdx, zona){
-  sesSave();
   if(!sesData.tareas[tareaIdx]) return;
   var t = sesData.tareas[tareaIdx];
   if(!zona){
@@ -19811,6 +19830,8 @@ function campoSelZona(tareaIdx, zona){
       t.zonaData.zonas.push(zona); // agregar
     }
   }
+  // Guardar DESPUÉS de modificar zonaData para que el sync incluya el cambio
+  sesSave();
   var contenedor = document.getElementById("mini-campo-"+tareaIdx);
   if(contenedor) contenedor.innerHTML = campoSVGInteractivo(tareaIdx, "100%", 150);
   else renderSesion();
