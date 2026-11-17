@@ -2079,6 +2079,9 @@ function plantillaEstado(j){
 function renderPlantilla(){
   var el = document.getElementById('page-plantilla');
   if(!el) return;
+  // No re-renderizar si hay un modal abierto (evita destruir campos mientras el usuario escribe)
+  var _ov2 = document.getElementById("overlay");
+  if (_ov2 && _ov2.style.display !== "none") return;
   var plantelAll = safeArr(JDB).length>0 ? safeArr(JDB) : safeArr(PL);
   var hoy = TODAY;
   var hoyLabel = new Date().toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
@@ -9360,6 +9363,10 @@ function _eliminarEventoOk(id) {
 // ================================================
 var posFilter = "Todos";
 function renderPlantel() {
+  // No re-renderizar si hay un modal abierto (evita destruir campos mientras el usuario escribe)
+  var _ov = document.getElementById("overlay");
+  if (_ov && _ov.style.display !== "none") return;
+
   var poss = ["Todos"].concat(safeArr(PL).map(function(p){return p.pos;}).filter(function(v,i,a){return a.indexOf(v)===i;}));
   var list = posFilter==="Todos" ? safeArr(PL) : safeArr(PL).filter(function(p){return p.pos===posFilter;});
 
@@ -9745,8 +9752,20 @@ function gpsToggleJug(id){
   // Sincronizar legacy (primer jugador seleccionado o vacío)
   window._gpsFilJug = window._gpsFilJugs[0] || '';
   window._cargaJugFiltro = window._gpsFilJug || null;
-  // Redibujar barra y contenido
+  // Redibujar barra y contenido — y volver a abrir el panel para permitir
+  // seleccionar varios jugadores sin que se cierre con cada clic
+  window._gpsKeepPanelOpen = true;
   renderCarga();
+  // El panel se reconstruye en renderCarga; reabrirlo si estaba abierto
+  setTimeout(function(){
+    if(window._gpsKeepPanelOpen){
+      var p = document.getElementById('gps-jug-panel');
+      if(p) p.style.display = 'block';
+      var inp = document.getElementById('gps-jug-search');
+      if(inp) inp.focus();
+      window._gpsKeepPanelOpen = false;
+    }
+  }, 0);
 }
 function aplicarFiltrosGPS(){
   var selPos = document.getElementById('gps-fil-pos-global');
@@ -14228,7 +14247,8 @@ function renderMicro(){
     "<div id='mc-pnl-preview' style='display:none;'></div>";
 
   // Ahora los paneles existen en el DOM — llamar mcGoTab
-  mcGoTab("datos");
+  // Respetar la pestaña activa actual; solo resetear a "datos" si no hay ninguna
+  mcGoTab(mcCurTab || "datos");
 }
 
 function mcToggleGuia(){
