@@ -749,9 +749,33 @@ function _fbEstimarTamanoPayload(payload) {
   } catch(e) { return 0; }
 }
 
+// Listener dedicado para historial — reacciona inmediatamente cuando histSave() sube al nodo bfc/historial
+// Esto garantiza que todos los dispositivos vean la sesión guardada sin esperar el payload completo
+function fbEscucharHistorial() {
+  if (!fbDB) return;
+  fbDB.ref('bfc/historial').on('value', function(snap) {
+    var remoto = snap.val();
+    if (!remoto || !Array.isArray(remoto)) return;
+    // Ignorar el eco de nuestro propio guardado reciente (ventana de 5s)
+    var ahoraMs = Date.now();
+    if (_histSaveTs > 0 && (ahoraMs - _histSaveTs) < 5000) return;
+    // Solo aplicar si el contenido es diferente
+    if (JSON.stringify(remoto) !== JSON.stringify(HISTORIAL_DB)) {
+      HISTORIAL_DB = remoto;
+      try { localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); } catch(e) {}
+      // Si el historial está abierto, re-renderizar
+      var pgH = document.getElementById('page-historial');
+      if (pgH && pgH.classList.contains('on') && typeof renderHistorial === 'function') {
+        renderHistorial();
+      }
+    }
+  });
+}
+
 // Escuchar cambios en tiempo real desde Firebase → actualizar variables locales
 function fbEscuchar() {
   if (!fbDB) return;
+  fbEscucharHistorial(); // listener dedicado para historial
   fbDB.ref('bfc').on('value', function(snap) {
     var d = snap.val();
     if (!d) return;
@@ -827,11 +851,11 @@ function fbEscuchar() {
     if (d.pruebas && JSON.stringify(d.pruebas) !== JSON.stringify(PRUEBAS))     { PRUEBAS   = d.pruebas;   rerender = true; }
     if (d.ci_db   && JSON.stringify(d.ci_db)   !== JSON.stringify(CI_DB))       { CI_DB     = d.ci_db;     try{ localStorage.setItem('BFC_CI', JSON.stringify(CI_DB)); }catch(e){} rerender = true; }
     if (d.historial && JSON.stringify(d.historial) !== JSON.stringify(HISTORIAL_DB)) {
-      // Solo aplicar si Firebase tiene nuestra versión más reciente (d.ts >= _histSaveTs)
-      // Si acabamos de guardar localmente y Firebase aún no tiene esa versión,
-      // ignoramos la actualización para no perder la sesión recién guardada.
-      var _dTs = d.ts || 0;
-      if (_dTs >= _histSaveTs) {
+      // Ignorar si acabamos de guardar el historial en los últimos 5s
+      // (el listener de bfc/historial ya lo manejó correctamente)
+      var _ahoraHist = Date.now();
+      var _ignorarHist = _histSaveTs > 0 && (_ahoraHist - _histSaveTs) < 5000;
+      if (!_ignorarHist) {
         HISTORIAL_DB = d.historial;
         try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){}
         rerender = true;
@@ -1784,6 +1808,17 @@ function irA(id) {
   // Detener listener de jornada si se navega fuera del módulo
   if(id !== 'jornada' && typeof jornadaDetenerListener === 'function') jornadaDetenerListener();
   ejLoad(); histLoad(); notifLoad(); notifActualizarBadge(); ppLoad();
+  // Al navegar al historial: forzar lectura fresca de Firebase para ver sesiones guardadas desde otros dispositivos
+  if(id === 'historial' && window.fbDB){
+    window.fbDB.ref('bfc/historial').once('value', function(snap){
+      var remoto = snap.val();
+      if(remoto && Array.isArray(remoto) && JSON.stringify(remoto) !== JSON.stringify(HISTORIAL_DB)){
+        HISTORIAL_DB = remoto;
+        try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){}
+        if(typeof renderHistorial==='function') renderHistorial();
+      }
+    });
+  }
   var renders = {
     // ── Nuevos módulos ──
     plantilla:    renderPlantilla,
@@ -17989,7 +18024,7 @@ function sesSyncFb(){
     var _syncTs = Date.now();
     var payload = Object.assign({}, sesData, {
       _ts: _syncTs,
-      _fecha: sesData.fecha || new Date().toISOString().slice(0,10)
+      _fecha: sesData.fecha || TODAY
     });
     // Marcar inmediatamente para que el listener no re-aplique nuestro propio update
     _sesLastSyncTs = _syncTs;
@@ -18019,8 +18054,8 @@ function sesEscucharFb(){
     var d = snap.val();
     if(!d) return;
     // Solo aplicar si viene de otro dispositivo (ts > nuestro último sync)
-    // y es del día de hoy
-    var hoyISO = new Date().toISOString().slice(0,10);
+    // y es del día de hoy (usar fecha local, no UTC)
+    var hoyISO = TODAY;
     if((d._fecha||'') !== hoyISO) return;
     if((d._ts||0) <= _sesLastSyncTs) return;
     // Aplicar datos remotos: actualizar sesData sin pisar con una versión vieja
@@ -18051,7 +18086,7 @@ function sesCargarActivaFb(cb){
   window.fbDB.ref('bfc/sesion_activa').once('value', function(snap){
     var d = snap.val();
     if(!d){ if(cb) cb(false); return; }
-    var hoyISO = new Date().toISOString().slice(0,10);
+    var hoyISO = TODAY; // usar fecha local, no UTC
     if((d._fecha||d.fecha||'') !== hoyISO){ if(cb) cb(false); return; }
     // Hay una sesión activa de hoy → cargarla
     sesData = d;
@@ -18118,7 +18153,7 @@ function _sesInitBlanco(){
   var idsActivos = plantelBase.map(function(p){return p.id;});
   sesData = {
     // Encabezado
-    fecha: new Date().toISOString().slice(0,10),
+    fecha: TODAY, // fecha local (no UTC) para evitar desfase en horas nocturnas
     sesionNum: "",
     morfociclo: "",
     numJugadores: String(idsActivos.length),
@@ -18489,6 +18524,8 @@ function sesLoadImg(i, inp){
     if(prev) prev.innerHTML = "<img src='"+e.target.result+"' style='width:100%;border-radius:var(--r-md);max-height:180px;object-fit:cover;'>";
     var btn = document.getElementById("ses-img-btn-"+i);
     if(btn) btn.textContent = "Cambiar imagen";
+    // Sincronizar imagen a Firebase inmediatamente para que no se pierda
+    sesSave();
   };
   r.readAsDataURL(f);
 }
@@ -20172,7 +20209,17 @@ function histSave(){
   // Marcar timestamp ANTES del debounce para que el listener de Firebase
   // no sobreescriba nuestro historial recién guardado con la versión anterior
   _histSaveTs = Date.now();
-  fbGuardar(); // sincronizar historial sesiones a Firebase
+  // Subir historial DIRECTAMENTE a Firebase sin debounce — garantiza que no se pierda
+  // aunque otro update llegue antes de que fbGuardar() ejecute su debounce de 800ms
+  if(window.fbDB){
+    var _snapHist = JSON.parse(JSON.stringify(HISTORIAL_DB));
+    window.fbDB.ref('bfc/historial').set(_snapHist).then(function(){
+      console.log('[BFC] Historial guardado en Firebase:', _snapHist.length, 'sesiones');
+    }).catch(function(e){
+      console.warn('[BFC] Error historial en Firebase:', e.message);
+    });
+  }
+  fbGuardar(); // payload completo (debounce 800ms, como respaldo)
   fbAuditLog('historial','Guardado historial de sesiones');
 }
 function histLoad(){
@@ -20194,7 +20241,7 @@ function guardarEnHistorial(){
   sesSave();
   histLoad();
   // Fecha en formato ISO yyyy-mm-dd (compatible con calendario de Programación)
-  var fechaISO = sesData.fecha || new Date().toISOString().slice(0,10);
+  var fechaISO = sesData.fecha || TODAY;
   // Si venimos de _histEditarOk, buscar por ID para actualizar la sesión original
   var existe = -1;
   if(sesData._editandoHistId){
