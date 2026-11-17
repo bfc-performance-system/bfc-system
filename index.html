@@ -826,7 +826,17 @@ function fbEscuchar() {
     if (d.bien_sesiones && JSON.stringify(d.bien_sesiones) !== JSON.stringify(BIEN_SESIONES)) { BIEN_SESIONES = safeArr(d.bien_sesiones); try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){} rerender = true; }
     if (d.pruebas && JSON.stringify(d.pruebas) !== JSON.stringify(PRUEBAS))     { PRUEBAS   = d.pruebas;   rerender = true; }
     if (d.ci_db   && JSON.stringify(d.ci_db)   !== JSON.stringify(CI_DB))       { CI_DB     = d.ci_db;     try{ localStorage.setItem('BFC_CI', JSON.stringify(CI_DB)); }catch(e){} rerender = true; }
-    if (d.historial && JSON.stringify(d.historial) !== JSON.stringify(HISTORIAL_DB)) { HISTORIAL_DB = d.historial; try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){} rerender = true; }
+    if (d.historial && JSON.stringify(d.historial) !== JSON.stringify(HISTORIAL_DB)) {
+      // Solo aplicar si Firebase tiene nuestra versión más reciente (d.ts >= _histSaveTs)
+      // Si acabamos de guardar localmente y Firebase aún no tiene esa versión,
+      // ignoramos la actualización para no perder la sesión recién guardada.
+      var _dTs = d.ts || 0;
+      if (_dTs >= _histSaveTs) {
+        HISTORIAL_DB = d.historial;
+        try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){}
+        rerender = true;
+      }
+    }
     if (d.ejercicios && JSON.stringify(d.ejercicios) !== JSON.stringify(EJERCICIOS_DB)) { EJERCICIOS_DB = d.ejercicios; try{ localStorage.setItem('BFC_EJERCICIOS', JSON.stringify(EJERCICIOS_DB)); }catch(e){} rerender = true; }
     if (d.notif && JSON.stringify(d.notif) !== JSON.stringify(NOTIF_DB))        { NOTIF_DB  = d.notif;     try{ localStorage.setItem('BFC_NOTIF', JSON.stringify(NOTIF_DB)); }catch(e){} rerender = true; notifActualizarBadge(); }
     // Claves adicionales — escribir directamente a localStorage
@@ -1298,6 +1308,7 @@ function fbGuardarFotos() {
 }
 var EJERCICIOS_DB = [];
 var HISTORIAL_DB = [];
+var _histSaveTs = 0; // timestamp del último guardado local del historial (para evitar sobreescritura por Firebase listener)
 var NOTIF_DB = []; // Centro de notificaciones
 var CI_DB = [];    // Carga Interna (RPE × Tiempo)
 var PP_DB = [];    // Post Partido (informes de partido)
@@ -18141,12 +18152,12 @@ function _sesInitBlanco(){
 
 function sesSave(){
   if(!sesData) return;
-  // Encabezado
-  sesData.fecha = gEl("ses-fecha")||sesData.fecha;
-  sesData.sesionNum = gEl("ses-num")||sesData.sesionNum;
-  sesData.morfociclo = gEl("ses-morfo")||sesData.morfociclo;
-  sesData.numJugadores = gEl("ses-njug")||sesData.numJugadores;
-  sesData.tiempo = gEl("ses-tiempo")||sesData.tiempo;
+  // Encabezado — fallback al valor actual de sesData si el DOM no está visible
+  sesData.fecha        = document.getElementById("ses-fecha")  ? (gEl("ses-fecha") ||sesData.fecha)        : sesData.fecha;
+  sesData.sesionNum    = document.getElementById("ses-num")    ? (gEl("ses-num")   ||sesData.sesionNum)    : sesData.sesionNum;
+  sesData.morfociclo   = document.getElementById("ses-morfo")  ? (gEl("ses-morfo") ||sesData.morfociclo)   : sesData.morfociclo;
+  sesData.numJugadores = document.getElementById("ses-njug")   ? (gEl("ses-njug")  ||sesData.numJugadores) : sesData.numJugadores;
+  sesData.tiempo       = document.getElementById("ses-tiempo") ? (gEl("ses-tiempo")||sesData.tiempo)       : sesData.tiempo;
   var codEl = document.getElementById("ses-codigo");
   var codRaw = codEl ? codEl.value : (sesData.codigo||"");
   if(codRaw === "__manual__"){
@@ -18154,29 +18165,33 @@ function sesSave(){
     codRaw = codManEl ? (codManEl.value||"").trim() : "";
   }
   sesData.codigo = codRaw;
-  // Objetivos (simplificados)
-  sesData["ses-tac"] = gEl("ses-tac")||""; sesData["ses-tec"] = gEl("ses-tec")||"";
-  sesData["ses-fis"] = gEl("ses-fis")||""; sesData["ses-psi"] = gEl("ses-psi")||"";
+  // Objetivos (simplificados) — usar valor actual de sesData como fallback para no borrar si el DOM no está visible
+  sesData["ses-tac"] = document.getElementById("ses-tac") ? gEl("ses-tac") : (sesData["ses-tac"]||"");
+  sesData["ses-tec"] = document.getElementById("ses-tec") ? gEl("ses-tec") : (sesData["ses-tec"]||"");
+  sesData["ses-fis"] = document.getElementById("ses-fis") ? gEl("ses-fis") : (sesData["ses-fis"]||"");
+  sesData["ses-psi"] = document.getElementById("ses-psi") ? gEl("ses-psi") : (sesData["ses-psi"]||"");
   // CDEF (metodología Raymond Bernheim) — selector + nota
   var cdefSelEl = document.getElementById("ses-cdef-sel");
-  sesData.cdefSel = cdefSelEl ? cdefSelEl.value : (sesData.cdefSel||"");
-  sesData.cdefNota = gEl("ses-cdef-nota")||"";
-  // Tareas
+  sesData.cdefSel  = cdefSelEl ? cdefSelEl.value : (sesData.cdefSel||"");
+  sesData.cdefNota = document.getElementById("ses-cdef-nota") ? gEl("ses-cdef-nota") : (sesData.cdefNota||"");
+  // Tareas — fallback al valor actual de sesData si el DOM no está visible
   sesData.tareas.forEach(function(t,i){
-    t.titulo = gEl("ses-tt-"+i)||t.titulo;
-    t.objetivo = gEl("ses-to-"+i)||"";
-    t.descripcion = gEl("ses-td-"+i)||"";
-    t.tiempo = gEl("ses-tm-"+i)||"";
-    t.videoLink = gEl("ses-tvid-"+i)||t.videoLink||"";
+    t.titulo      = document.getElementById("ses-tt-"+i)   ? (gEl("ses-tt-"+i)  ||t.titulo)       : t.titulo;
+    t.objetivo    = document.getElementById("ses-to-"+i)   ? gEl("ses-to-"+i)                     : (t.objetivo||"");
+    t.descripcion = document.getElementById("ses-td-"+i)   ? gEl("ses-td-"+i)                     : (t.descripcion||"");
+    t.tiempo      = document.getElementById("ses-tm-"+i)   ? (gEl("ses-tm-"+i)  ||t.tiempo)       : t.tiempo;
+    t.videoLink   = document.getElementById("ses-tvid-"+i) ? (gEl("ses-tvid-"+i)||t.videoLink||"") : (t.videoLink||"");
   });
-  // Fase final + observaciones
-  sesData.faseFinal = gEl("ses-ff")||"";
-  sesData.observaciones = gEl("ses-obs")||"";
-  sesData.videoLink = gEl("ses-video-link")||"";
-  // Roles
-  sesData.rolDT = gEl("ses-rdt")||""; sesData.rolAT1 = gEl("ses-rat1")||"";
-  sesData.rolAT2 = gEl("ses-rat2")||""; sesData.rolPF = gEl("ses-rpf")||"";
-  sesData.rolVA = gEl("ses-rva")||"";
+  // Fase final + observaciones — fallback al valor actual de sesData si el DOM no está visible
+  sesData.faseFinal    = document.getElementById("ses-ff")         ? gEl("ses-ff")         : (sesData.faseFinal||"");
+  sesData.observaciones= document.getElementById("ses-obs")        ? gEl("ses-obs")        : (sesData.observaciones||"");
+  sesData.videoLink    = document.getElementById("ses-video-link") ? gEl("ses-video-link") : (sesData.videoLink||"");
+  // Roles — fallback al valor actual de sesData si el DOM no está visible
+  sesData.rolDT  = document.getElementById("ses-rdt")  ? gEl("ses-rdt")  : (sesData.rolDT||"");
+  sesData.rolAT1 = document.getElementById("ses-rat1") ? gEl("ses-rat1") : (sesData.rolAT1||"");
+  sesData.rolAT2 = document.getElementById("ses-rat2") ? gEl("ses-rat2") : (sesData.rolAT2||"");
+  sesData.rolPF  = document.getElementById("ses-rpf")  ? gEl("ses-rpf")  : (sesData.rolPF||"");
+  sesData.rolVA  = document.getElementById("ses-rva")  ? gEl("ses-rva")  : (sesData.rolVA||"");
   // Material libre
   var matItems = [];
   var matRows = document.querySelectorAll(".ses-mat-row");
@@ -20154,6 +20169,9 @@ function ejUsarEnSesionTarea(ejId, tareaIdx){
 
 function histSave(){
   localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB));
+  // Marcar timestamp ANTES del debounce para que el listener de Firebase
+  // no sobreescriba nuestro historial recién guardado con la versión anterior
+  _histSaveTs = Date.now();
   fbGuardar(); // sincronizar historial sesiones a Firebase
   fbAuditLog('historial','Guardado historial de sesiones');
 }
