@@ -15245,8 +15245,8 @@ function mcHistVerPreview(hkey){
   MC_DIAS_ACTIVOS   = (rec.dias||[]).slice();
   mcData = JSON.parse(JSON.stringify(rec.data||[]));
   mcFechaFin = MC_FECHAS_ACTIVAS.length ? MC_FECHAS_ACTIVAS[MC_FECHAS_ACTIVAS.length-1] : (mcFechaFin||'');
-  // Mostrar la vista previa visual completa (misma que el botón Vista previa del editor)
-  mcRPreview();
+  // Mostrar la vista previa visual completa sin pisar datos con el editor (que puede estar cerrado)
+  mcRPreview(true);
 }
 
 function mcRenderHistorial(){
@@ -15545,16 +15545,16 @@ function mcSaveTactico(){
 }
 
 // ---- PREVIEW (modal inline igual que sesión) ----
-function mcRPreview(){
-  mcSaveDatos(); mcSaveFisico(); mcSaveTactico();
+function mcRPreview(skipSave){
+  if(!skipSave){ mcSaveDatos(); mcSaveFisico(); mcSaveTactico(); }
 
   var primerP = mcData.find(function(d){return d.tipo==="partido";})||{};
   var rival   = primerP.rival   || "Rival";
   var jornada = primerP.jornada || "";
   var horaP   = primerP.horaPartido || primerP.hIng || "17:00";
   var estadio = primerP.estadio || "";
-  var fecha = mcGF("mc-fecha") || MC_FECHAS_ACTIVAS[0] || "2026-06-15";
-  if(!MC_DIAS_ACTIVOS.length || mcData.length !== MC_DIAS_ACTIVOS.length){
+  var fecha = (skipSave ? null : mcGF("mc-fecha")) || MC_FECHAS_ACTIVAS[0] || "2026-06-15";
+  if(!skipSave && (!MC_DIAS_ACTIVOS.length || mcData.length !== MC_DIAS_ACTIVOS.length)){
     var ffp = mcGF("mc-fechafin") || mcFechaFin || "2026-06-21";
     var diasP = mcCalcularDias(fecha, ffp);
     if(diasP.length){
