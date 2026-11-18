@@ -20494,9 +20494,18 @@ function histLoad(){
   try{ var d = localStorage.getItem('BFC_HISTORIAL'); if(d) HISTORIAL_DB = JSON.parse(d)||[]; }catch(e){}
 }
 function sesGuardarManual(){
+  if(!sesData){ toast('No hay sesión activa para guardar', false); return; }
+  // Guardar estado actual antes de cualquier operación
   sesSave();
+  var _sesDataSnapshot = JSON.parse(JSON.stringify(sesData));
+  var _sesLocalTsSnapshot = _sesLocalTs;
+  // Guardar en historial (hace fbGuardar interno)
   guardarEnHistorial();
-  fbGuardar();
+  // Restaurar sesData por si guardarEnHistorial lo alteró
+  sesData = _sesDataSnapshot;
+  _sesLocalTs = _sesLocalTsSnapshot;
+  // Re-sincronizar sesion_activa a Firebase con los datos correctos
+  sesSyncFb();
   fbAuditLog('sesion','Sesión guardada en historial: '+(sesData.sesionNum||''));
   toast('💾 Sesión guardada en historial');
 }
