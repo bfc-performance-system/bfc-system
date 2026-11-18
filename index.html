@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117q</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117r</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -782,10 +782,34 @@ function fbEscucharHistorial() {
   });
 }
 
+// Escuchar nodo bfc/jornada_cerrada — propaga el cierre de jornada a todos los dispositivos
+function fbEscucharJornadaCerrada(){
+  if(!window.fbDB) return;
+  window.fbDB.ref('bfc/jornada_cerrada').on('value', function(snap){
+    var d = snap.val();
+    if(!d) return;
+    // d es un objeto { 'YYYY-MM-DD': { cerrada:true, ts:..., fecha:... }, ... }
+    Object.keys(d).forEach(function(fecha){
+      if(d[fecha] && d[fecha].cerrada){
+        try{ localStorage.setItem('BFC_JORNADA_CERRADA_'+fecha,'1'); }catch(e){}
+        if(window._jornadaSesionActiva && window._jornadaSesionActiva.fecha===fecha){
+          window._jornadaSesionActiva = null;
+        }
+      }
+    });
+    // Refrescar pantallas visibles
+    var pgI = document.getElementById('page-inicio');
+    if(pgI && pgI.classList.contains('on') && typeof renderInicio==='function') setTimeout(renderInicio,100);
+    var pgJ = document.getElementById('page-jornada');
+    if(pgJ && pgJ.classList.contains('on') && typeof renderJornada==='function') setTimeout(renderJornada,100);
+  });
+}
+
 // Escuchar cambios en tiempo real desde Firebase → actualizar variables locales
 function fbEscuchar() {
   if (!fbDB) return;
   fbEscucharHistorial(); // listener dedicado para historial
+  fbEscucharJornadaCerrada(); // propaga cierre de jornada a todos los dispositivos
   fbDB.ref('bfc').on('value', function(snap) {
     var d = snap.val();
     if (!d) return;
@@ -6721,6 +6745,10 @@ function jornadaCrearSesionForzar(nombre, fecha){
   window._jornadaSesionActiva = nuevaSes;
   // Limpiar bandera de "cerrada" para esta fecha (si se abre nueva sesión, vuelve al modo en vivo)
   try{ localStorage.removeItem('BFC_JORNADA_CERRADA_'+nuevaSes.fecha); }catch(e){}
+  // Limpiar también en Firebase para que todos los dispositivos sepan que la jornada se reabrió
+  if(window.fbDB){
+    window.fbDB.ref('bfc/jornada_cerrada/'+nuevaSes.fecha).remove().catch(function(){});
+  }
   guardar();
   fbGuardar();
   fbAuditLog('jornada','Sesión creada: '+nombre+' ('+fecha+')');
@@ -6806,8 +6834,20 @@ function jornadaCerrar(){
 function jornadaCerrarConfirmado(){
   window._jornadaCerrarConfirmando = false;
   var sesActiva = window._jornadaSesionActiva;
-  // Guardar bandera de jornada cerrada para hoy (el panel inicio la usa para mostrar resumen)
-  try{ localStorage.setItem('BFC_JORNADA_CERRADA_'+TODAY,'1'); }catch(e){}
+  var fechaCierre = (sesActiva && sesActiva.fecha) ? sesActiva.fecha : TODAY;
+  // Guardar bandera localmente
+  try{ localStorage.setItem('BFC_JORNADA_CERRADA_'+fechaCierre,'1'); }catch(e){}
+  // ── Sincronizar cierre a Firebase para que todos los dispositivos lo reciban ──
+  if(window.fbDB){
+    // Escribir estado de cierre en Firebase (con TTL implícito — se borra al crear nueva sesión)
+    window.fbDB.ref('bfc/jornada_cerrada/'+fechaCierre).set({
+      cerrada: true,
+      ts: Date.now(),
+      fecha: fechaCierre
+    }).catch(function(){});
+    // Eliminar sesion_activa de Firebase para que el iPad deje de mostrarla como activa
+    window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
+  }
   window._jornadaSesionActiva = null;
   window._jornadaPaso = 'sesion';
   // Limpiar estado kiosko residual
@@ -7681,8 +7721,8 @@ function renderProgramacion() {
   var _cardMcDia   = _modoManana ? mcDiaManana : mcDiaHoy;
   var _cardSes     = _modoManana ? null : sesHoy; // sesión registrada solo aplica a hoy
 
-  var _sesBg2   = 'rgba(255,255,255,.03)';
-  var _sesBord2 = _modoManana ? 'rgba(245,158,11,.35)' : 'rgba(255,255,255,.08)';
+  var _sesBg2   = '#0e0e1a';
+  var _sesBord2 = _modoManana ? 'rgba(245,158,11,.35)' : 'rgba(255,255,255,.12)';
   var _cardAccent = _modoManana ? '#f59e0b' : '#64748b';
 
   // Click: si modo mañana → va a sesión (para prepararla); si hoy sin sesión → va a sesión
@@ -7762,7 +7802,7 @@ function renderProgramacion() {
   h += "</div>";
 
   // Card: Disponibilidad superficial
-  h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px 18px;'>";
+  h += "<div style='background:#0e0e1a;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px 18px;'>";
   h += "<div style='font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.10em;margin-bottom:12px;'>Disponibilidad</div>";
   h += "<div style='display:flex;gap:8px;flex-wrap:wrap;'>";
   [
@@ -7771,7 +7811,7 @@ function renderProgramacion() {
     {lbl:'No disp.', val:disp.noDisp,    col:'#f87171'},
     {lbl:'Lesion.',  val:disp.lesionados,col:'#a78bfa'}
   ].forEach(function(p){
-    h += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:9px 14px;text-align:center;min-width:60px;'>";
+    h += "<div style='background:#141424;border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:9px 14px;text-align:center;min-width:60px;'>";
     h += "<div style='font-size:20px;font-weight:900;color:"+p.col+";'>"+p.val+"</div>";
     h += "<div style='font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.04em;'>"+p.lbl+"</div>";
     h += "</div>";
@@ -7793,7 +7833,7 @@ function renderProgramacion() {
     var _rpeRegs = safeArr(BIEN).filter(function(b){ return b.fecha===todayStr && b.rpe_post>0; });
     var _rpeAvg  = _rpeRegs.length ? Math.round(_rpeRegs.reduce(function(a,b){ return a+(b.rpe_post||0); },0)/_rpeRegs.length*10)/10 : null;
     var _rpeCol  = _rpeAvg===null ? '#475569' : (_rpeAvg>=8?'#ef4444':_rpeAvg>=6?'#f97316':_rpeAvg>=4?'#eab308':'#22c55e');
-    h += "<div onclick=\"irA('kiosko')\" style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px 18px;cursor:pointer;transition:border-color .2s,box-shadow .2s;' onmouseover=\"this.style.borderColor='rgba(255,255,255,.18)';this.style.boxShadow='0 0 0 3px rgba(255,255,255,.04)'\" onmouseout=\"this.style.borderColor='rgba(255,255,255,.08)';this.style.boxShadow='none'\">";
+    h += "<div onclick=\"irA('kiosko')\" style='background:#0e0e1a;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px 18px;cursor:pointer;transition:border-color .2s,box-shadow .2s;' onmouseover=\"this.style.borderColor='rgba(255,255,255,.22)';this.style.boxShadow='0 0 0 3px rgba(255,255,255,.04)'\" onmouseout=\"this.style.borderColor='rgba(255,255,255,.12)';this.style.boxShadow='none'\">";
     h += "<div style='font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.10em;margin-bottom:8px;'>Wellness · Hoy</div>";
     // Fila: número wellness + badge RPE al lado
     h += "<div style='display:flex;align-items:center;gap:10px;margin-bottom:6px;'>";
@@ -7809,7 +7849,7 @@ function renderProgramacion() {
       h += "<div style='font-size:8px;font-weight:800;color:"+_rpeCol+";text-transform:uppercase;letter-spacing:.06em;margin-top:2px;'>RPE<br><span style='color:#475569;font-weight:600;'>"+_rpeRegs.length+" reg.</span></div>";
       h += "</div>";
     } else {
-      h += "<div style='margin-left:auto;text-align:center;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:5px 10px;min-width:52px;'>";
+      h += "<div style='margin-left:auto;text-align:center;background:#141424;border:1px solid rgba(255,255,255,.10);border-radius:10px;padding:5px 10px;min-width:52px;'>";
       h += "<div style='font-size:18px;font-weight:900;color:#374151;line-height:1;'>—</div>";
       h += "<div style='font-size:8px;font-weight:800;color:#374151;text-transform:uppercase;letter-spacing:.06em;margin-top:2px;'>RPE<br><span style='color:#374151;font-weight:600;'>sin reg.</span></div>";
       h += "</div>";
@@ -7866,7 +7906,7 @@ function renderProgramacion() {
       var _rpeC2 = _rpeA2===null?'#475569':(_rpeA2>=8?'#ef4444':_rpeA2>=6?'#f97316':_rpeA2>=4?'#eab308':'#22c55e');
 
       h += "<div style='padding:0 28px 16px;'>";
-      h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:16px 18px;'>";
+      h += "<div style='background:#0e0e1a;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px 18px;'>";
       // Header con badge "JORNADA CERRADA"
       h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;'>";
       h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;'>Wellness · Resumen jornada</div>";
@@ -7887,7 +7927,7 @@ function renderProgramacion() {
       h += "<div style='font-size:9px;color:#64748b;font-weight:600;margin-top:2px;'>"+(_rpeR2.length>0?_rpeR2.length+' reg.':'sin RPE')+"</div>";
       h += "</div>";
       // Bloque: conteo semáforo
-      h += "<div style='flex:1;min-width:110px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:12px 14px;text-align:center;'>";
+      h += "<div style='flex:1;min-width:110px;background:#141424;border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:12px 14px;text-align:center;'>";
       h += "<div style='display:flex;justify-content:center;gap:8px;'>";
       if(_nRojo>0)   h += "<div style='text-align:center;'><div style='font-size:20px;font-weight:900;color:#f87171;'>"+_nRojo+"</div><div style='font-size:8px;color:#f87171;font-weight:700;'>🔴</div></div>";
       if(_nAmar>0)   h += "<div style='text-align:center;'><div style='font-size:20px;font-weight:900;color:#fbbf24;'>"+_nAmar+"</div><div style='font-size:8px;color:#fbbf24;font-weight:700;'>🟡</div></div>";
@@ -7922,7 +7962,7 @@ function renderProgramacion() {
     });
 
     h += "<div style='padding:0 28px 16px;'>";
-    h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:16px 18px;'>";
+    h += "<div style='background:#0e0e1a;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px 18px;'>";
     h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;'>";
     h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;'>Wellness · Semáforo hoy</div>";
     h += "<div style='font-size:9px;color:#475569;font-weight:600;'>clic para ver detalle</div>";
@@ -7999,7 +8039,7 @@ function renderProgramacion() {
     var bCol2 = avgBProg!==null ? (avgBProg>=7?'#22c55e':avgBProg>=5?'#eab308':'#ef4444') : '#9ca3af';
 
     h += "<div style='padding:0 28px 16px;'>";
-    h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px 18px;'>";
+    h += "<div style='background:#0e0e1a;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:14px 18px;'>";
     h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;'>";
     h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;'>Carga & Rendimiento · Semana actual</div>";
     h += "<div style='display:flex;gap:6px;align-items:center;'>";
@@ -8011,7 +8051,7 @@ function renderProgramacion() {
 
     // ACWR equipo
     if(avgAcwr2!==null){
-      h += "<div style='flex:1;min-width:90px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;text-align:center;'>";
+      h += "<div style='flex:1;min-width:90px;background:#141424;border:1px solid rgba(255,255,255,.10);border-radius:10px;padding:10px 12px;text-align:center;'>";
       h += "<div style='font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:3px;'>ACWR equipo</div>";
       h += "<div style='font-size:22px;font-weight:900;color:"+acwrCol2+";'>"+avgAcwr2+"</div>";
       h += "<div style='font-size:8px;color:#64748b;font-weight:700;'>"+acwrLbl2+"</div>";
@@ -8020,7 +8060,7 @@ function renderProgramacion() {
 
     // Bienestar promedio
     if(avgBProg!==null){
-      h += "<div style='flex:1;min-width:90px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;text-align:center;'>";
+      h += "<div style='flex:1;min-width:90px;background:#141424;border:1px solid rgba(255,255,255,.10);border-radius:10px;padding:10px 12px;text-align:center;'>";
       h += "<div style='font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:3px;'>Bienestar</div>";
       h += "<div style='font-size:22px;font-weight:900;color:"+bCol2+";'>"+avgBProg+"</div>";
       h += "<div style='font-size:8px;color:#64748b;font-weight:700;'>/ 10 · "+bHoyProg.length+" reg.</div>";
@@ -8029,7 +8069,7 @@ function renderProgramacion() {
 
     // UA semana equipo
     if(uaSemEq>0){
-      h += "<div style='flex:1;min-width:90px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;text-align:center;'>";
+      h += "<div style='flex:1;min-width:90px;background:#141424;border:1px solid rgba(255,255,255,.10);border-radius:10px;padding:10px 12px;text-align:center;'>";
       h += "<div style='font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:3px;'>UA equipo sem.</div>";
       h += "<div style='font-size:22px;font-weight:900;color:#f1f5f9;'>"+uaSemEq+"</div>";
       h += "<div style='font-size:8px;color:#64748b;font-weight:700;'>RPE × tiempo</div>";
@@ -8038,7 +8078,7 @@ function renderProgramacion() {
 
     // Alertas — solo rojo si hay alertas reales, si no gris neutro
     var alertaCol = nAlertas>0 ? '#ef4444' : '#94a3b8';
-    h += "<div style='flex:1;min-width:90px;background:rgba(255,255,255,.04);border:1px solid "+(nAlertas>0?'rgba(239,68,68,.3)':'rgba(255,255,255,.08)')+";border-radius:10px;padding:10px 12px;text-align:center;cursor:pointer;' onclick=\"irA('dashboard');setTimeout(function(){window._dbTab='alertas';renderDashboard();},200);\">";
+    h += "<div style='flex:1;min-width:90px;background:#141424;border:1px solid "+(nAlertas>0?'rgba(239,68,68,.3)':'rgba(255,255,255,.10)')+";border-radius:10px;padding:10px 12px;text-align:center;cursor:pointer;' onclick=\"irA('dashboard');setTimeout(function(){window._dbTab='alertas';renderDashboard();},200);\">";
     h += "<div style='font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:3px;'>Alertas ACWR</div>";
     h += "<div style='font-size:22px;font-weight:900;color:"+alertaCol+";'>"+nAlertas+"</div>";
     h += "<div style='font-size:8px;color:#64748b;font-weight:700;'>"+(nAlertas>0?'jugadores >1.3':'Sin alertas')+"</div>";
@@ -8050,7 +8090,7 @@ function renderProgramacion() {
   // ── MICROCICLO SEMANA ACTIVA ──
   if (mcActivo && mcActivo.data && mcActivo.data.length) {
     h += "<div style='padding:0 28px 20px;'>";
-    h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:18px;'>";
+    h += "<div style='background:#0e0e1a;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:18px;'>";
     h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;margin-bottom:14px;'>Microciclo · Semana activa</div>";
     h += "<div style='display:flex;gap:8px;flex-wrap:wrap;'>";
     for (var di3 = 0; di3 < mcActivo.data.length; di3++) {
@@ -8106,7 +8146,7 @@ function renderProgramacion() {
     var _prevSesiones = _mcPrev ? _mcPrev.data.filter(function(d){ return d.fecha>=_prevLunStr&&d.fecha<=_prevDomStr&&d.tipo!=='descanso'; }).length : 0;
     if (_prevPP.length > 0 || _prevSesiones > 0) {
       h += "<div style='padding:0 28px 16px;'>";
-      h += "<div style='background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:14px 18px;'>";
+      h += "<div style='background:#0e0e1a;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:14px 18px;'>";
       h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;margin-bottom:10px;'>Semana pasada · " + _prevLunStr + " — " + _prevDomStr + "</div>";
       h += "<div style='display:flex;gap:14px;align-items:center;flex-wrap:wrap;'>";
       if (_prevPP.length > 0) {
@@ -8127,7 +8167,7 @@ function renderProgramacion() {
 
   // ── CALENDARIO MENSUAL NAVEGABLE ──
   h += "<div style='padding:0 28px 28px;'>";
-  h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:18px;'>";
+  h += "<div style='background:#0e0e1a;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:18px;'>";
 
   // Cabecera mes + navegación
   h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;'>";
@@ -8325,7 +8365,7 @@ function renderProgramacion() {
   var notaValHoy = notaEvHoy ? (notaEvHoy.titulo||'') : notaGuard;
 
   h += "<div style='padding:0 28px 28px;'>";
-  h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px 18px;'>";
+  h += "<div style='background:#0e0e1a;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:14px 18px;'>";
   h += "<div style='display:flex;align-items:center;gap:10px;margin-bottom:8px;'>";
   h += "<span style='font-size:16px;'>📌</span>";
   h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.08em;'>Aviso del día para el staff &mdash; " + todayD + " de " + mesNombres[mm] + "</div>";
