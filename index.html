@@ -2091,7 +2091,10 @@ function plantillaGrupo(linea){
 // marcar al jugador como no_disponible (por motivos tácticos/logísticos).
 function plantillaEstado(j){
   // Jugadores manuales (sub-20, a prueba) siempre son 'ok' — fueron agregados intencionalmente
-  if(j._esManual) return 'ok';
+  // Detectar por flag, por id prefijo 'manual_', o por estar en _plantillaManual
+  var _esMan = j._esManual || (j.id && j.id.toString().indexOf('manual_')===0)
+    || safeArr(_plantillaManual).some(function(m){ return m.id===j.id; });
+  if(_esMan) return 'ok';
   // 1. Leer estado clínico de Disponibilidad
   var dispEst = dispGetEstado(j.id, TODAY);
   var dispKey = (dispEst && dispEst.estado) ? dispEst.estado : 'disponible';
@@ -2174,19 +2177,28 @@ function renderPlantilla(){
 
   // ── CANCHA con posicionamiento lateral real ──
   // Combinar plantel + jugadores manuales de sesión
-  var todosJugs = plantelAll.concat(safeArr(_plantillaManual));
+  // Normalizar _esManual: jugadores en _plantillaManual siempre son manuales aunque el campo no esté
+  var _manualIds = {};
+  safeArr(_plantillaManual).forEach(function(m){ _manualIds[m.id] = true; });
+  var todosJugs = plantelAll.concat(safeArr(_plantillaManual).map(function(m){
+    if(!m._esManual) m._esManual = true; return m;
+  }));
 
   // Aplicar filtro de disponibilidad
   var jugsFiltrados = todosJugs.filter(function(j){
     if(_plantillaFiltro==='todos') return true;
+    // Detectar si es manual por flag O por id OR por estar en _manualIds
+    var esManual = j._esManual || _manualIds[j.id] || (j.id && j.id.toString().indexOf('manual_')===0);
     var estF = plantillaEstado(j);
     if(_plantillaFiltro==='lesion') return estF==='lesion';
+    // Jugadores manuales (sub-20, a prueba, etc.) son siempre "aptos" en el filtro
+    if(esManual) return _plantillaFiltro==='ok';
     var bHoyF = safeArr(BIEN).some(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===hoy; });
     var dispEstF = dispGetEstado(j.id, hoy);
     var tieneDispF = dispEstF && dispEstF.estado && dispEstF.estado !== 'disponible';
     var ovF = _plantillaDisp[j.id]||null;
     var tieneOvF = ovF && (ovF.estado==='disponible'||ovF.estado==='no_disponible');
-    var estEfectivo = (!bHoyF && !tieneOvF && !j._esManual && !tieneDispF) ? 'sindata' : estF;
+    var estEfectivo = (!bHoyF && !tieneOvF && !tieneDispF) ? 'sindata' : estF;
     return estEfectivo === _plantillaFiltro;
   });
 
@@ -2414,7 +2426,9 @@ function renderPlantilla(){
     {label:'Ataque',       col:'#4ade80', codes:['ED','EI','DC']}
   ];
 
-  var todosParaPanel = plantelAll.concat(safeArr(_plantillaManual));
+  var todosParaPanel = plantelAll.concat(safeArr(_plantillaManual).map(function(m){
+    if(!m._esManual) m._esManual = true; return m;
+  }));
 
   _LINEAS_ORDER.forEach(function(linea){
     // Aplicar el mismo filtro de disponibilidad que la cancha
@@ -2423,14 +2437,17 @@ function renderPlantilla(){
     });
     var jugsLinea = jugsLineaTodos.filter(function(j){
       if(_plantillaFiltro==='todos') return true;
+      var esManualP2 = j._esManual || _manualIds[j.id] || (j.id && j.id.toString().indexOf('manual_')===0);
       var estP2 = plantillaEstado(j);
       if(_plantillaFiltro==='lesion') return estP2==='lesion';
+      // Jugadores manuales (sub-20, a prueba, etc.) son siempre "aptos"
+      if(esManualP2) return _plantillaFiltro==='ok';
       var bHoyP2 = safeArr(BIEN).some(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===hoy; });
       var dispEstP2 = dispGetEstado(j.id, hoy);
       var tieneDispP2 = dispEstP2 && dispEstP2.estado && dispEstP2.estado !== 'disponible';
       var ovP2 = _plantillaDisp[j.id]||null;
       var tieneOvP2 = ovP2 && (ovP2.estado==='disponible'||ovP2.estado==='no_disponible');
-      var estEf2 = (!bHoyP2 && !tieneOvP2 && !j._esManual && !tieneDispP2) ? 'sindata' : estP2;
+      var estEf2 = (!bHoyP2 && !tieneOvP2 && !tieneDispP2) ? 'sindata' : estP2;
       return estEf2 === _plantillaFiltro;
     });
     if(!jugsLinea.length) return;
@@ -18107,16 +18124,20 @@ function sesFinalizar(){
   if(!sesData){ toast('No hay sesión activa.'); return; }
   sesSave();
   guardarEnHistorial();
-  // Limpiar sesion_activa en Firebase
-  if(window.fbDB){
-    window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
-  }
-  // Limpiar sesData para nueva sesión
+  // Limpiar sesData para nueva sesión ANTES de tocar Firebase
+  // para que el listener fbEscuchar() no sobreescriba HISTORIAL_DB con datos viejos
   sesData = null;
   _sesLastSyncTs = 0;
   if(typeof renderSesion==='function') renderSesion();
   toast('✅ Sesión finalizada y guardada en historial');
   fbAuditLog('sesion','Sesión finalizada y movida al historial');
+  // Eliminar sesion_activa DESPUÉS de un pequeño delay para que el write
+  // de bfc/historial llegue a Firebase primero y el listener no lo sobreescriba
+  setTimeout(function(){
+    if(window.fbDB){
+      window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
+    }
+  }, 1500);
 }
 window.sesFinalizar = sesFinalizar;
 
@@ -18905,7 +18926,7 @@ function renderSesion(){
     h += "<div style='display:flex;flex-direction:column;'>";
     h += "<div style='background:#1a1a1a;height:26px;display:flex;align-items:center;justify-content:center;flex-shrink:0;'>"
        + "<span style='font-size:9px;font-weight:700;color:rgba(255,255,255,.6);letter-spacing:.06em;text-transform:uppercase;'>ZONA DE TRABAJO</span></div>";
-    h += "<div id='mini-campo-"+i+"' style='flex:1;cursor:pointer;'>"+campoSVGInteractivo(i,"100%",150)+"</div>";
+    h += "<div id='mini-campo-"+i+"' style='flex:0 0 150px;height:150px;cursor:pointer;'>"+campoSVGInteractivo(i,"100%",150)+"</div>";
     h += "</div>";
 
     h += "</div>"; // cierre grid
@@ -19716,7 +19737,7 @@ function campoSVGMini(w, h, zonaData){
   };
 
   var svgW2 = (typeof w === 'string') ? w : (w+'px');
-  var s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+sx_num+' '+sy+'" width="'+svgW2+'" height="'+svgH+'" preserveAspectRatio="xMidYMid slice" style="display:block;width:100%;height:100%;">';
+  var s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+sx_num+' '+sy+'" width="'+svgW2+'" height="'+svgH+'" preserveAspectRatio="none" style="display:block;width:100%;height:100%;">';
 
   // Fondo verde
   s += '<rect width="'+sx_num+'" height="'+sy+'" fill="#1a5c1a"/>';
@@ -19778,7 +19799,6 @@ function campoSVGMini(w, h, zonaData){
 
 function campoSVGInteractivo(tareaIdx, w, h){
   var h2 = h || 150;
-  sesSave();
   var t = sesData && sesData.tareas ? sesData.tareas[tareaIdx] : null;
 
   var zonasActivas = [];
