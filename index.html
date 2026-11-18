@@ -954,10 +954,22 @@ function fbEscuchar() {
     if (d.perf_vars_cfg)  { try{ localStorage.setItem('BFC_PERF_VARS_CFG', JSON.stringify(d.perf_vars_cfg)); }catch(e){} }
     if (d.pp_db) { PP_DB = safeArr(d.pp_db); try{ localStorage.setItem('BFC_POSTPARTIDO_DB', JSON.stringify(PP_DB)); }catch(e){} rerender = true; }
     if (d.lesiones_db) { LESIONES_DB = safeArr(d.lesiones_db); try{ localStorage.setItem('bfc_lesiones', JSON.stringify(LESIONES_DB)); }catch(e){} rerender = true; }
-    if (d.manual_jug && JSON.stringify(d.manual_jug) !== JSON.stringify(_plantillaManual)) {
-      _plantillaManual = safeArr(d.manual_jug);
-      try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
-      rerender = true;
+    if (d.manual_jug !== undefined) {
+      // Usar ts del payload para decidir quién gana (el más reciente)
+      var _remoteTs = d.ts || 0;
+      var _localManualTs = 0; try{ var _lmt=localStorage.getItem('BFC_MANUAL_JUG_TS'); if(_lmt) _localManualTs=parseInt(_lmt)||0; }catch(e){}
+      // Aplicar si el remoto es más reciente o si tenemos el mismo ts (otro dispositivo guardó)
+      if (_remoteTs >= _localManualTs) {
+        var _newManual = safeArr(d.manual_jug);
+        if (JSON.stringify(_newManual) !== JSON.stringify(_plantillaManual)) {
+          _plantillaManual = _newManual;
+          try{
+            localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual));
+            localStorage.setItem('BFC_MANUAL_JUG_TS', String(_remoteTs));
+          }catch(e){}
+          rerender = true;
+        }
+      }
     }
     // sesion_activa — no reenderizar automáticamente para no pisar ediciones locales
     // El listener separado (sesEscucharFb) maneja esto con lógica de ts
@@ -2794,16 +2806,17 @@ function plantillaConfirmarManual(editId){
       _plantillaManual[idx].posicion = pos;
       _plantillaManual[idx].tag      = tag;
     }
-    try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
+    try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); localStorage.setItem('BFC_MANUAL_JUG_TS', String(Date.now())); }catch(e){}
     if(typeof fbGuardar==='function') fbGuardar();
     closeModal();
     renderPlantilla();
     toast(n+' '+ap+' actualizado');
   } else {
     // Create new manual player
-    var jug = {id:'manual_'+Date.now(), nombre:n, apellido:ap, edad:edad, fechaNac:fnac, pos:pos, posicion:pos, tag:tag, _esManual:true};
+    var _tsManual = Date.now();
+    var jug = {id:'manual_'+_tsManual, nombre:n, apellido:ap, edad:edad, fechaNac:fnac, pos:pos, posicion:pos, tag:tag, _esManual:true};
     _plantillaManual.push(jug);
-    try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
+    try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); localStorage.setItem('BFC_MANUAL_JUG_TS', String(_tsManual)); }catch(e){}
     if(typeof fbGuardar==='function') fbGuardar();
     closeModal();
     renderPlantilla();
@@ -2813,14 +2826,14 @@ function plantillaConfirmarManual(editId){
 
 function plantillaEliminarManual(id){
   _plantillaManual = _plantillaManual.filter(function(j){ return j.id!==id; });
-  try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
+  try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); localStorage.setItem('BFC_MANUAL_JUG_TS', String(Date.now())); }catch(e){}
   if(typeof fbGuardar==='function') fbGuardar();
   renderPlantilla();
 }
 
 function plantillaLimpiarManual(){
   _plantillaManual = [];
-  try{ localStorage.removeItem('BFC_MANUAL_JUG'); }catch(e){}
+  try{ localStorage.removeItem('BFC_MANUAL_JUG'); localStorage.setItem('BFC_MANUAL_JUG_TS', String(Date.now())); }catch(e){}
   if(typeof fbGuardar==='function') fbGuardar();
   renderPlantilla();
   toast('Jugadores manuales eliminados de la sesión');
@@ -18133,7 +18146,10 @@ function sesEscucharFb(){
     // Usar _sesLocalTs (actualizado en cada sesSave) en vez de _sesLastSyncTs
     // (que solo se actualiza tras el debounce de 3s, demasiado tarde)
     var tsRemoto = d._ts || 0;
-    var tsLocal  = _sesLocalTs || (sesData && sesData._localTs) || _sesLastSyncTs;
+    // Si no tenemos sesión activa local del día de hoy, siempre aceptar el remoto
+    var _sesLocalFecha = sesData ? (sesData.fecha || sesData._fecha || '') : '';
+    var _noTenemosSesionHoy = !sesData || _sesLocalFecha !== hoyISO || _sesLocalTs === 0;
+    var tsLocal  = _noTenemosSesionHoy ? 0 : (_sesLocalTs || (sesData && sesData._localTs) || _sesLastSyncTs);
     if(tsRemoto <= tsLocal) return;
     // Aplicar datos remotos: actualizar sesData sin pisar con una versión vieja
     if(!sesData){ sesData = {}; }
@@ -18204,10 +18220,10 @@ function sesCargarActivaFb(cb){
       return;
     }
     var tsRemoto = d._ts || 0;
-    // Solo aplicar Firebase si es más reciente que nuestro localStorage
-    if(tsRemoto > localTs){
-      // Firebase es más nuevo (otro dispositivo editó después que nosotros)
-      // Merge: preservar imágenes del local
+    // Si no tenemos sesión local de hoy, o Firebase es más reciente: aplicar Firebase
+    if(tsRemoto > localTs || !localGuardado || (localGuardado.fecha||'') !== hoyISO){
+      // Firebase tiene datos más recientes (otro dispositivo editó después que nosotros)
+      // Merge: preservar imágenes del local si existen
       var tareasConImg = (d.tareas||[]).map(function(tR, i){
         var tL = localGuardado && localGuardado.tareas && localGuardado.tareas[i];
         if(tL && tL.img && !tR.img) return Object.assign({}, tR, { img: tL.img });
@@ -18215,6 +18231,7 @@ function sesCargarActivaFb(cb){
       });
       sesData = Object.assign({}, d, { tareas: tareasConImg });
       _sesLocalTs = tsRemoto; // adoptar ts remoto como nuestro punto de referencia
+      try{ localStorage.setItem('BFC_SES_LOCAL', JSON.stringify(sesData)); }catch(e){}
     }
     // Si local es más reciente, ya tenemos sesData del localStorage arriba
     delete sesData._ts; delete sesData._fecha;
