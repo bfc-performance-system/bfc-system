@@ -17167,20 +17167,46 @@ function fbMostrarConfig() {
     h += "</div>";
   }
 
-  h += "<div style='display:flex;gap:6px;margin-top:10px;'>";
+  // Botón auto-diagnóstico: compara ts local vs Firebase y muestra resultado
+  h += "<button onclick='(function(){";
+  h += "if(!window.fbDB){alert(\"Sin Firebase\");return;}";
+  h += "window.fbDB.ref(\"bfc/sesion_activa\").once(\"value\",function(snap){";
+  h += "var d=snap.val();";
+  h += "var tsFb=d?d._ts||0:0;";
+  h += "var tsRem=typeof _sesLastRemoteTs!==\"undefined\"?_sesLastRemoteTs:0;";
+  h += "var tsSync=typeof _sesLastSyncTs!==\"undefined\"?_sesLastSyncTs:0;";
+  h += "var tsLocal=typeof _sesLocalTs!==\"undefined\"?_sesLocalTs:0;";
+  h += "var fechaFb=d?(d._fecha||d.fecha||\"—\"):\"(sin sesión)\";";
+  h += "var msg=\"=== DIAGNÓSTICO SYNC ===\\n\";";
+  h += "msg+=\"Firebase ts: \"+tsFb+\"\\n\";";
+  h += "msg+=\"Remoto aplicado: \"+tsRem+\"\\n\";";
+  h += "msg+=\"Sync enviado: \"+tsSync+\"\\n\";";
+  h += "msg+=\"Local ts: \"+tsLocal+\"\\n\";";
+  h += "msg+=\"Fecha FB: \"+fechaFb+\"\\n\";";
+  h += "msg+=\"Fecha TODAY: \"+(typeof TODAY!==\"undefined\"?TODAY:\"—\")+\"\\n\\n\";";
+  h += "if(!d||!tsFb){msg+=\"⚠️ Firebase no tiene sesión activa de hoy\";} ";
+  h += "else if(tsFb===tsSync){msg+=\"⚠️ BLOQUEADO: Firebase ts = tu último sync. El listener lo ignora pensando que es eco tuyo.\"; }";
+  h += "else if(tsFb<=tsRem){msg+=\"⚠️ BLOQUEADO: Firebase ts (\"+tsFb+\") <= último remoto aplicado (\"+tsRem+\"). El listener lo ignora como 'ya visto'.\"; }";
+  h += "else if((d._fecha||d.fecha||\"\")===(typeof TODAY!==\"undefined\"?TODAY:\"\")){msg+=\"✅ Sin bloqueo — los timestamps deberían pasar. Revisar red o listener.\";} ";
+  h += "else{msg+=\"⚠️ Fecha Firebase (\"+fechaFb+\") ≠ TODAY. El listener lo descarta por fecha.\";} ";
+  h += "alert(msg);";
+  h += "});";
+  h += "})()' style='width:100%;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:#fbbf24;border-radius:8px;padding:8px;font-size:10px;font-weight:700;cursor:pointer;margin-bottom:6px;'>🔎 Auto-diagnóstico: ¿por qué no llegan los updates?</button>";
+
+  h += "<div style='display:flex;gap:6px;'>";
   h += "<button onclick='(function(){";
   h += "try{localStorage.removeItem(\"BFC_SES_LOCAL\");localStorage.removeItem(\"BFC_SES_LOCAL_TS\");}catch(e){}";
   h += "window._sesInitFbPendiente=false; sesData=null; _sesLocalTs=0; _sesLastSyncTs=0; _sesLastRemoteTs=0; _sesEscuchando=false;";
   h += "closeModal(); toast(\"🗑️ Caché limpiado — recargando desde Firebase...\");";
   h += "setTimeout(function(){ if(typeof sesInit===\"function\") sesInit(); if(typeof renderSesion===\"function\") renderSesion(); }, 300);";
-  h += "})()' style='flex:2;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.35);color:#fca5a5;border-radius:8px;padding:7px;font-size:10px;font-weight:700;cursor:pointer;'>🗑️ Limpiar caché y recargar desde Firebase</button>";
+  h += "})()' style='flex:2;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.35);color:#fca5a5;border-radius:8px;padding:7px;font-size:10px;font-weight:700;cursor:pointer;'>🗑️ Limpiar caché y recargar</button>";
   h += "<button onclick='(function(){";
   h += "if(!window.fbDB){toast(\"Sin Firebase\");return;}";
   h += "window.fbDB.ref(\"bfc/sesion_activa\").once(\"value\",function(snap){";
   h += "var d=snap.val();";
   h += "if(!d){toast(\"Firebase: sin sesión activa hoy\");return;}";
-  h += "var msg=\"Firebase ts: \"+(d._ts||\"—\")+\"\\nFecha: \"+(d._fecha||d.fecha||\"—\")+\"\\nSesión #\"+(d.sesionNum||\"—\")+\"\\nJugadores activos: \"+((d.jugadoresActivos||[]).length)+\"\\nExtras: \"+((d.jugadoresExtra||[]).length);";
-  h += "alert(msg);});})()' style='flex:1;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:8px;padding:7px;font-size:10px;font-weight:700;cursor:pointer;'>☁️ Ver Firebase</button>";
+  h += "var msg=\"Firebase ts: \"+(d._ts||\"—\")+\"\\nFecha: \"+(d._fecha||d.fecha||\"—\")+\"\\nSesión #\"+(d.sesionNum||\"—\")+\"\\nJugadores: \"+((d.jugadoresActivos||[]).length)+\" (+\"+((d.jugadoresExtra||[]).length)+\" extras)\";";
+  h += "alert(msg);});})()' style='flex:1;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:8px;padding:7px;font-size:10px;font-weight:700;cursor:pointer;'>☁️ Ver FB</button>";
   h += "</div>";
   h += "</div>";
 
@@ -17209,6 +17235,64 @@ try{
 }catch(e){}
 fbInit(); // Inicializar Firebase (si está habilitado)
 renderDashboard();
+
+// ── Reconexión automática cuando Safari/iPad vuelve del background ──────
+// Safari desconecta el websocket de Firebase cuando la app va a background.
+// Al volver, forzamos re-sync de sesión para ver cambios que llegaron mientras estábamos ausentes.
+(function(){
+  var _ultimaVisita = Date.now();
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'visible'){
+      var ausente = Date.now() - _ultimaVisita;
+      // Si estuvo más de 15 segundos en background, recargar sesión desde Firebase
+      if(ausente > 15000 && typeof sesData !== 'undefined' && sesData){
+        if(window.fbDB){
+          window.fbDB.ref('bfc/sesion_activa').once('value', function(snap){
+            var d = snap.val();
+            if(!d) return;
+            var hoyISO = typeof TODAY !== 'undefined' ? TODAY : '';
+            if((d._fecha||d.fecha||'') !== hoyISO) return;
+            var tsFb = d._ts || 0;
+            var tsConocido = typeof _sesLastRemoteTs !== 'undefined' ? _sesLastRemoteTs : 0;
+            // Solo aplicar si Firebase tiene datos más nuevos que lo que tenemos
+            if(tsFb > tsConocido){
+              var tareasLocales = (sesData.tareas && Array.isArray(sesData.tareas)) ? sesData.tareas : [];
+              var tareasConImg = (d.tareas||[]).map(function(tR, i){
+                var tL = tareasLocales[i] || {};
+                var imgLocal = tL.img || null;
+                var imgRemota = tR.img || null;
+                return Object.assign({}, tR, { img: imgRemota || imgLocal });
+              });
+              var camposSeguros = ['sesionNum','morfociclo','tiempo','codigo','cdefSel','cdefNota',
+                'ses-tac','ses-tec','ses-fis','ses-psi','objtacof','objtacdef','objtecof','objtecdef',
+                'objfisof','objfisdef','objpsiof','objpsidef',
+                'faseFinal','observaciones','videoLink','rolDT','rolAT1','rolAT2','rolPF','rolVA',
+                'materialItems','jugadoresActivos','jugadoresExtra','jugadoresQuitados','_idsConocidos'];
+              camposSeguros.forEach(function(k){ if(k in d) sesData[k] = d[k]; });
+              sesData.tareas = tareasConImg;
+              if(typeof _sesLastRemoteTs !== 'undefined') _sesLastRemoteTs = tsFb;
+              if(typeof renderSesion === 'function') setTimeout(renderSesion, 100);
+              var badge = document.getElementById('ses-sync-badge');
+              if(badge){ badge.textContent='🔄 Resync'; badge.style.color='#60a5fa';
+                setTimeout(function(){ var b=document.getElementById('ses-sync-badge'); if(b){b.textContent='🟢 En progreso';b.style.color='#34d399';}},2000); }
+            }
+          });
+        }
+      }
+      _ultimaVisita = Date.now();
+    } else {
+      _ultimaVisita = Date.now();
+    }
+  });
+  // pageshow cubre el caso de Safari navegando hacia atrás/adelante (bfcache)
+  window.addEventListener('pageshow', function(e){
+    if(e.persisted && window.fbDB && typeof sesData !== 'undefined' && sesData){
+      // Página restaurada desde bfcache de Safari — reconectar listener
+      if(typeof _sesEscuchando !== 'undefined') _sesEscuchando = false;
+      if(typeof sesEscucharFb === 'function') sesEscucharFb();
+    }
+  });
+})();
 
 // Wrappers para onclick en strings (evitan conflicto de comillas)
 function mcGoTabD(){ mcGoTab("datos"); }
@@ -18329,7 +18413,12 @@ function sesCargarActivaFb(cb){
       });
       sesData = Object.assign({}, d, { tareas: tareasConImg });
       _sesLocalTs = tsRemoto; // adoptar ts remoto como nuestro punto de referencia
+      _sesLastRemoteTs = tsRemoto; // inicializar para que el listener acepte solo updates MÁS NUEVOS
       try{ localStorage.setItem('BFC_SES_LOCAL', JSON.stringify(sesData)); }catch(e){}
+    } else {
+      // Local es más reciente — igualmente inicializar _sesLastRemoteTs con tsRemoto de Firebase
+      // para que el listener acepte cambios nuevos que lleguen después
+      if(tsRemoto > 0) _sesLastRemoteTs = tsRemoto;
     }
     // Si local es más reciente, ya tenemos sesData del localStorage arriba
     delete sesData._ts; delete sesData._fecha;
