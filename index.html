@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117n</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117o</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -6690,9 +6690,30 @@ function jornadaCrearSesion(){
   // Verificar si ya existe sesión con esa fecha
   var existente = safeArr(BIEN_SESIONES).find(function(s){ return s.fecha===fecha; });
   if(existente){
-    if(!confirm('Ya existe una sesión para esa fecha ("'+existente.nombre+'"). ¿Reemplazarla?')) return;
-    BIEN_SESIONES = BIEN_SESIONES.filter(function(s){ return s.fecha!==fecha; });
+    // Usar modal seguro en lugar de confirm() para evitar borrado accidental
+    var _nomPend = nombre;
+    var _fechaPend = fecha;
+    var _mWarn = "<div style='padding:22px 20px;max-width:380px;'>";
+    _mWarn += "<div style='font-size:22px;text-align:center;margin-bottom:10px;'>⚠️</div>";
+    _mWarn += "<div style='font-size:15px;font-weight:900;color:#fbbf24;text-align:center;margin-bottom:12px;'>Sesión ya existe</div>";
+    _mWarn += "<div style='font-size:11px;color:#e2e8f0;line-height:1.6;margin-bottom:16px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:12px;'>";
+    _mWarn += "Ya hay una sesión <strong>\""+escHtml(existente.nombre)+"\"</strong> guardada para el <strong>"+_fechaPend+"</strong>.<br><br>";
+    _mWarn += "<span style='color:#f87171;font-weight:800;'>⛔ Si creás una nueva, se BORRARÁ toda la sesión de hoy:<br>tareas, videos, notas, jugadores extra y observaciones.</span>";
+    _mWarn += "</div>";
+    _mWarn += "<div style='font-size:11px;color:#94a3b8;margin-bottom:16px;'>Si lo que querés es editar la sesión actual, cerrá este panel y usá el módulo de <strong>Sesión</strong> directamente.</div>";
+    _mWarn += "<div style='display:flex;gap:8px;'>";
+    _mWarn += "<button onclick='closeModal()' style='flex:2;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:10px;padding:10px;font-size:12px;cursor:pointer;font-weight:700;'>✗ Cancelar — mantener actual</button>";
+    _mWarn += "<button onclick='jornadaCrearSesionForzar(\""+escHtml(_nomPend)+"\",\""+_fechaPend+"\")' style='flex:1;background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:10px;padding:10px;font-size:12px;cursor:pointer;font-weight:700;'>Reemplazar</button>";
+    _mWarn += "</div></div>";
+    showModal(_mWarn);
+    return;
   }
+  jornadaCrearSesionForzar(nombre, fecha);
+}
+
+function jornadaCrearSesionForzar(nombre, fecha){
+  closeModal();
+  BIEN_SESIONES = BIEN_SESIONES.filter(function(s){ return s.fecha!==fecha; });
   var nuevaSes = { id:'ses_'+Date.now(), nombre:nombre, fecha:fecha, creadaEn:new Date().toISOString() };
   BIEN_SESIONES.push(nuevaSes);
   BIEN_SESIONES.sort(function(a,b){ return b.fecha.localeCompare(a.fecha); }); // más reciente primero
