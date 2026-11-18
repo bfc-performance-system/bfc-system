@@ -759,15 +759,24 @@ function fbEscucharHistorial() {
     // Ignorar el eco de nuestro propio guardado reciente (ventana de 5s)
     var ahoraMs = Date.now();
     if (_histSaveTs > 0 && (ahoraMs - _histSaveTs) < 5000) return;
-    // Solo aplicar si el contenido es diferente
-    if (JSON.stringify(remoto) !== JSON.stringify(HISTORIAL_DB)) {
-      HISTORIAL_DB = remoto;
-      try { localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); } catch(e) {}
-      // Si el historial está abierto, re-renderizar
-      var pgH = document.getElementById('page-historial');
-      if (pgH && pgH.classList.contains('on') && typeof renderHistorial === 'function') {
-        renderHistorial();
-      }
+    // Aplicar siempre — merge preservando imágenes locales (Firebase no almacena img base64)
+    var localMap2 = {};
+    safeArr(HISTORIAL_DB).forEach(function(s){ if(s.id) localMap2[s.id] = s; });
+    HISTORIAL_DB = remoto.map(function(sRemota){
+      var sLocal = localMap2[sRemota.id];
+      if(!sLocal || !sLocal.tareas) return sRemota;
+      var tareasConImg = (sRemota.tareas||[]).map(function(tR, i){
+        var tL = sLocal.tareas && sLocal.tareas[i];
+        if(tL && tL.img && !tR.img) return Object.assign({}, tR, { img: tL.img });
+        return tR;
+      });
+      return Object.assign({}, sRemota, { tareas: tareasConImg });
+    });
+    try { localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); } catch(e) {}
+    // Si el historial está abierto, re-renderizar
+    var pgH = document.getElementById('page-historial');
+    if (pgH && pgH.classList.contains('on') && typeof renderHistorial === 'function') {
+      renderHistorial();
     }
   });
 }
@@ -850,13 +859,25 @@ function fbEscuchar() {
     if (d.bien_sesiones && JSON.stringify(d.bien_sesiones) !== JSON.stringify(BIEN_SESIONES)) { BIEN_SESIONES = safeArr(d.bien_sesiones); try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){} rerender = true; }
     if (d.pruebas && JSON.stringify(d.pruebas) !== JSON.stringify(PRUEBAS))     { PRUEBAS   = d.pruebas;   rerender = true; }
     if (d.ci_db   && JSON.stringify(d.ci_db)   !== JSON.stringify(CI_DB))       { CI_DB     = d.ci_db;     try{ localStorage.setItem('BFC_CI', JSON.stringify(CI_DB)); }catch(e){} rerender = true; }
-    if (d.historial && JSON.stringify(d.historial) !== JSON.stringify(HISTORIAL_DB)) {
+    if (d.historial && Array.isArray(d.historial)) {
       // Ignorar si acabamos de guardar el historial en los últimos 5s
       // (el listener de bfc/historial ya lo manejó correctamente)
       var _ahoraHist = Date.now();
       var _ignorarHist = _histSaveTs > 0 && (_ahoraHist - _histSaveTs) < 5000;
       if (!_ignorarHist) {
-        HISTORIAL_DB = d.historial;
+        // Merge preservando imágenes locales (Firebase no almacena img base64)
+        var _lmH = {};
+        safeArr(HISTORIAL_DB).forEach(function(s){ if(s.id) _lmH[s.id] = s; });
+        HISTORIAL_DB = d.historial.map(function(sR){
+          var sL = _lmH[sR.id];
+          if(!sL || !sL.tareas) return sR;
+          var tCI = (sR.tareas||[]).map(function(tR, i){
+            var tL = sL.tareas && sL.tareas[i];
+            if(tL && tL.img && !tR.img) return Object.assign({}, tR, { img: tL.img });
+            return tR;
+          });
+          return Object.assign({}, sR, { tareas: tCI });
+        });
         try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){}
         rerender = true;
       }
@@ -18041,7 +18062,8 @@ function reporteSemanal(){
 // ================================================
 var sesData = null;
 var _sesSyncTimeout = null;      // debounce auto-sync sesión activa
-var _sesLastSyncTs  = 0;         // timestamp del último sync exitoso
+var _sesLastSyncTs  = 0;         // timestamp del último sync exitoso con Firebase
+var _sesLocalTs     = 0;         // timestamp de nuestra última escritura LOCAL (actualizado en sesSave)
 var _sesEscuchando  = false;     // listener sesion_activa ya activo
 
 // ── Auto-sync sesión activa a Firebase (debounce 3s) ──────────────────
@@ -18053,7 +18075,9 @@ function sesSyncFb(){
     // Marcar badge como "guardando"
     var badge = document.getElementById('ses-sync-badge');
     if(badge){ badge.textContent='💾 Guardando…'; badge.style.color='#fbbf24'; }
-    var _syncTs = Date.now();
+    // Usar _sesLocalTs como timestamp del sync para que otros dispositivos
+    // sepan cuándo fue nuestro último cambio (no el momento en que el debounce ejecuta)
+    var _syncTs = _sesLocalTs || Date.now();
     // Excluir imágenes (base64) de las tareas al subir a Firebase:
     // pueden superar el límite de 10MB del nodo y no son necesarias en el sync multi-dispositivo
     var tareasParaFb = (sesData.tareas||[]).map(function(t){
@@ -18097,7 +18121,12 @@ function sesEscucharFb(){
     // y es del día de hoy (usar fecha local, no UTC)
     var hoyISO = TODAY;
     if((d._fecha||'') !== hoyISO) return;
-    if((d._ts||0) <= _sesLastSyncTs) return;
+    // Ignorar si el remoto es más viejo que nuestros cambios locales
+    // Usar _sesLocalTs (actualizado en cada sesSave) en vez de _sesLastSyncTs
+    // (que solo se actualiza tras el debounce de 3s, demasiado tarde)
+    var tsRemoto = d._ts || 0;
+    var tsLocal  = _sesLocalTs || (sesData && sesData._localTs) || _sesLastSyncTs;
+    if(tsRemoto <= tsLocal) return;
     // Aplicar datos remotos: actualizar sesData sin pisar con una versión vieja
     if(!sesData){ sesData = {}; }
     var camposSeguros = ['sesionNum','morfociclo','tiempo','codigo','cdefSel','cdefNota',
@@ -18140,17 +18169,49 @@ function sesEscucharFb(){
 
 // ── Cargar sesión activa de hoy desde Firebase (al abrir el módulo) ────
 function sesCargarActivaFb(cb){
-  if(!window.fbDB){ if(cb) cb(false); return; }
+  // Intentar leer desde localStorage primero (más rápido y tiene imágenes)
+  var localGuardado = null;
+  var localTs = 0;
+  try{
+    var ls = localStorage.getItem('BFC_SES_LOCAL');
+    if(ls){ localGuardado = JSON.parse(ls); localTs = localGuardado._localTs || 0; }
+  }catch(e){}
+  var hoyISO = TODAY;
+  // Si hay sesión local de hoy, usarla como base mientras llega Firebase
+  if(localGuardado && (localGuardado.fecha||localGuardado._fecha||'') === hoyISO){
+    sesData = localGuardado;
+    _sesLocalTs = localTs;
+    delete sesData._fecha;
+  }
+  if(!window.fbDB){ if(cb) cb(!!localGuardado); return; }
   window.fbDB.ref('bfc/sesion_activa').once('value', function(snap){
     var d = snap.val();
-    if(!d){ if(cb) cb(false); return; }
-    var hoyISO = TODAY; // usar fecha local, no UTC
-    if((d._fecha||d.fecha||'') !== hoyISO){ if(cb) cb(false); return; }
-    // Hay una sesión activa de hoy → cargarla
-    sesData = d;
+    if(!d){
+      // Sin Firebase: usar lo que teníamos de localStorage
+      if(cb) cb(!!localGuardado);
+      return;
+    }
+    if((d._fecha||d.fecha||'') !== hoyISO){
+      if(cb) cb(!!localGuardado);
+      return;
+    }
+    var tsRemoto = d._ts || 0;
+    // Solo aplicar Firebase si es más reciente que nuestro localStorage
+    if(tsRemoto > localTs){
+      // Firebase es más nuevo (otro dispositivo editó después que nosotros)
+      // Merge: preservar imágenes del local
+      var tareasConImg = (d.tareas||[]).map(function(tR, i){
+        var tL = localGuardado && localGuardado.tareas && localGuardado.tareas[i];
+        if(tL && tL.img && !tR.img) return Object.assign({}, tR, { img: tL.img });
+        return tR;
+      });
+      sesData = Object.assign({}, d, { tareas: tareasConImg });
+      _sesLocalTs = tsRemoto; // adoptar ts remoto como nuestro punto de referencia
+    }
+    // Si local es más reciente, ya tenemos sesData del localStorage arriba
     delete sesData._ts; delete sesData._fecha;
     if(cb) cb(true);
-  }, function(){ if(cb) cb(false); });
+  }, function(){ if(cb) cb(!!localGuardado); });
 }
 
 // ── Confirmar finalizar sesión ────────────────────────────────────────
@@ -18169,6 +18230,8 @@ function sesFinalizar(){
   // para que el listener fbEscuchar() no sobreescriba HISTORIAL_DB con datos viejos
   sesData = null;
   _sesLastSyncTs = 0;
+  _sesLocalTs = 0;
+  try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
   if(typeof renderSesion==='function') renderSesion();
   toast('✅ Sesión finalizada y guardada en historial');
   fbAuditLog('sesion','Sesión finalizada y movida al historial');
@@ -18211,6 +18274,9 @@ function sesInit(){
 
 function _sesInitBlanco(){
   if(sesData) return;
+  // Limpiar cache local de sesión anterior para no contaminar la sesión nueva
+  _sesLocalTs = 0;
+  try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
   var plantelBase = JDB.length>0 ? JDB : PL;
   var idsActivos = plantelBase.map(function(p){return p.id;});
   sesData = {
@@ -18300,6 +18366,11 @@ function sesSave(){
     if(n||c) matItems.push({nombre:n, cantidad:c});
   });
   if(matItems.length) sesData.materialItems = matItems;
+  // Guardar en localStorage INMEDIATAMENTE para que el listener de Firebase
+  // sepa que tenemos cambios locales más recientes que cualquier snapshot remoto
+  _sesLocalTs = Date.now();
+  sesData._localTs = _sesLocalTs;
+  try{ localStorage.setItem('BFC_SES_LOCAL', JSON.stringify(sesData)); }catch(e){}
   // Auto-sync a Firebase (debounce 3s) — colaboración multi-dispositivo
   if(typeof sesSyncFb==='function') sesSyncFb();
 }
