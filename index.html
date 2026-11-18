@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117r</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117s</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -7703,6 +7703,13 @@ function renderProgramacion() {
     if (sf === todayStr) { sesHoy = SES_DB_RAW[si2]; break; }
   }
 
+  // Sesión registrada mañana (en historial)
+  var sesManana = null;
+  for (var si2b = 0; si2b < SES_DB_RAW.length; si2b++) {
+    var sf2 = SES_DB_RAW[si2b].fecha || SES_DB_RAW[si2b].fechaSes;
+    if (sf2 === _mananaStr) { sesManana = SES_DB_RAW[si2b]; break; }
+  }
+
   // Datos del microciclo para mañana
   var mcDiaManana = null;
   for (var mi3 = 0; mi3 < mcHistRaw.length; mi3++) {
@@ -7719,7 +7726,7 @@ function renderProgramacion() {
   var _cardDia     = _modoManana ? _mananaD   : todayD;
   var _cardMes     = _modoManana ? _mananaMm  : mm;
   var _cardMcDia   = _modoManana ? mcDiaManana : mcDiaHoy;
-  var _cardSes     = _modoManana ? null : sesHoy; // sesión registrada solo aplica a hoy
+  var _cardSes     = _modoManana ? sesManana : sesHoy; // sesión del día que se muestra
 
   var _sesBg2   = '#0e0e1a';
   var _sesBord2 = _modoManana ? 'rgba(245,158,11,.35)' : 'rgba(255,255,255,.12)';
@@ -7757,9 +7764,9 @@ function renderProgramacion() {
     }
   }
 
-  // CDEF solo aplica a sesión de hoy
-  if (!_modoManana && sesHoy && sesHoy.cdefSel) {
-    h += "<div style='margin-bottom:6px;'>" + cdefHtml(sesHoy.cdefSel) + "</div>";
+  // CDEF: muestra si hay sesión registrada para el día del card
+  if (_cardSes && _cardSes.cdefSel) {
+    h += "<div style='margin-bottom:6px;'>" + cdefHtml(_cardSes.cdefSel) + "</div>";
   } else if (_cardMcDia && _cardMcDia.tipo === 'descanso') {
     h += "<div style='font-size:11px;color:#64748b;font-weight:600;margin-bottom:6px;'>Día de descanso</div>";
   }
@@ -7771,26 +7778,30 @@ function renderProgramacion() {
     h += "<div style='margin-bottom:6px;font-size:9px;font-weight:800;color:#f97316;background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.25);border-radius:6px;padding:3px 8px;'>↑ CARGA ALTA</div>";
   }
 
-  // Estado sesión — solo si es modo hoy
-  if (!_modoManana) {
-    var _sesIcon  = sesHoy ? '✅' : '⬜';
-    var _sesLabel = sesHoy ? 'Sesión registrada' : 'Sesión pendiente';
-    var _sesCol2  = sesHoy ? '#6ee7b7' : '#94a3b8';
-    var _sesBgB   = sesHoy ? 'rgba(16,185,129,.15)' : 'rgba(100,116,139,.1)';
-    var _sesBordB = sesHoy ? 'rgba(16,185,129,.35)' : 'rgba(100,116,139,.2)';
+  // Estado sesión — hoy o mañana según modo
+  if (_cardSes) {
+    // Sesión ya registrada (aplica tanto a hoy como a mañana)
+    var _sesBgB   = _modoManana ? 'rgba(245,158,11,.12)' : 'rgba(16,185,129,.15)';
+    var _sesBordB = _modoManana ? 'rgba(245,158,11,.35)' : 'rgba(16,185,129,.35)';
+    var _sesCol2  = _modoManana ? '#fcd34d'              : '#6ee7b7';
     h += "<div style='display:flex;align-items:center;gap:8px;padding:8px 10px;background:"+_sesBgB+";border:1px solid "+_sesBordB+";border-radius:9px;margin-top:4px;'>";
-    h += "<span style='font-size:14px;'>"+_sesIcon+"</span>";
+    h += "<span style='font-size:14px;'>✅</span>";
     h += "<div style='flex:1;'>";
-    h += "<div style='font-size:11px;font-weight:800;color:"+_sesCol2+";'>"+_sesLabel+"</div>";
-    if (sesHoy && sesHoy.cdefSel) h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>CDEF: "+sesHoy.cdefSel+(sesHoy.duracion?' · '+sesHoy.duracion+' min':'')+"</div>";
-    else if (!sesHoy) h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>Toca para registrar →</div>";
+    h += "<div style='font-size:11px;font-weight:800;color:"+_sesCol2+";'>Sesión registrada</div>";
+    if (_cardSes.cdefSel) h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>CDEF: "+_cardSes.cdefSel+(_cardSes.duracion?' · '+_cardSes.duracion+' min':'')+"</div>";
     h += "</div>";
-    if (sesHoy) {
-      h += "<button onclick=\"event.stopPropagation();dashVerSesionHoy('"+todayStr+"')\" style='flex-shrink:0;background:rgba(16,185,129,.18);border:1.5px solid rgba(16,185,129,.5);color:#6ee7b7;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:4px;'>👁 Ver</button>";
-    }
+    h += "<button onclick=\"event.stopPropagation();dashVerSesionHoy('"+_cardFecha+"')\" style='flex-shrink:0;background:"+(_modoManana?'rgba(245,158,11,.18)':'rgba(16,185,129,.18)')+";border:1.5px solid "+(_modoManana?'rgba(245,158,11,.5)':'rgba(16,185,129,.5)')+";color:"+_sesCol2+";border-radius:8px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:4px;'>👁 Ver</button>";
     h += "</div>";
+  } else if (!_modoManana) {
+    // Hoy sin sesión
+    h += "<div style='display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(100,116,139,.1);border:1px solid rgba(100,116,139,.2);border-radius:9px;margin-top:4px;'>";
+    h += "<span style='font-size:14px;'>⬜</span>";
+    h += "<div style='flex:1;'>";
+    h += "<div style='font-size:11px;font-weight:800;color:#94a3b8;'>Sesión pendiente</div>";
+    h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>Toca para registrar →</div>";
+    h += "</div></div>";
   } else {
-    // Modo mañana: botón para preparar la sesión
+    // Mañana sin sesión registrada: preparar
     h += "<div style='display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:9px;margin-top:4px;'>";
     h += "<span style='font-size:14px;'>📋</span>";
     h += "<div style='flex:1;'>";
