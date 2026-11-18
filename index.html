@@ -314,6 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -17140,6 +17141,49 @@ function fbMostrarConfig() {
   h += "</div>";
   h += "<p style='font-size:11px;color:var(--text-2);margin-top:6px;'>Aparece en el historial de cambios y en el indicador de presencia en tiempo real.</p>";
   h += "</div>";
+  // ── Panel de diagnóstico de sesión ──
+  h += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:14px;margin-top:12px;margin-bottom:8px;'>";
+  h += "<div style='font-size:11px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;'>🔍 Diagnóstico de sesión (este dispositivo)</div>";
+
+  // Leer timestamps de localStorage
+  var _lsRaw = null; var _lsTs = 0; var _lsFecha = '—';
+  try{ var _lsr=localStorage.getItem('BFC_SES_LOCAL'); if(_lsr){_lsRaw=JSON.parse(_lsr); _lsTs=_lsRaw._localTs||_lsRaw._ts||0; _lsFecha=_lsRaw.fecha||_lsRaw._fecha||'—';} }catch(e){}
+
+  var _fmt = function(ts){ if(!ts) return '<span style="color:#ef4444;">—</span>'; var d=new Date(ts); return '<span style="color:#34d399;">'+d.toLocaleTimeString('es-CO',{hour12:false})+' ('+ts+')</span>'; };
+
+  h += "<table style='width:100%;border-collapse:collapse;font-size:10px;'>";
+  h += "<tr><td style='padding:3px 6px;color:#94a3b8;'>📅 Fecha sesión local</td><td style='padding:3px 6px;color:#e2e8f0;font-weight:700;'>"+escHtml(String(_lsFecha))+"</td></tr>";
+  h += "<tr style='background:rgba(255,255,255,.03);'><td style='padding:3px 6px;color:#94a3b8;'>🕐 Último guardado local</td><td style='padding:3px 6px;'>"+_fmt(_lsTs)+"</td></tr>";
+  h += "<tr><td style='padding:3px 6px;color:#94a3b8;'>☁️ Último sync enviado</td><td style='padding:3px 6px;'>"+_fmt(typeof _sesLastSyncTs!=='undefined'?_sesLastSyncTs:0)+"</td></tr>";
+  h += "<tr style='background:rgba(255,255,255,.03);'><td style='padding:3px 6px;color:#94a3b8;'>📲 Último remoto aplicado</td><td style='padding:3px 6px;'>"+_fmt(typeof _sesLastRemoteTs!=='undefined'?_sesLastRemoteTs:0)+"</td></tr>";
+  h += "<tr><td style='padding:3px 6px;color:#94a3b8;'>🗓️ Fecha hoy (TODAY)</td><td style='padding:3px 6px;color:#e2e8f0;font-weight:700;'>"+escHtml(String(typeof TODAY!=='undefined'?TODAY:'—'))+"</td></tr>";
+  h += "<tr style='background:rgba(255,255,255,.03);'><td style='padding:3px 6px;color:#94a3b8;'>💾 sesData en memoria</td><td style='padding:3px 6px;color:#e2e8f0;'>"+( (typeof sesData!=='undefined'&&sesData) ? ('<span style="color:#34d399;">✅ Cargado (fecha: '+(sesData.fecha||'—')+')</span>') : '<span style="color:#ef4444;">❌ null</span>')+"</td></tr>";
+  h += "</table>";
+
+  // Alerta si la fecha del localStorage no coincide con hoy
+  if(_lsFecha && _lsFecha !== '—' && typeof TODAY!=='undefined' && _lsFecha !== TODAY){
+    h += "<div style='margin-top:8px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:8px 10px;font-size:10px;color:#fca5a5;'>";
+    h += "⚠️ <strong>Cache de sesión de OTRO día</strong> — el localStorage tiene una sesión del "+escHtml(String(_lsFecha))+" pero hoy es "+escHtml(String(TODAY))+". Esto puede causar que no veas la sesión actual.";
+    h += "</div>";
+  }
+
+  h += "<div style='display:flex;gap:6px;margin-top:10px;'>";
+  h += "<button onclick='(function(){";
+  h += "try{localStorage.removeItem(\"BFC_SES_LOCAL\");localStorage.removeItem(\"BFC_SES_LOCAL_TS\");}catch(e){}";
+  h += "window._sesInitFbPendiente=false; sesData=null; _sesLocalTs=0; _sesLastSyncTs=0; _sesLastRemoteTs=0; _sesEscuchando=false;";
+  h += "closeModal(); toast(\"🗑️ Caché limpiado — recargando desde Firebase...\");";
+  h += "setTimeout(function(){ if(typeof sesInit===\"function\") sesInit(); if(typeof renderSesion===\"function\") renderSesion(); }, 300);";
+  h += "})()' style='flex:2;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.35);color:#fca5a5;border-radius:8px;padding:7px;font-size:10px;font-weight:700;cursor:pointer;'>🗑️ Limpiar caché y recargar desde Firebase</button>";
+  h += "<button onclick='(function(){";
+  h += "if(!window.fbDB){toast(\"Sin Firebase\");return;}";
+  h += "window.fbDB.ref(\"bfc/sesion_activa\").once(\"value\",function(snap){";
+  h += "var d=snap.val();";
+  h += "if(!d){toast(\"Firebase: sin sesión activa hoy\");return;}";
+  h += "var msg=\"Firebase ts: \"+(d._ts||\"—\")+\"\\nFecha: \"+(d._fecha||d.fecha||\"—\")+\"\\nSesión #\"+(d.sesionNum||\"—\")+\"\\nJugadores activos: \"+((d.jugadoresActivos||[]).length)+\"\\nExtras: \"+((d.jugadoresExtra||[]).length);";
+  h += "alert(msg);});})()' style='flex:1;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:8px;padding:7px;font-size:10px;font-weight:700;cursor:pointer;'>☁️ Ver Firebase</button>";
+  h += "</div>";
+  h += "</div>";
+
   h += "<div style='display:flex;gap:8px;margin-top:4px;'>";
   h += "<button class='btn' style='flex:1;' onclick='closeModal();fbVerBackups();'>💾 Ver backups</button>";
   h += "<button class='btn' style='flex:1;' onclick='closeModal();fbAuditMostrar();'>📋 Ver historial</button>";
