@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117d</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117e</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -20915,7 +20915,8 @@ function guardarEnHistorial(){
     fechaSes: fechaISO,
     sesionNum: sesData.sesionNum||'',
     morfociclo: sesData.morfociclo||'',
-    cdefSel: sesData.cdefSel||'',
+    codigo:  sesData.codigo||sesData.cdefSel||'',
+    cdefSel: sesData.cdefSel||sesData.codigo||'',
     duracion: sesData.tiempo||'',
     numJugadores: sesData.numJugadores||0,
     tiempo: sesData.tiempo||'',
@@ -21006,8 +21007,8 @@ function _histEditarOk(id){
     morfociclo:   snap.morfociclo||'',
     numJugadores: snap.numJugadores||0,
     tiempo:       snap.tiempo||snap.duracion||'',
-    codigo:       snap.cdefSel||'',
-    cdefSel:      snap.cdefSel||'',
+    codigo:       snap.codigo||snap.cdefSel||'',
+    cdefSel:      snap.cdefSel||snap.codigo||'',
     cdefNota:     snap.cdefNota||'',
     objtacof:     snap.objtacof||'', objtacdef: snap.objtacdef||'',
     objtecof:     snap.objtecof||'', objtecdef: snap.objtecdef||'',
@@ -21065,17 +21066,27 @@ function _histCargarOk(id){
   sesData.sesionNum = snap.sesionNum||'';
   sesData.morfociclo = snap.morfociclo||'';
   sesData.numJugadores = snap.numJugadores||0;
-  sesData.tiempo = snap.tiempo||'';
+  sesData.tiempo = snap.tiempo||snap.duracion||'';
+  sesData.codigo = snap.codigo||snap.cdefSel||'';
+  sesData.cdefSel = snap.cdefSel||snap.codigo||'';
+  sesData.cdefNota = snap.cdefNota||'';
   sesData.objtacof = snap.objtacof||'';
   sesData.objtacdef = snap.objtacdef||'';
   sesData.objtecof = snap.objtecof||'';
   sesData.objtecdef = snap.objtecdef||'';
   sesData.objfisof = snap.objfisof||'';
   sesData.objfisdef = snap.objfisdef||'';
+  sesData.objpsiof = snap.objpsiof||'';
+  sesData.objpsidef = snap.objpsidef||'';
+  sesData["ses-tac"] = snap["ses-tac"]||snap.objtacof||'';
+  sesData["ses-tec"] = snap["ses-tec"]||snap.objtecof||'';
+  sesData["ses-fis"] = snap["ses-fis"]||snap.objfisof||'';
+  sesData["ses-psi"] = snap["ses-psi"]||snap.objpsiof||'';
   sesData.faseFinal = snap.faseFinal||'';
   sesData.observaciones = snap.observaciones||'';
+  sesData.videoLink = snap.videoLink||'';
   sesData.tareas = snap.tareas.map(function(t){
-    return {titulo:t.titulo||'',objetivo:t.objetivo||'',descripcion:t.descripcion||'',tiempo:t.tiempo||'',img:null,zonaData:null};
+    return {titulo:t.titulo||'',objetivo:t.objetivo||'',descripcion:t.descripcion||'',tiempo:t.tiempo||'',img:t.img||null,zonaData:t.zonaData||null,videoLink:t.videoLink||''};
   });
   sesSave();
   irA('sesion');
