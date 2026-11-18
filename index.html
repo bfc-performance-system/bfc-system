@@ -18134,7 +18134,7 @@ function sesSyncFb(){
         if(badge2){ badge2.textContent='⚠️ Error sync'; badge2.style.color='#f87171'; }
         console.warn('[BFC] Error sync sesion_activa:', e.message);
       });
-  }, 3000);
+  }, 800);
 }
 
 // ── Escuchar cambios en sesion_activa desde otros dispositivos ─────────
@@ -18144,21 +18144,35 @@ function sesEscucharFb(){
   window.fbDB.ref('bfc/sesion_activa').on('value', function(snap){
     var d = snap.val();
     if(!d) return;
-    // Solo aplicar si viene de otro dispositivo (ts > nuestro último sync)
-    // y es del día de hoy (usar fecha local, no UTC)
     var hoyISO = TODAY;
-    if((d._fecha||'') !== hoyISO) return;
-    // Ignorar si el remoto es más viejo que nuestros cambios locales
-    // Usar _sesLocalTs (actualizado en cada sesSave) en vez de _sesLastSyncTs
-    // (que solo se actualiza tras el debounce de 3s, demasiado tarde)
+    if((d._fecha||d.fecha||'') !== hoyISO) return;
     var tsRemoto = d._ts || 0;
-    // Ignorar si es el eco de nuestro propio último write (mismo timestamp exacto)
+    // Ignorar eco propio (mismo timestamp exacto)
     if(tsRemoto > 0 && tsRemoto === _sesLastSyncTs) return;
-    // Aceptar si el remoto es más nuevo que el último dato remoto que aplicamos
-    // NOTA: NO comparar contra _sesLocalTs porque eso bloquearía updates del iPad
-    // cuando el PC tiene cambios locales más recientes
+    // Solo aplicar datos más nuevos que los que ya aplicamos
     if(tsRemoto <= _sesLastRemoteTs) return;
-    // Aplicar datos remotos: actualizar sesData sin pisar con una versión vieja
+
+    // ── Antes de aplicar: leer campos del DOM para no perder texto en edición ──
+    // (el usuario puede estar escribiendo en un textarea cuando llega el update)
+    if(sesData && typeof sesSave === 'function'){
+      // Guardar solo los campos de texto del DOM sin sincronizar a Firebase
+      try {
+        var _foc = document.activeElement;
+        ['ses-tac','ses-tec','ses-fis','ses-psi'].forEach(function(k){
+          var el = document.getElementById(k);
+          if(el) sesData[k] = el.value;
+        });
+        sesData.objtacof = sesData['ses-tac'];
+        sesData.objtecof = sesData['ses-tec'];
+        sesData.objfisof = sesData['ses-fis'];
+        sesData.objpsiof = sesData['ses-psi'];
+        if(sesData.tareas) sesData.tareas.forEach(function(t,i){
+          var to=document.getElementById('ses-to-'+i); if(to) t.objetivo=to.value;
+          var td=document.getElementById('ses-td-'+i); if(td) t.descripcion=td.value;
+        });
+      } catch(e){}
+    }
+
     if(!sesData){ sesData = {}; }
     var camposSeguros = ['sesionNum','morfociclo','tiempo','codigo','cdefSel','cdefNota',
       'ses-tac','ses-tec','ses-fis','ses-psi','objtacof','objtacdef','objtecof','objtecdef',
@@ -18169,32 +18183,65 @@ function sesEscucharFb(){
       '_idsConocidos'];
     camposSeguros.forEach(function(k){
       if(!(k in d)) return;
-      // Para 'tareas': merge tarea por tarea preservando img local si el remoto no trae imagen
-      if(k === 'tareas' && Array.isArray(d.tareas) && sesData.tareas && Array.isArray(sesData.tareas)){
-        sesData.tareas = d.tareas.map(function(tRemota, i){
-          var tLocal = sesData.tareas[i];
-          if(!tLocal) return tRemota;
-          // Preservar img local si: existe localmente Y el remoto no tiene img (o tiene vacía)
-          var imgLocal = tLocal.img || null;
-          var imgRemota = tRemota.img || null;
-          if(imgLocal && !imgRemota){
-            return Object.assign({}, tRemota, { img: imgLocal });
-          }
-          return tRemota;
+      if(k === 'tareas' && Array.isArray(d.tareas)){
+        // Merge tarea por tarea:
+        // - img: usar la REMOTA si existe (otro dispositivo la subió), solo preservar local si remoto no tiene
+        // - texto: si el usuario está escribiendo en ese campo, preservar su texto
+        var tareasLocales = (sesData.tareas && Array.isArray(sesData.tareas)) ? sesData.tareas : [];
+        sesData.tareas = d.tareas.map(function(tR, i){
+          var tL = tareasLocales[i] || {};
+          var imgLocal  = tL.img  || null;
+          var imgRemota = tR.img  || null;
+          // Preferir remota si existe (es la comprimida de otro dispositivo); solo usar local si remoto no tiene
+          var imgFinal = imgRemota || imgLocal;
+          // Preservar texto en edición: si el elemento del DOM existe y está enfocado, usar su valor
+          var objFinal  = tR.objetivo;
+          var descFinal = tR.descripcion;
+          var toEl = document.getElementById('ses-to-'+i);
+          var tdEl = document.getElementById('ses-td-'+i);
+          if(toEl && document.activeElement === toEl) objFinal  = toEl.value;
+          if(tdEl && document.activeElement === tdEl) descFinal = tdEl.value;
+          return Object.assign({}, tR, { img: imgFinal, objetivo: objFinal, descripcion: descFinal });
         });
+      } else if(['ses-tac','ses-tec','ses-fis','ses-psi'].indexOf(k) >= 0){
+        // Para objetivos: solo aplicar remoto si el usuario NO está editando ese campo
+        var el = document.getElementById(k);
+        if(el && document.activeElement === el){
+          // Usuario está escribiendo — no pisar, pero actualizar sesData cuando pierda foco
+          el.setAttribute('data-remote-val', d[k]);
+        } else {
+          sesData[k] = d[k];
+          if(el) el.value = d[k];
+        }
       } else {
         sesData[k] = d[k];
       }
     });
     _sesLastRemoteTs = d._ts || Date.now();
-    // Re-renderizar si la página de sesión está activa
+    // Re-renderizar solo si la sesión está activa y el usuario NO está en un input importante
     var pg = document.getElementById('page-sesion');
+    var focEl = document.activeElement;
+    var focTag = focEl ? focEl.tagName : '';
+    var estaEscribiendo = (focTag === 'TEXTAREA' || focTag === 'INPUT') && focEl.closest && focEl.closest('#page-sesion');
     if(pg && pg.classList.contains('on')){
-      if(typeof renderSesion==='function') setTimeout(renderSesion, 100);
+      if(!estaEscribiendo){
+        if(typeof renderSesion==='function') setTimeout(renderSesion, 80);
+      } else {
+        // Usuario está escribiendo — no re-renderizar todo, pero programar un render diferido
+        // para que cuando termine de escribir vea los cambios remotos
+        clearTimeout(window._sesRenderDiferido);
+        window._sesRenderDiferido = setTimeout(function(){
+          var focElNow = document.activeElement;
+          var focTagNow = focElNow ? focElNow.tagName : '';
+          var sigueEscribiendo = (focTagNow === 'TEXTAREA' || focTagNow === 'INPUT') && focElNow.closest && focElNow.closest('#page-sesion');
+          if(!sigueEscribiendo && typeof renderSesion==='function') renderSesion();
+        }, 3000); // renderizar 3s después si el usuario paró de escribir
+      }
     }
+    // Actualizar badge de sync
     var badge = document.getElementById('ses-sync-badge');
     if(badge){ badge.textContent='🔄 Actualizado'; badge.style.color='#60a5fa';
-      setTimeout(function(){ var b=document.getElementById('ses-sync-badge'); if(b) b.textContent='🟢 En progreso'; b.style.color='#34d399'; }, 2000); }
+      setTimeout(function(){ var b=document.getElementById('ses-sync-badge'); if(b){ b.textContent='🟢 En progreso'; b.style.color='#34d399'; }}, 2000); }
   });
 }
 
@@ -18488,6 +18535,7 @@ function sesQuitarJugador(pid){
   sesSave();
   sesData.jugadoresActivos = sesData.jugadoresActivos.filter(function(id){return id!==pid;});
   sesData.numJugadores = (sesData.jugadoresActivos.length + sesData.jugadoresExtra.length).toString();
+  sesSyncFb();
   renderSesion();
 }
 
@@ -18496,18 +18544,69 @@ function sesRestaurarTodos(){
   var plantelBase = JDB.length>0 ? JDB : PL;
   sesData.jugadoresActivos = plantelBase.map(function(p){return p.id;});
   sesData.numJugadores = (sesData.jugadoresActivos.length + sesData.jugadoresExtra.length).toString();
+  sesSyncFb();
   renderSesion();
 }
 
+function sesAgregarExtraConfirmar(){
+  var n=document.getElementById('ses_ext_nom').value.trim();
+  if(!n) return;
+  var p=(document.getElementById('ses_ext_pos').value.trim()||'OTROS').toUpperCase();
+  if(!sesData.jugadoresExtra) sesData.jugadoresExtra=[];
+  sesData.jugadoresExtra.push({id:'extra_'+Date.now(),nombre:n,apellido:'',pos:p,num:'',esExtra:true});
+  sesData.numJugadores=(sesData.jugadoresActivos.length+sesData.jugadoresExtra.length).toString();
+  sesSave(); sesSyncFb();
+  closeModal(); renderSesion();
+}
+window.sesAgregarExtraConfirmar=sesAgregarExtraConfirmar;
+
+function sesAgregarExtraDesdeManual(id){
+  var jug = safeArr(_plantillaManual).find(function(x){return x.id===id;});
+  if(!jug) return;
+  if(!sesData.jugadoresExtra) sesData.jugadoresExtra=[];
+  // Evitar duplicado
+  var yaEsta = sesData.jugadoresExtra.some(function(x){return x.id===jug.id;});
+  if(yaEsta){ toast('Ya está en la sesión'); return; }
+  sesData.jugadoresExtra.push(Object.assign({},jug,{esExtra:true}));
+  sesData.numJugadores=(sesData.jugadoresActivos.length+sesData.jugadoresExtra.length).toString();
+  sesSave(); sesSyncFb();
+  closeModal(); renderSesion();
+}
+window.sesAgregarExtraDesdeManual=sesAgregarExtraDesdeManual;
+
 function sesAgregarExtra(){
   sesSave();
-  var mhe="<div style='padding:20px;max-width:380px;'><div style='font-size:14px;font-weight:900;color:#fff;margin-bottom:14px;'>Agregar jugador extra</div>";
+  var mhe="<div style='padding:20px;max-width:400px;'>";
+  mhe+="<div style='font-size:14px;font-weight:900;color:#fff;margin-bottom:14px;'>➕ Agregar jugador extra</div>";
+
+  // Mostrar jugadores de _plantillaManual si existen y no están ya en la sesión
+  var manualDisp = safeArr(_plantillaManual).filter(function(m){
+    return !sesData.jugadoresExtra || !sesData.jugadoresExtra.some(function(x){return x.id===m.id;});
+  });
+  if(manualDisp.length){
+    mhe+="<div style='margin-bottom:12px;'>";
+    mhe+="<div style='font-size:10px;font-weight:800;color:#a78bfa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px;'>Sub-20 / Prueba registrados</div>";
+    manualDisp.forEach(function(m){
+      var nom = ((m.nombre||'')+' '+(m.apellido||'')).trim();
+      var pos = m.pos||m.posicion||'';
+      var tag = m.tag||'Manual';
+      mhe+="<button onclick='sesAgregarExtraDesdeManual(\""+m.id+"\")' style='display:flex;align-items:center;gap:8px;width:100%;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.35);border-radius:8px;padding:7px 11px;color:#e2e8f0;font-size:11px;cursor:pointer;text-align:left;margin-bottom:5px;'>";
+      mhe+="<span style='font-size:9px;background:rgba(124,58,237,.35);color:#a78bfa;border-radius:4px;padding:1px 5px;font-weight:800;min-width:30px;text-align:center;'>"+pos+"</span>";
+      mhe+="<span style='font-weight:700;'>"+escHtml(nom)+"</span>";
+      mhe+="<span style='margin-left:auto;font-size:8px;color:#7c3aed;background:rgba(124,58,237,.2);border-radius:3px;padding:1px 4px;'>"+escHtml(tag)+"</span>";
+      mhe+="</button>";
+    });
+    mhe+="</div>";
+    mhe+="<div style='border-top:1px solid rgba(255,255,255,.08);margin:10px 0 12px 0;'></div>";
+    mhe+="<div style='font-size:10px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px;'>O agregar nuevo</div>";
+  }
+
   mhe+="<div style='margin-bottom:10px;'><label style='font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:3px;'>Nombre</label>";
   mhe+="<input id='ses_ext_nom' type='text' placeholder='Ej: Juan Pérez' style='width:100%;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 11px;color:#fff;font-size:12px;outline:none;box-sizing:border-box;'></div>";
   mhe+="<div style='margin-bottom:14px;'><label style='font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:3px;'>Posición</label>";
   mhe+="<input id='ses_ext_pos' type='text' placeholder='Ej: Delantero, Portero...' style='width:100%;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 11px;color:#fff;font-size:12px;outline:none;box-sizing:border-box;'></div>";
   mhe+="<div style='display:flex;gap:8px;'>";
-  mhe+="<button onclick='(function(){var n=document.getElementById(\"ses_ext_nom\").value.trim();if(!n)return;var p=(document.getElementById(\"ses_ext_pos\").value.trim()||\"OTROS\").toUpperCase();sesData.jugadoresExtra.push({id:\"extra_\"+Date.now(),nombre:n,apellido:\"\",pos:p,num:\"\",esExtra:true});sesData.numJugadores=(sesData.jugadoresActivos.length+sesData.jugadoresExtra.length).toString();closeModal();renderSesion();})()' class='btn-y' style='flex:1;border-radius:10px;padding:10px;font-size:12px;'>Agregar</button>";
+  mhe+="<button onclick='sesAgregarExtraConfirmar()' class='btn-y' style='flex:1;border-radius:10px;padding:10px;font-size:12px;'>Agregar</button>";
   mhe+="<button onclick='closeModal()' style='flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:10px;padding:10px;font-size:12px;cursor:pointer;'>Cancelar</button></div></div>";
   showModal(mhe);
   setTimeout(function(){var e=document.getElementById('ses_ext_nom');if(e)e.focus();},60);
@@ -18517,6 +18616,7 @@ function sesQuitarExtra(id){
   sesSave();
   sesData.jugadoresExtra = sesData.jugadoresExtra.filter(function(p){return p.id!==id;});
   sesData.numJugadores = (sesData.jugadoresActivos.length + sesData.jugadoresExtra.length).toString();
+  sesSyncFb();
   renderSesion();
 }
 
@@ -19087,7 +19187,7 @@ function renderSesion(){
     h += "<span style='font-size:9px;font-weight:700;color:rgba(255,255,255,.8);letter-spacing:.08em;text-transform:uppercase;'>"+f[1]+"</span>";
     h += "</div>";
     h += "<div style='padding:6px 8px;'>";
-    h += "<textarea id='"+f[0]+"' class='inp' style='width:100%;min-height:60px;font-size:10px;resize:none;border:none;padding:0;background:transparent;' placeholder='"+f[2]+"' oninput=\"sesData['"+f[0]+"']=this.value;\" onblur='sesSave();'>"+( sesData[f[0]]||"")+"</textarea>";
+    h += "<textarea id='"+f[0]+"' class='inp' style='width:100%;min-height:60px;font-size:10px;resize:none;border:none;padding:0;background:transparent;' placeholder='"+f[2]+"' oninput=\"sesData['"+f[0]+"']=this.value;sesData.objtacof=sesData['ses-tac'];sesData.objtecof=sesData['ses-tec'];sesData.objfisof=sesData['ses-fis'];sesData.objpsiof=sesData['ses-psi'];sesSyncFb();\" onblur='sesSave();'>"+( sesData[f[0]]||"")+"</textarea>";
     h += "</div></div>";
   });
   h += "</div></div>";
