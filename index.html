@@ -18104,9 +18104,9 @@ function sesSyncFb(){
     // pueden superar el límite de 10MB del nodo y no son necesarias en el sync multi-dispositivo
     var tareasParaFb = (sesData.tareas||[]).map(function(t){
       var tc = Object.assign({}, t);
-      // Solo excluir img si es base64 (empieza con "data:") — las URLs de Storage se sincronizan
-      if(tc.img && typeof tc.img === 'string' && tc.img.indexOf('data:') === 0){
-        delete tc.img; // base64 no se sube a Firebase (muy pesado)
+      // Excluir img solo si es base64 MUY GRANDE (>150KB) — las comprimidas (<80KB) sí se sincronizan
+      if(tc.img && typeof tc.img === 'string' && tc.img.indexOf('data:') === 0 && tc.img.length > 150000){
+        delete tc.img; // demasiado grande para Firebase Realtime DB
       }
       delete tc._imgLocal; // limpiar flag interno
       return tc;
@@ -18713,59 +18713,73 @@ function sesLoadImg(i, inp){
   r.readAsDataURL(f);
 }
 
-// ── Subir imagen de tarea a Firebase Storage y actualizar URL ──────────────
+// ── Comprimir imagen de tarea para sync via Realtime Database (~50KB max) ──
 function sesSubirImgFb(tareaIdx, dataUrl, fileName){
-  // Necesita Firebase Storage SDK (incluido en firebase compat bundle)
-  var fbApp = null;
-  try{ fbApp = firebase.app(); }catch(e){}
-  if(!fbApp) return; // sin Firebase, quedarse con base64 local
-  var storage = null;
-  try{ storage = firebase.storage(); }catch(e){ return; } // Storage no disponible
-  // Comprimir imagen antes de subir (max 800px, calidad 0.75)
+  // Comprimir agresivamente para que quepa en Realtime Database (límite ~1MB por nodo)
+  // Target: ~50KB (suficiente para ver la demarcación de zona)
   var img = new Image();
   img.onload = function(){
-    var maxW = 800, maxH = 800;
+    // Paso 1: reducir dimensiones a máx 480px
+    var maxW = 480, maxH = 480;
     var w = img.width, h = img.height;
     if(w > maxW){ h = Math.round(h * maxW / w); w = maxW; }
     if(h > maxH){ w = Math.round(w * maxH / h); h = maxH; }
     var canvas = document.createElement('canvas');
     canvas.width = w; canvas.height = h;
     canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-    var compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75);
-    // Convertir base64 a Blob
-    var byteStr = atob(compressedDataUrl.split(',')[1]);
-    var arr = new Uint8Array(byteStr.length);
-    for(var n=0;n<byteStr.length;n++) arr[n]=byteStr.charCodeAt(n);
-    var blob = new Blob([arr], {type:'image/jpeg'});
-    // Path en Storage: bfc/sesiones/<fecha>/<tareaIdx>_<timestamp>.jpg
-    var fecha = (sesData && sesData.fecha) ? sesData.fecha : TODAY;
-    var path = 'bfc/sesiones/'+fecha+'/tarea_'+tareaIdx+'_'+Date.now()+'.jpg';
-    var ref = storage.ref(path);
-    // Mostrar badge de subiendo
-    var btn = document.getElementById("ses-img-btn-"+tareaIdx);
-    if(btn) btn.textContent = "Subiendo…";
-    ref.put(blob).then(function(snapshot){
-      return snapshot.ref.getDownloadURL();
-    }).then(function(url){
-      // Reemplazar base64 con URL de Storage — todos los dispositivos pueden cargarla
-      if(sesData && sesData.tareas && sesData.tareas[tareaIdx]){
-        sesData.tareas[tareaIdx].img = url;
-        sesData.tareas[tareaIdx]._imgLocal = false;
-        // Actualizar preview con la URL
-        var prev = document.getElementById("ses-img-prev-"+tareaIdx);
-        if(prev) prev.innerHTML = "<img src='"+url+"' style='width:100%;border-radius:var(--r-md);max-height:180px;object-fit:cover;'>";
-        if(btn) btn.textContent = "Cambiar imagen";
-        // Guardar URL en localStorage y sincronizar a Firebase
-        sesSave();
-      }
-    }).catch(function(err){
-      console.warn('[BFC] Error subiendo img tarea a Storage:', err.message);
-      // Falló el upload — quedarse con base64 local (no se sincronizará a otros dispositivos)
-      if(btn) btn.textContent = "Cambiar imagen";
-    });
+    // Paso 2: comprimir con calidad progresiva hasta estar bajo 60KB
+    var calidad = 0.65;
+    var compressed = canvas.toDataURL('image/jpeg', calidad);
+    // Si sigue siendo grande, bajar calidad más
+    while(compressed.length > 80000 && calidad > 0.2){
+      calidad -= 0.1;
+      compressed = canvas.toDataURL('image/jpeg', calidad);
+    }
+    // Si todavía supera 100KB, reducir resolución a la mitad
+    if(compressed.length > 100000){
+      canvas.width = Math.round(w/2); canvas.height = Math.round(h/2);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      compressed = canvas.toDataURL('image/jpeg', 0.5);
+    }
+    // Actualizar con imagen comprimida y sincronizar
+    if(sesData && sesData.tareas && sesData.tareas[tareaIdx]){
+      sesData.tareas[tareaIdx].img = compressed;
+      sesData.tareas[tareaIdx]._imgLocal = false;
+      // Actualizar preview
+      var prev = document.getElementById("ses-img-prev-"+tareaIdx);
+      if(prev) prev.innerHTML = "<img src='"+compressed+"' style='width:100%;border-radius:var(--r-md);max-height:180px;object-fit:cover;'>";
+      // Guardar y sincronizar — ahora la img comprimida SÍ va a Firebase
+      sesSave();
+      // Forzar sync inmediato a Firebase (sin esperar debounce)
+      _sesSyncFbInmediato();
+    }
   };
-  img.onerror = function(){ /* usar base64 local si falla carga */ };
+  img.onerror = function(){ /* usar base64 original si falla */ };
   img.src = dataUrl;
+}
+
+// Sync inmediato a Firebase (para fotos — sin debounce de 3s)
+function _sesSyncFbInmediato(){
+  if(!window.fbDB || !sesData) return;
+  var _syncTs = _sesLocalTs || Date.now();
+  var tareasParaFb = (sesData.tareas||[]).map(function(t){
+    var tc = Object.assign({}, t);
+    // Incluir img comprimida (ya es pequeña), solo excluir si aún es muy grande
+    if(tc.img && typeof tc.img === 'string' && tc.img.indexOf('data:') === 0 && tc.img.length > 150000){
+      delete tc.img; // demasiado grande aún
+    }
+    delete tc._imgLocal;
+    return tc;
+  });
+  var payload = Object.assign({}, sesData, {
+    _ts: _syncTs,
+    _fecha: sesData.fecha || TODAY,
+    tareas: tareasParaFb
+  });
+  _sesLastSyncTs = _syncTs;
+  window.fbDB.ref('bfc/sesion_activa').set(payload).catch(function(e){
+    console.warn('[BFC] Error sync img tarea:', e.message);
+  });
 }
 
 function sesTrigImg(i){ var el=document.getElementById("ses-img-inp-"+i); if(el)el.click(); }
