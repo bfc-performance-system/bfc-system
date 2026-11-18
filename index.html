@@ -18085,6 +18085,7 @@ var sesData = null;
 var _sesSyncTimeout = null;      // debounce auto-sync sesión activa
 var _sesLastSyncTs  = 0;         // timestamp del último sync exitoso con Firebase
 var _sesLocalTs     = 0;         // timestamp de nuestra última escritura LOCAL (actualizado en sesSave)
+var _sesLastRemoteTs = 0;        // timestamp del último dato REMOTO que aplicamos (no el nuestro)
 var _sesEscuchando  = false;     // listener sesion_activa ya activo
 
 // ── Auto-sync sesión activa a Firebase (debounce 3s) ──────────────────
@@ -18103,7 +18104,11 @@ function sesSyncFb(){
     // pueden superar el límite de 10MB del nodo y no son necesarias en el sync multi-dispositivo
     var tareasParaFb = (sesData.tareas||[]).map(function(t){
       var tc = Object.assign({}, t);
-      delete tc.img; // img se mantiene solo en localStorage
+      // Solo excluir img si es base64 (empieza con "data:") — las URLs de Storage se sincronizan
+      if(tc.img && typeof tc.img === 'string' && tc.img.indexOf('data:') === 0){
+        delete tc.img; // base64 no se sube a Firebase (muy pesado)
+      }
+      delete tc._imgLocal; // limpiar flag interno
       return tc;
     });
     var payload = Object.assign({}, sesData, {
@@ -18146,11 +18151,12 @@ function sesEscucharFb(){
     // Usar _sesLocalTs (actualizado en cada sesSave) en vez de _sesLastSyncTs
     // (que solo se actualiza tras el debounce de 3s, demasiado tarde)
     var tsRemoto = d._ts || 0;
-    // Si no tenemos sesión activa local del día de hoy, siempre aceptar el remoto
-    var _sesLocalFecha = sesData ? (sesData.fecha || sesData._fecha || '') : '';
-    var _noTenemosSesionHoy = !sesData || _sesLocalFecha !== hoyISO || _sesLocalTs === 0;
-    var tsLocal  = _noTenemosSesionHoy ? 0 : (_sesLocalTs || (sesData && sesData._localTs) || _sesLastSyncTs);
-    if(tsRemoto <= tsLocal) return;
+    // Ignorar si es el eco de nuestro propio último write (mismo timestamp exacto)
+    if(tsRemoto > 0 && tsRemoto === _sesLastSyncTs) return;
+    // Aceptar si el remoto es más nuevo que el último dato remoto que aplicamos
+    // NOTA: NO comparar contra _sesLocalTs porque eso bloquearía updates del iPad
+    // cuando el PC tiene cambios locales más recientes
+    if(tsRemoto <= _sesLastRemoteTs) return;
     // Aplicar datos remotos: actualizar sesData sin pisar con una versión vieja
     if(!sesData){ sesData = {}; }
     var camposSeguros = ['sesionNum','morfociclo','tiempo','codigo','cdefSel','cdefNota',
@@ -18179,7 +18185,7 @@ function sesEscucharFb(){
         sesData[k] = d[k];
       }
     });
-    _sesLastSyncTs = d._ts || Date.now();
+    _sesLastRemoteTs = d._ts || Date.now();
     // Re-renderizar si la página de sesión está activa
     var pg = document.getElementById('page-sesion');
     if(pg && pg.classList.contains('on')){
@@ -18256,6 +18262,7 @@ function sesFinalizar(){
   sesData = null;
   _sesLastSyncTs = 0;
   _sesLocalTs = 0;
+  _sesLastRemoteTs = 0;
   try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
   if(typeof renderSesion==='function') renderSesion();
   toast('✅ Sesión finalizada y guardada en historial');
@@ -18270,6 +18277,7 @@ function sesFinalizar(){
     sesData = null;
     _sesLocalTs = 0;
     _sesLastSyncTs = 0;
+    _sesLastRemoteTs = 0;
     _sesInitBlanco();
     if(typeof renderSesion==='function') renderSesion();
     if(typeof irA==='function') irA('sesion');
@@ -18690,15 +18698,74 @@ function sesLoadImg(i, inp){
   var f = inp.files[0]; if(!f) return;
   var r = new FileReader();
   r.onload = function(e){
-    sesData.tareas[i].img = e.target.result;
+    var dataUrl = e.target.result;
+    // Mostrar preview inmediatamente con el base64 local
+    sesData.tareas[i].img = dataUrl;
+    sesData.tareas[i]._imgLocal = true; // marca que aún es local
     var prev = document.getElementById("ses-img-prev-"+i);
-    if(prev) prev.innerHTML = "<img src='"+e.target.result+"' style='width:100%;border-radius:var(--r-md);max-height:180px;object-fit:cover;'>";
+    if(prev) prev.innerHTML = "<img src='"+dataUrl+"' style='width:100%;border-radius:var(--r-md);max-height:180px;object-fit:cover;'>";
     var btn = document.getElementById("ses-img-btn-"+i);
     if(btn) btn.textContent = "Cambiar imagen";
-    // Sincronizar imagen a Firebase inmediatamente para que no se pierda
     sesSave();
+    // Intentar subir a Firebase Storage para sync multi-dispositivo
+    sesSubirImgFb(i, dataUrl, f.name||('tarea_'+i+'.jpg'));
   };
   r.readAsDataURL(f);
+}
+
+// ── Subir imagen de tarea a Firebase Storage y actualizar URL ──────────────
+function sesSubirImgFb(tareaIdx, dataUrl, fileName){
+  // Necesita Firebase Storage SDK (incluido en firebase compat bundle)
+  var fbApp = null;
+  try{ fbApp = firebase.app(); }catch(e){}
+  if(!fbApp) return; // sin Firebase, quedarse con base64 local
+  var storage = null;
+  try{ storage = firebase.storage(); }catch(e){ return; } // Storage no disponible
+  // Comprimir imagen antes de subir (max 800px, calidad 0.75)
+  var img = new Image();
+  img.onload = function(){
+    var maxW = 800, maxH = 800;
+    var w = img.width, h = img.height;
+    if(w > maxW){ h = Math.round(h * maxW / w); w = maxW; }
+    if(h > maxH){ w = Math.round(w * maxH / h); h = maxH; }
+    var canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    var compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75);
+    // Convertir base64 a Blob
+    var byteStr = atob(compressedDataUrl.split(',')[1]);
+    var arr = new Uint8Array(byteStr.length);
+    for(var n=0;n<byteStr.length;n++) arr[n]=byteStr.charCodeAt(n);
+    var blob = new Blob([arr], {type:'image/jpeg'});
+    // Path en Storage: bfc/sesiones/<fecha>/<tareaIdx>_<timestamp>.jpg
+    var fecha = (sesData && sesData.fecha) ? sesData.fecha : TODAY;
+    var path = 'bfc/sesiones/'+fecha+'/tarea_'+tareaIdx+'_'+Date.now()+'.jpg';
+    var ref = storage.ref(path);
+    // Mostrar badge de subiendo
+    var btn = document.getElementById("ses-img-btn-"+tareaIdx);
+    if(btn) btn.textContent = "Subiendo…";
+    ref.put(blob).then(function(snapshot){
+      return snapshot.ref.getDownloadURL();
+    }).then(function(url){
+      // Reemplazar base64 con URL de Storage — todos los dispositivos pueden cargarla
+      if(sesData && sesData.tareas && sesData.tareas[tareaIdx]){
+        sesData.tareas[tareaIdx].img = url;
+        sesData.tareas[tareaIdx]._imgLocal = false;
+        // Actualizar preview con la URL
+        var prev = document.getElementById("ses-img-prev-"+tareaIdx);
+        if(prev) prev.innerHTML = "<img src='"+url+"' style='width:100%;border-radius:var(--r-md);max-height:180px;object-fit:cover;'>";
+        if(btn) btn.textContent = "Cambiar imagen";
+        // Guardar URL en localStorage y sincronizar a Firebase
+        sesSave();
+      }
+    }).catch(function(err){
+      console.warn('[BFC] Error subiendo img tarea a Storage:', err.message);
+      // Falló el upload — quedarse con base64 local (no se sincronizará a otros dispositivos)
+      if(btn) btn.textContent = "Cambiar imagen";
+    });
+  };
+  img.onerror = function(){ /* usar base64 local si falla carga */ };
+  img.src = dataUrl;
 }
 
 function sesTrigImg(i){ var el=document.getElementById("ses-img-inp-"+i); if(el)el.click(); }
@@ -20390,7 +20457,11 @@ function histSave(){
       if(sc.tareas && Array.isArray(sc.tareas)){
         sc.tareas = sc.tareas.map(function(t){
           var tc = Object.assign({}, t);
-          delete tc.img;
+          // Solo borrar img si es base64 — las URLs de Storage se sincronizan normalmente
+          if(tc.img && typeof tc.img === 'string' && tc.img.indexOf('data:') === 0){
+            delete tc.img;
+          }
+          delete tc._imgLocal;
           return tc;
         });
       }
@@ -20557,6 +20628,7 @@ function _histEditarOk(id){
   // Resetear timestamps de sync para que esta edición se trate como nueva
   _sesLocalTs = Date.now();
   _sesLastSyncTs = 0;
+  _sesLastRemoteTs = 0;
   sesData._localTs = _sesLocalTs;
   try{ localStorage.setItem('BFC_SES_LOCAL', JSON.stringify(sesData)); }catch(e){}
   // Guardar como sesión activa en Firebase para que otros la vean
