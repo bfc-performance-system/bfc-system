@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117b</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117c</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -18560,8 +18560,8 @@ function sesSave(){
   // Tareas — fallback al valor actual de sesData si el DOM no está visible
   sesData.tareas.forEach(function(t,i){
     t.titulo      = document.getElementById("ses-tt-"+i)   ? (gEl("ses-tt-"+i)  ||t.titulo)       : t.titulo;
-    t.objetivo    = document.getElementById("ses-to-"+i)   ? gEl("ses-to-"+i)                     : (t.objetivo||"");
-    t.descripcion = document.getElementById("ses-td-"+i)   ? gEl("ses-td-"+i)                     : (t.descripcion||"");
+    t.objetivo    = document.getElementById("ses-to-"+i)   ? (gEl("ses-to-"+i)  ||t.objetivo||"") : (t.objetivo||"");
+    t.descripcion = document.getElementById("ses-td-"+i)   ? (gEl("ses-td-"+i)  ||t.descripcion||"") : (t.descripcion||"");
     t.tiempo      = document.getElementById("ses-tm-"+i)   ? (gEl("ses-tm-"+i)  ||t.tiempo)       : t.tiempo;
     t.videoLink   = document.getElementById("ses-tvid-"+i) ? (gEl("ses-tvid-"+i)||t.videoLink||"") : (t.videoLink||"");
   });
@@ -19269,7 +19269,7 @@ function renderSesion(){
   var _codVal = sesData.codigo || "";
   var _codEsManual = _codVal !== "" && codigoOpts.indexOf(_codVal) === -1;
   h += "<div class='fld'><label>Código</label>";
-  h += "<select id='ses-codigo' class='inp' style='font-size:11px;font-weight:700;cursor:pointer;' onchange=\"(function(el){var mw=document.getElementById('ses-codigo-manual-wrap');if(el.value==='__manual__'){mw.style.display='block';document.getElementById('ses-codigo-manual').focus();}else{mw.style.display='none';}})(this)\">";
+  h += "<select id='ses-codigo' class='inp' style='font-size:11px;font-weight:700;cursor:pointer;' onchange=\"(function(el){var mw=document.getElementById('ses-codigo-manual-wrap');if(el.value==='__manual__'){mw.style.display='block';document.getElementById('ses-codigo-manual').focus();}else{mw.style.display='none';sesData.codigo=el.value;sesSave();}})( this)\">";
   codigoOpts.forEach(function(o){
     var sel = (!_codEsManual && _codVal === o) ? " selected" : "";
     h += "<option value='"+o+"'"+sel+">"+(o||"— Código —")+"</option>";
@@ -19277,7 +19277,7 @@ function renderSesion(){
   h += "<option value='__manual__'" + (_codEsManual?" selected":"") + ">✏️ Escribir manualmente</option>";
   h += "</select>";
   h += "<div id='ses-codigo-manual-wrap' style='margin-top:4px;display:" + (_codEsManual?"block":"none") + ";'>";
-  h += "<input type='text' id='ses-codigo-manual' class='inp' style='font-size:11px;font-weight:700;' placeholder='Ej: M1, PRE-1, TM...' value='" + (_codEsManual ? escHtml(_codVal) : "") + "'>";
+  h += "<input type='text' id='ses-codigo-manual' class='inp' style='font-size:11px;font-weight:700;' placeholder='Ej: M1, PRE-1, TM...' value='" + (_codEsManual ? escHtml(_codVal) : "") + "' oninput=\"sesData.codigo=this.value\" onblur=\"sesSave()\">";
   h += "</div>";
   h += "</div>";
   // CDEF
@@ -19844,6 +19844,9 @@ function sesVerPreview(){
   modal.appendChild(scroller);
   document.body.appendChild(modal);
 
+  // Guardar HTML para sesPNG() (evita leer el iframe que falla por seguridad)
+  window._sesPreviewHtml = rep;
+
   // Escribir contenido en iframe
   iframe.contentDocument.open();
   iframe.contentDocument.write(rep);
@@ -19900,40 +19903,83 @@ function sesImprimir(){
 
 // PNG desde el modal (botón dentro de Vista previa)
 function sesPNG(){
-  var iframe = document.getElementById('ses-preview-iframe');
-  if(!iframe){ alert('Primero abre la Vista Previa'); return; }
-  function doCapture(){
-    var doc = iframe.contentDocument;
-    var tmp = document.createElement('div');
-    tmp.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1200px;background:#fff;';
-    tmp.innerHTML = '<div style="background:#fff;padding:0;">'+doc.body.innerHTML+'</div>';
-    // Copiar estilos del iframe
-    Array.from(doc.styleSheets).forEach(function(ss){ try{ var s=document.createElement('style'); Array.from(ss.cssRules).forEach(function(r){s.textContent+=r.cssText;}); tmp.appendChild(s); }catch(e){} });
-    document.body.appendChild(tmp);
-    toast('Generando imagen...');
-    html2canvas(tmp,{scale:2,useCORS:true,allowTaint:true,backgroundColor:'#ffffff',logging:false,width:tmp.scrollWidth,height:tmp.scrollHeight})
-      .then(function(canvas){
-        document.body.removeChild(tmp);
-        var a=document.createElement('a');
-        a.download='BFC_Sesion_'+(sesData.sesionNum||'').replace(/\s/g,'_')+'.png';
-        a.href=canvas.toDataURL('image/png'); a.click();
-        toast('✅ Imagen descargada');
-      }).catch(function(e){ document.body.removeChild(tmp); alert('Error: '+e.message); });
+  // Asegurarse de que el preview esté generado
+  if(!window._sesPreviewHtml){
+    // Si no hay preview abierto, generarlo primero
+    sesVerPreview();
+    setTimeout(sesPNG, 600);
+    return;
   }
-  if(typeof html2canvas==='undefined'){
+
+  function doCapture(){
+    toast('Generando imagen...');
+
+    // Crear un div oculto en el documento principal con el HTML del preview
+    // (NO usar iframe.contentDocument — falla por seguridad del navegador)
+    var parser = new DOMParser();
+    var doc2 = parser.parseFromString(window._sesPreviewHtml, 'text/html');
+
+    var tmp = document.createElement('div');
+    tmp.style.cssText = 'position:fixed;top:0;left:-9999px;width:1200px;background:#fff;z-index:-1;';
+
+    // Copiar el body del documento parseado
+    tmp.innerHTML = doc2.body.innerHTML;
+
+    // Copiar los estilos inline del head
+    Array.from(doc2.head.querySelectorAll('style')).forEach(function(s){
+      var sc = document.createElement('style');
+      sc.textContent = s.textContent;
+      tmp.appendChild(sc);
+    });
+
+    document.body.appendChild(tmp);
+
+    // Esperar un tick para que el layout se calcule
+    setTimeout(function(){
+      html2canvas(tmp, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        width: 1200,
+        height: tmp.scrollHeight,
+        windowWidth: 1200
+      }).then(function(canvas){
+        document.body.removeChild(tmp);
+        var nombre = 'BFC_Sesion_' + (sesData.sesionNum||'1').toString().replace(/\s/g,'_') + '.png';
+        var a = document.createElement('a');
+        a.download = nombre;
+        a.href = canvas.toDataURL('image/png');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast('✅ PNG descargado: ' + nombre);
+      }).catch(function(e){
+        if(document.body.contains(tmp)) document.body.removeChild(tmp);
+        toast('❌ Error al generar imagen: ' + e.message);
+      });
+    }, 100);
+  }
+
+  if(typeof html2canvas === 'undefined'){
     toast('Cargando librería...');
-    var s=document.createElement('script');
-    s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-    s.onload=doCapture; document.head.appendChild(s);
-  } else { doCapture(); }
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    s.onload = doCapture;
+    document.head.appendChild(s);
+  } else {
+    doCapture();
+  }
 }
 
 // PNG directo desde header/footer sin abrir modal
 function sesPNGDirecto(){
   sesSave();
   guardarEnHistorial();
+  window._sesPreviewHtml = null; // forzar regeneración
   sesVerPreview();
-  setTimeout(function(){ sesPNG(); }, 900);
+  setTimeout(function(){ sesPNG(); }, 500);
 }
 
 
