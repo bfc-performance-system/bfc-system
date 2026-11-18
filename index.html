@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117c</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117d</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -18540,19 +18540,37 @@ function sesSave(){
   var codRaw = codEl ? codEl.value : (sesData.codigo||"");
   if(codRaw === "__manual__"){
     var codManEl = document.getElementById("ses-codigo-manual");
-    codRaw = codManEl ? (codManEl.value||"").trim() : "";
+    var codManVal = codManEl ? codManEl.value.trim() : "";
+    // Si el manual está vacío, conservar el valor anterior en lugar de borrar
+    codRaw = codManVal || sesData.codigo || "";
   }
-  sesData.codigo = codRaw;
+  // Solo actualizar si hay un valor real, nunca borrar con string vacío
+  if(codRaw) sesData.codigo = codRaw;
   // Objetivos (simplificados) — usar valor actual de sesData como fallback para no borrar si el DOM no está visible
-  sesData["ses-tac"] = document.getElementById("ses-tac") ? gEl("ses-tac") : (sesData["ses-tac"]||sesData.objtacof||"");
-  sesData["ses-tec"] = document.getElementById("ses-tec") ? gEl("ses-tec") : (sesData["ses-tec"]||sesData.objtecof||"");
-  sesData["ses-fis"] = document.getElementById("ses-fis") ? gEl("ses-fis") : (sesData["ses-fis"]||sesData.objfisof||"");
-  sesData["ses-psi"] = document.getElementById("ses-psi") ? gEl("ses-psi") : (sesData["ses-psi"]||sesData.objpsiof||"");
-  // Mantener también las claves objtacof/etc. sincronizadas para guardarEnHistorial y Firebase
-  sesData.objtacof = sesData["ses-tac"];
-  sesData.objtecof = sesData["ses-tec"];
-  sesData.objfisof = sesData["ses-fis"];
-  sesData.objpsiof = sesData["ses-psi"];
+  // Para objetivos: leer del DOM si existe, pero NUNCA sobreescribir con vacío si ya había un valor
+  (function(){
+    var maps = [
+      ['ses-tac','objtacof'], ['ses-tec','objtecof'],
+      ['ses-fis','objfisof'], ['ses-psi','objpsiof']
+    ];
+    maps.forEach(function(m){
+      var el = document.getElementById(m[0]);
+      if(el){
+        // Solo actualizar si el textarea tiene contenido O si sesData ya estaba vacío
+        var domVal = el.value; // puede ser "" si el usuario borró todo
+        // Si el usuario está activamente en ese campo, usar su valor (aunque esté vacío — lo borró a propósito)
+        // Si NO está activo, usar el mayor entre DOM y sesData
+        if(document.activeElement === el){
+          sesData[m[0]] = domVal;
+        } else {
+          sesData[m[0]] = domVal || sesData[m[0]] || sesData[m[1]] || "";
+        }
+      } else {
+        sesData[m[0]] = sesData[m[0]] || sesData[m[1]] || "";
+      }
+      sesData[m[1]] = sesData[m[0]];
+    });
+  })();
   // CDEF (metodología Raymond Bernheim) — selector + nota
   var cdefSelEl = document.getElementById("ses-cdef-sel");
   sesData.cdefSel  = cdefSelEl ? cdefSelEl.value : (sesData.cdefSel||"");
@@ -19313,7 +19331,7 @@ function renderSesion(){
     h += "<span style='font-size:9px;font-weight:700;color:rgba(255,255,255,.8);letter-spacing:.08em;text-transform:uppercase;'>"+f[1]+"</span>";
     h += "</div>";
     h += "<div style='padding:6px 8px;'>";
-    h += "<textarea id='"+f[0]+"' class='inp' style='width:100%;min-height:60px;font-size:10px;resize:none;border:none;padding:0;background:transparent;' placeholder='"+f[2]+"' oninput=\"sesData['"+f[0]+"']=this.value;sesData.objtacof=sesData['ses-tac'];sesData.objtecof=sesData['ses-tec'];sesData.objfisof=sesData['ses-fis'];sesData.objpsiof=sesData['ses-psi'];sesSyncFb();\" onblur='sesSave();'>"+( sesData[f[0]]||"")+"</textarea>";
+    h += "<textarea id='"+f[0]+"' class='inp' style='width:100%;min-height:60px;font-size:10px;resize:none;border:none;padding:0;background:transparent;' placeholder='"+f[2]+"' oninput=\"sesData['"+f[0]+"']=this.value;sesData.objtacof=sesData['ses-tac'];sesData.objtecof=sesData['ses-tec'];sesData.objfisof=sesData['ses-fis'];sesData.objpsiof=sesData['ses-psi'];clearTimeout(window._objSyncTimer);window._objSyncTimer=setTimeout(function(){sesSave();sesSyncFb();},1500);\" onblur='sesSave();sesSyncFb();'>"+( sesData[f[0]]||"")+"</textarea>";
     h += "</div></div>";
   });
   h += "</div></div>";
