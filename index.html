@@ -1812,11 +1812,26 @@ function irA(id) {
   if(id === 'historial' && window.fbDB){
     window.fbDB.ref('bfc/historial').once('value', function(snap){
       var remoto = snap.val();
-      if(remoto && Array.isArray(remoto) && JSON.stringify(remoto) !== JSON.stringify(HISTORIAL_DB)){
-        HISTORIAL_DB = remoto;
+      // Actualizar siempre con el dato remoto si es un array válido
+      if(remoto && Array.isArray(remoto)){
+        // Merge: preservar imágenes locales que Firebase no almacena (base64 excluido del sync)
+        var localMap = {};
+        safeArr(HISTORIAL_DB).forEach(function(s){ if(s.id) localMap[s.id] = s; });
+        HISTORIAL_DB = remoto.map(function(sRemota){
+          var sLocal = localMap[sRemota.id];
+          if(!sLocal || !sLocal.tareas) return sRemota;
+          // Para cada tarea, preservar img local si el remoto no la tiene
+          var tareasConImg = (sRemota.tareas||[]).map(function(tR, i){
+            var tL = sLocal.tareas && sLocal.tareas[i];
+            if(tL && tL.img && !tR.img) return Object.assign({}, tR, { img: tL.img });
+            return tR;
+          });
+          return Object.assign({}, sRemota, { tareas: tareasConImg });
+        });
         try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){}
-        if(typeof renderHistorial==='function') renderHistorial();
       }
+      // Siempre re-renderizar al volver de Firebase para mostrar el estado real
+      if(typeof renderHistorial==='function') renderHistorial();
     });
   }
   var renders = {
@@ -18039,9 +18054,17 @@ function sesSyncFb(){
     var badge = document.getElementById('ses-sync-badge');
     if(badge){ badge.textContent='💾 Guardando…'; badge.style.color='#fbbf24'; }
     var _syncTs = Date.now();
+    // Excluir imágenes (base64) de las tareas al subir a Firebase:
+    // pueden superar el límite de 10MB del nodo y no son necesarias en el sync multi-dispositivo
+    var tareasParaFb = (sesData.tareas||[]).map(function(t){
+      var tc = Object.assign({}, t);
+      delete tc.img; // img se mantiene solo en localStorage
+      return tc;
+    });
     var payload = Object.assign({}, sesData, {
       _ts: _syncTs,
-      _fecha: sesData.fecha || TODAY
+      _fecha: sesData.fecha || TODAY,
+      tareas: tareasParaFb
     });
     // Marcar inmediatamente para que el listener no re-aplique nuestro propio update
     _sesLastSyncTs = _syncTs;
@@ -18084,7 +18107,25 @@ function sesEscucharFb(){
       'rolDT','rolAT1','rolAT2','rolPF','rolVA',
       'tareas','materialItems','jugadoresActivos','jugadoresExtra','jugadoresQuitados',
       '_idsConocidos'];
-    camposSeguros.forEach(function(k){ if(k in d) sesData[k] = d[k]; });
+    camposSeguros.forEach(function(k){
+      if(!(k in d)) return;
+      // Para 'tareas': merge tarea por tarea preservando img local si el remoto no trae imagen
+      if(k === 'tareas' && Array.isArray(d.tareas) && sesData.tareas && Array.isArray(sesData.tareas)){
+        sesData.tareas = d.tareas.map(function(tRemota, i){
+          var tLocal = sesData.tareas[i];
+          if(!tLocal) return tRemota;
+          // Preservar img local si: existe localmente Y el remoto no tiene img (o tiene vacía)
+          var imgLocal = tLocal.img || null;
+          var imgRemota = tRemota.img || null;
+          if(imgLocal && !imgRemota){
+            return Object.assign({}, tRemota, { img: imgLocal });
+          }
+          return tRemota;
+        });
+      } else {
+        sesData[k] = d[k];
+      }
+    });
     _sesLastSyncTs = d._ts || Date.now();
     // Re-renderizar si la página de sesión está activa
     var pg = document.getElementById('page-sesion');
@@ -20232,7 +20273,19 @@ function histSave(){
   // Subir historial DIRECTAMENTE a Firebase sin debounce — garantiza que no se pierda
   // aunque otro update llegue antes de que fbGuardar() ejecute su debounce de 800ms
   if(window.fbDB){
-    var _snapHist = JSON.parse(JSON.stringify(HISTORIAL_DB));
+    // Subir historial a Firebase sin las imágenes base64 (pueden superar el límite de 10MB)
+    // Las imágenes quedan guardadas en localStorage y se preservan al leer
+    var _snapHist = HISTORIAL_DB.map(function(ses){
+      var sc = Object.assign({}, ses);
+      if(sc.tareas && Array.isArray(sc.tareas)){
+        sc.tareas = sc.tareas.map(function(t){
+          var tc = Object.assign({}, t);
+          delete tc.img;
+          return tc;
+        });
+      }
+      return sc;
+    });
     window.fbDB.ref('bfc/historial').set(_snapHist).then(function(){
       console.log('[BFC] Historial guardado en Firebase:', _snapHist.length, 'sesiones');
     }).catch(function(e){
