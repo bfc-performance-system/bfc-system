@@ -2188,6 +2188,14 @@ function renderPlantilla(){
     else if(est==='warn') stats.warn++;
     else stats.danger++;
   });
+  // Incluir jugadores manuales (a prueba / Sub-20) en el conteo — siempre se cuentan como aptos
+  safeArr(_plantillaManual).forEach(function(m){
+    var est = plantillaEstado(m);
+    if(est==='lesion') stats.lesion++;
+    else if(est==='warn') stats.warn++;
+    else if(est==='danger') stats.danger++;
+    else stats.ok++;
+  });
 
   var h = "<div style='padding:24px;max-width:1200px;'>";
 
@@ -18241,6 +18249,14 @@ function sesFinalizar(){
     if(window.fbDB){
       window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
     }
+    // Mostrar pantalla de nueva sesión en blanco con mensaje informativo
+    sesData = null;
+    _sesLocalTs = 0;
+    _sesLastSyncTs = 0;
+    _sesInitBlanco();
+    if(typeof renderSesion==='function') renderSesion();
+    if(typeof irA==='function') irA('sesion');
+    toast('✅ Sesión guardada en historial. Podés iniciar una nueva sesión.');
   }, 1500);
 }
 window.sesFinalizar = sesFinalizar;
@@ -18329,10 +18345,15 @@ function sesSave(){
   }
   sesData.codigo = codRaw;
   // Objetivos (simplificados) — usar valor actual de sesData como fallback para no borrar si el DOM no está visible
-  sesData["ses-tac"] = document.getElementById("ses-tac") ? gEl("ses-tac") : (sesData["ses-tac"]||"");
-  sesData["ses-tec"] = document.getElementById("ses-tec") ? gEl("ses-tec") : (sesData["ses-tec"]||"");
-  sesData["ses-fis"] = document.getElementById("ses-fis") ? gEl("ses-fis") : (sesData["ses-fis"]||"");
-  sesData["ses-psi"] = document.getElementById("ses-psi") ? gEl("ses-psi") : (sesData["ses-psi"]||"");
+  sesData["ses-tac"] = document.getElementById("ses-tac") ? gEl("ses-tac") : (sesData["ses-tac"]||sesData.objtacof||"");
+  sesData["ses-tec"] = document.getElementById("ses-tec") ? gEl("ses-tec") : (sesData["ses-tec"]||sesData.objtecof||"");
+  sesData["ses-fis"] = document.getElementById("ses-fis") ? gEl("ses-fis") : (sesData["ses-fis"]||sesData.objfisof||"");
+  sesData["ses-psi"] = document.getElementById("ses-psi") ? gEl("ses-psi") : (sesData["ses-psi"]||sesData.objpsiof||"");
+  // Mantener también las claves objtacof/etc. sincronizadas para guardarEnHistorial y Firebase
+  sesData.objtacof = sesData["ses-tac"];
+  sesData.objtecof = sesData["ses-tec"];
+  sesData.objfisof = sesData["ses-fis"];
+  sesData.objpsiof = sesData["ses-psi"];
   // CDEF (metodología Raymond Bernheim) — selector + nota
   var cdefSelEl = document.getElementById("ses-cdef-sel");
   sesData.cdefSel  = cdefSelEl ? cdefSelEl.value : (sesData.cdefSel||"");
@@ -19126,7 +19147,8 @@ function sesMatEliminar(btn){
 }
 
 function sesVerPreview(){
-  sesSave();
+  // No llamar sesSave() si venimos del historial — los inputs del DOM no corresponden a esta sesión
+  if(!window._sesVerDesdeHistorial) sesSave();
   var plantelAll = JDB.length>0 ? JDB : PL;
   var LOGO_B64 = document.querySelector(".nav-logo")?document.querySelector(".nav-logo").src:"";
   var fecha = sesData.fecha
@@ -20417,10 +20439,14 @@ function guardarEnHistorial(){
               descripcion:t.descripcion||'', img:t.img||null, zonaData:t.zonaData||null, videoLink:t.videoLink||''};
     }),
     materialItems: sesData.materialItems||[],
-    objtacof: sesData.objtacof||'', objtacdef: sesData.objtacdef||'',
-    objtecof: sesData.objtecof||'', objtecdef: sesData.objtecdef||'',
-    objfisof: sesData.objfisof||'', objfisdef: sesData.objfisdef||'',
-    objpsiof: sesData.objpsiof||'', objpsidef: sesData.objpsidef||'',
+    objtacof: sesData.objtacof||sesData["ses-tac"]||'', objtacdef: sesData.objtacdef||'',
+    objtecof: sesData.objtecof||sesData["ses-tec"]||'', objtecdef: sesData.objtecdef||'',
+    objfisof: sesData.objfisof||sesData["ses-fis"]||'', objfisdef: sesData.objfisdef||'',
+    objpsiof: sesData.objpsiof||sesData["ses-psi"]||'', objpsidef: sesData.objpsidef||'',
+    "ses-tac": sesData["ses-tac"]||sesData.objtacof||'',
+    "ses-tec": sesData["ses-tec"]||sesData.objtecof||'',
+    "ses-fis": sesData["ses-fis"]||sesData.objfisof||'',
+    "ses-psi": sesData["ses-psi"]||sesData.objpsiof||'',
     rolDT: sesData.rolDT||'', rolAT1: sesData.rolAT1||'',
     rolAT2: sesData.rolAT2||'', rolPF: sesData.rolPF||'', rolVA: sesData.rolVA||'',
     faseFinal: sesData.faseFinal||'',
@@ -20602,29 +20628,63 @@ function histVerPDF(id){
   histLoad();
   var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
   if(!snap) return;
-  // Cargar y abrir vista previa
+  // Cargar y abrir vista previa sin pasar por DOM (los inputs no están visibles)
   if(!sesData) _sesInitBlanco();
   histCargarSesionSilencioso(snap);
-  setTimeout(function(){ sesVerPreview(); }, 200);
+  // Flag para que sesVerPreview no sobreescriba sesData con valores vacíos del DOM
+  window._sesVerDesdeHistorial = true;
+  setTimeout(function(){
+    sesVerPreview();
+    window._sesVerDesdeHistorial = false;
+  }, 200);
 }
 
 function histCargarSesionSilencioso(snap){
   if(!sesData) _sesInitBlanco();
-  sesData.fecha = snap.fecha||'';
-  sesData.sesionNum = snap.sesionNum||'';
-  sesData.morfociclo = snap.morfociclo||'';
+  // Copiar TODOS los campos del historial incluyendo img y zonaData de cada tarea
+  sesData.fecha        = snap.fecha||'';
+  sesData.sesionNum    = snap.sesionNum||'';
+  sesData.morfociclo   = snap.morfociclo||'';
   sesData.numJugadores = snap.numJugadores||0;
-  sesData.tiempo = snap.tiempo||'';
-  sesData.objtacof = snap.objtacof||'';
-  sesData.objtacdef = snap.objtacdef||'';
-  sesData.objtecof = snap.objtecof||'';
-  sesData.objtecdef = snap.objtecdef||'';
-  sesData.objfisof = snap.objfisof||'';
-  sesData.objfisdef = snap.objfisdef||'';
-  sesData.faseFinal = snap.faseFinal||'';
-  sesData.observaciones = snap.observaciones||'';
+  sesData.tiempo       = snap.tiempo||snap.duracion||'';
+  sesData.codigo       = snap.cdefSel||snap.codigo||'';
+  sesData.cdefSel      = snap.cdefSel||'';
+  sesData.cdefNota     = snap.cdefNota||'';
+  sesData.objtacof     = snap.objtacof||'';
+  sesData.objtacdef    = snap.objtacdef||'';
+  sesData.objtecof     = snap.objtecof||'';
+  sesData.objtecdef    = snap.objtecdef||'';
+  sesData.objfisof     = snap.objfisof||'';
+  sesData.objfisdef    = snap.objfisdef||'';
+  sesData.objpsiof     = snap.objpsiof||'';
+  sesData.objpsidef    = snap.objpsidef||'';
+  // Claves que usa sesVerPreview para renderizar objetivos
+  sesData["ses-tac"]   = snap["ses-tac"]||snap.objtacof||'';
+  sesData["ses-tec"]   = snap["ses-tec"]||snap.objtecof||'';
+  sesData["ses-fis"]   = snap["ses-fis"]||snap.objfisof||'';
+  sesData["ses-psi"]   = snap["ses-psi"]||snap.objpsiof||'';
+  sesData.faseFinal    = snap.faseFinal||'';
+  sesData.observaciones= snap.observaciones||'';
+  sesData.videoLink    = snap.videoLink||'';
+  sesData.rolDT        = snap.rolDT||'';
+  sesData.rolAT1       = snap.rolAT1||'';
+  sesData.rolAT2       = snap.rolAT2||'';
+  sesData.rolPF        = snap.rolPF||'';
+  sesData.rolVA        = snap.rolVA||'';
+  sesData.materialItems = snap.materialItems||[];
+  sesData.jugadoresActivos = snap.jugadoresActivos||(JDB.length>0?JDB:PL).map(function(p){return p.id;});
+  sesData.jugadoresExtra   = snap.jugadoresExtra||[];
+  // Tareas con imagen y zona preservadas
   sesData.tareas = (snap.tareas||[]).map(function(t){
-    return {titulo:t.titulo||'',objetivo:t.objetivo||'',descripcion:t.descripcion||'',tiempo:t.tiempo||'',img:null,zonaData:null};
+    return {
+      titulo:      t.titulo||'',
+      objetivo:    t.objetivo||'',
+      descripcion: t.descripcion||'',
+      tiempo:      t.tiempo||'',
+      img:         t.img||null,
+      zonaData:    t.zonaData||null,
+      videoLink:   t.videoLink||''
+    };
   });
 }
 
