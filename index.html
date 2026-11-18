@@ -20474,7 +20474,7 @@ function histEditarSesion(id){
     + "<div style='color:#64748b;font-size:12px;margin-bottom:4px;'>Sesi&#243;n <b style='color:#a5b4fc'>#"+snap.sesionNum+"</b> &middot; "+snap.fecha+"</div>"
     + "<div style='color:#64748b;font-size:11px;margin-bottom:16px;'>Se cargar&#225; en el m&#243;dulo de sesi&#243;n para editar. Al guardar como borrador o finalizar, se actualizar&#225; en el historial.</div>"
     + "<div style='display:flex;gap:8px;justify-content:center;'>"
-    + "<button onclick='closeModal();_histEditarOk(\\'\"+ id +\"\\')'  style='background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:800;'>&#9999;&#65039; Ir a editar</button>"
+    + "<button onclick='closeModal();_histEditarOk(\""+id+"\")'  style='background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:800;'>&#9999;&#65039; Ir a editar</button>"
     + "<button onclick='closeModal()' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:700;'>Cancelar</button>"
     + "</div></div>";
   showModal(_mHtml);
@@ -20511,6 +20511,11 @@ function _histEditarOk(id){
     jugadoresExtra: snap.jugadoresExtra||[],
     _editandoHistId: id   // ← marca que estamos editando un registro del historial
   };
+  // Resetear timestamps de sync para que esta edición se trate como nueva
+  _sesLocalTs = Date.now();
+  _sesLastSyncTs = 0;
+  sesData._localTs = _sesLocalTs;
+  try{ localStorage.setItem('BFC_SES_LOCAL', JSON.stringify(sesData)); }catch(e){}
   // Guardar como sesión activa en Firebase para que otros la vean
   if(typeof sesSyncFb==='function') sesSyncFb();
   if(typeof sesEscucharFb==='function') sesEscucharFb();
@@ -20598,11 +20603,13 @@ function histVerPDF(id){
   var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
   if(!snap) return;
   // Cargar y abrir vista previa
+  if(!sesData) _sesInitBlanco();
   histCargarSesionSilencioso(snap);
   setTimeout(function(){ sesVerPreview(); }, 200);
 }
 
 function histCargarSesionSilencioso(snap){
+  if(!sesData) _sesInitBlanco();
   sesData.fecha = snap.fecha||'';
   sesData.sesionNum = snap.sesionNum||'';
   sesData.morfociclo = snap.morfociclo||'';
