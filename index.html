@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117k</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117n</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -6698,6 +6698,8 @@ function jornadaCrearSesion(){
   BIEN_SESIONES.sort(function(a,b){ return b.fecha.localeCompare(a.fecha); }); // más reciente primero
   // Activar automáticamente la sesión recién creada
   window._jornadaSesionActiva = nuevaSes;
+  // Limpiar bandera de "cerrada" para esta fecha (si se abre nueva sesión, vuelve al modo en vivo)
+  try{ localStorage.removeItem('BFC_JORNADA_CERRADA_'+nuevaSes.fecha); }catch(e){}
   guardar();
   fbGuardar();
   fbAuditLog('jornada','Sesión creada: '+nombre+' ('+fecha+')');
@@ -6783,6 +6785,8 @@ function jornadaCerrar(){
 function jornadaCerrarConfirmado(){
   window._jornadaCerrarConfirmando = false;
   var sesActiva = window._jornadaSesionActiva;
+  // Guardar bandera de jornada cerrada para hoy (el panel inicio la usa para mostrar resumen)
+  try{ localStorage.setItem('BFC_JORNADA_CERRADA_'+TODAY,'1'); }catch(e){}
   window._jornadaSesionActiva = null;
   window._jornadaPaso = 'sesion';
   // Limpiar estado kiosko residual
@@ -7620,63 +7624,122 @@ function renderProgramacion() {
   // ── CARDS FILA SUPERIOR ──
   h += "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;padding:20px 28px;'>";
 
-  // Card: Hoy — muestra código día + carga + estado sesión
+  // Card: Hoy / Mañana — después de las 14:00 muestra la sesión del día siguiente
+  var _horaActual = new Date().getHours() * 60 + new Date().getMinutes(); // minutos desde medianoche
+  var _modoManana = _horaActual >= 14 * 60; // true después de las 14:00
+
+  // Calcular fecha de mañana
+  var _dManana = new Date(yy, mm, todayD);
+  _dManana.setDate(_dManana.getDate() + 1);
+  var _mananaStr = _dManana.getFullYear() + '-' + padZ(_dManana.getMonth()+1) + '-' + padZ(_dManana.getDate());
+  var _mananaD   = _dManana.getDate();
+  var _mananaMm  = _dManana.getMonth();
+
+  // Sesión registrada hoy (siempre la calculamos)
   var sesHoy = null;
   for (var si2 = 0; si2 < SES_DB_RAW.length; si2++) {
     var sf = SES_DB_RAW[si2].fecha || SES_DB_RAW[si2].fechaSes;
     if (sf === todayStr) { sesHoy = SES_DB_RAW[si2]; break; }
   }
-  var _sesBg2   = 'linear-gradient(135deg,rgba(99,102,241,.18),rgba(99,102,241,.06))';
-  var _sesBord2 = 'rgba(99,102,241,.35)';
-  // Si hay sesión registrada hoy → el div NO navega; si está pendiente → sí navega
-  var _sesDivClick = sesHoy ? "" : "onclick=\"irA('sesion')\" ";
-  var _sesDivCursor = sesHoy ? "default" : "pointer";
-  h += "<div "+_sesDivClick+"style='background:" + _sesBg2 + ";border:1px solid " + _sesBord2 + ";border-radius:16px;padding:16px 18px;cursor:"+_sesDivCursor+";transition:border-color .2s,box-shadow .2s;'" + (!sesHoy ? " onmouseover=\"this.style.borderColor='rgba(99,102,241,.7)';this.style.boxShadow='0 0 0 3px rgba(99,102,241,.15)'\" onmouseout=\"this.style.borderColor='rgba(99,102,241,.35)';this.style.boxShadow='none'\"" : "") + ">";
-  h += "<div style='font-size:9px;font-weight:800;color:#6366f1;text-transform:uppercase;letter-spacing:.10em;margin-bottom:8px;'>Hoy · " + todayD + " de " + mesNombres[mm] + "</div>";
-  // Código día + carga
-  if (mcDiaHoy) {
-    var cargaC = cargaColor[(mcDiaHoy.carga||'').toLowerCase()] || '#94a3b8';
+
+  // Datos del microciclo para mañana
+  var mcDiaManana = null;
+  for (var mi3 = 0; mi3 < mcHistRaw.length; mi3++) {
+    var _mce3 = mcHistRaw[mi3];
+    if (!_mce3.data) continue;
+    for (var di3b = 0; di3b < _mce3.data.length; di3b++) {
+      if ((_mce3.data[di3b].fecha||'') === _mananaStr) { mcDiaManana = _mce3.data[di3b]; break; }
+    }
+    if (mcDiaManana) break;
+  }
+
+  // Qué mostramos: si es después de las 14:00 → mañana; si no → hoy
+  var _cardFecha   = _modoManana ? _mananaStr : todayStr;
+  var _cardDia     = _modoManana ? _mananaD   : todayD;
+  var _cardMes     = _modoManana ? _mananaMm  : mm;
+  var _cardMcDia   = _modoManana ? mcDiaManana : mcDiaHoy;
+  var _cardSes     = _modoManana ? null : sesHoy; // sesión registrada solo aplica a hoy
+
+  var _sesBg2   = _modoManana
+    ? 'linear-gradient(135deg,rgba(245,158,11,.18),rgba(245,158,11,.06))'
+    : 'linear-gradient(135deg,rgba(99,102,241,.18),rgba(99,102,241,.06))';
+  var _sesBord2 = _modoManana ? 'rgba(245,158,11,.4)' : 'rgba(99,102,241,.35)';
+  var _cardAccent = _modoManana ? '#f59e0b' : '#6366f1';
+
+  // Click: si modo mañana → va a sesión (para prepararla); si hoy sin sesión → va a sesión
+  var _sesDivClick = (_cardSes && !_modoManana) ? "" : "onclick=\"irA('sesion')\" ";
+  var _sesDivCursor = (_cardSes && !_modoManana) ? "default" : "pointer";
+  var _hoverStyle = (_cardSes && !_modoManana) ? "" :
+    " onmouseover=\"this.style.borderColor='"+ (_modoManana?'rgba(245,158,11,.75)':'rgba(99,102,241,.7)') +"';this.style.boxShadow='0 0 0 3px "+(_modoManana?'rgba(245,158,11,.18)':'rgba(99,102,241,.15)')+"'\" onmouseout=\"this.style.borderColor='"+_sesBord2+"';this.style.boxShadow='none'\"";
+
+  h += "<div "+_sesDivClick+"style='background:"+_sesBg2+";border:1px solid "+_sesBord2+";border-radius:16px;padding:16px 18px;cursor:"+_sesDivCursor+";transition:border-color .2s,box-shadow .2s;'"+_hoverStyle+">";
+
+  // Etiqueta de cabecera — "Hoy" o "Mañana"
+  h += "<div style='display:flex;align-items:center;gap:6px;margin-bottom:8px;'>";
+  h += "<div style='font-size:9px;font-weight:800;color:"+_cardAccent+";text-transform:uppercase;letter-spacing:.10em;'>"
+    + (_modoManana ? '📅 Mañana' : 'Hoy')
+    + " · " + _cardDia + " de " + mesNombres[_cardMes] + "</div>";
+  if(_modoManana) h += "<span style='font-size:8px;font-weight:700;background:rgba(245,158,11,.18);border:1px solid rgba(245,158,11,.4);color:#fbbf24;border-radius:5px;padding:1px 6px;margin-left:auto;'>+14:00</span>";
+  h += "</div>";
+
+  // Código día + carga del microciclo
+  if (_cardMcDia) {
+    var cargaC = cargaColor[(_cardMcDia.carga||'').toLowerCase()] || '#94a3b8';
     h += "<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;'>";
-    h += "<span style='font-size:20px;font-weight:900;color:#a5b4fc;letter-spacing:-.5px;'>" + (mcDiaHoy.rel||'—') + "</span>";
-    h += "<span style='font-size:11px;font-weight:900;padding:3px 10px;border-radius:7px;background:" + cargaC + "30;border:1.5px solid " + cargaC + "88;color:" + cargaC + ";text-transform:uppercase;letter-spacing:.04em;'>" + (mcDiaHoy.carga||'—') + "</span>";
+    h += "<span style='font-size:20px;font-weight:900;color:"+(_modoManana?'#fcd34d':'#a5b4fc')+";letter-spacing:-.5px;'>" + (_cardMcDia.rel||'—') + "</span>";
+    h += "<span style='font-size:11px;font-weight:900;padding:3px 10px;border-radius:7px;background:"+cargaC+"30;border:1.5px solid "+cargaC+"88;color:"+cargaC+";text-transform:uppercase;letter-spacing:.04em;'>" + (_cardMcDia.carga||'—') + "</span>";
     h += "</div>";
-    // Tipo de sesión del microciclo
-    if (mcDiaHoy.tipo && mcDiaHoy.tipo !== 'descanso') {
-      var _tcHoy = TC[(mcDiaHoy.tipo||'').toLowerCase()] || TC['entrenamiento'];
-      h += "<div style='font-size:10px;font-weight:700;color:" + _tcHoy.txt + ";margin-bottom:6px;'>" + (mcDiaHoy.tipo||'').charAt(0).toUpperCase() + (mcDiaHoy.tipo||'').slice(1) + (mcDiaHoy.contenido ? ' · <span style=\"color:#475569;font-weight:600;\">' + (mcDiaHoy.contenido.split('\\n')[0]||'').slice(0,40) + '</span>' : '') + "</div>";
+    if (_cardMcDia.tipo && _cardMcDia.tipo !== 'descanso') {
+      var _tcCard = TC[(_cardMcDia.tipo||'').toLowerCase()] || TC['entrenamiento'];
+      h += "<div style='font-size:10px;font-weight:700;color:"+_tcCard.txt+";margin-bottom:6px;'>"
+        + (_cardMcDia.tipo||'').charAt(0).toUpperCase() + (_cardMcDia.tipo||'').slice(1)
+        + (_cardMcDia.contenido ? ' · <span style="color:#475569;font-weight:600;">' + (_cardMcDia.contenido.split('\\n')[0]||'').slice(0,40) + '</span>' : '')
+        + "</div>";
     }
   }
-  // CDEF de la sesión registrada hoy
-  if (sesHoy && sesHoy.cdefSel) {
+
+  // CDEF solo aplica a sesión de hoy
+  if (!_modoManana && sesHoy && sesHoy.cdefSel) {
     h += "<div style='margin-bottom:6px;'>" + cdefHtml(sesHoy.cdefSel) + "</div>";
-  } else if (mcDiaHoy && mcDiaHoy.tipo === 'descanso') {
+  } else if (_cardMcDia && _cardMcDia.tipo === 'descanso') {
     h += "<div style='font-size:11px;color:#64748b;font-weight:600;margin-bottom:6px;'>Día de descanso</div>";
   }
+
   // Alerta carga alta
-  if (mcDiaHoy && (mcDiaHoy.carga||'').toLowerCase() === 'muy alta') {
+  if (_cardMcDia && (_cardMcDia.carga||'').toLowerCase() === 'muy alta') {
     h += "<div style='margin-bottom:6px;font-size:9px;font-weight:800;color:#ef4444;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:3px 8px;'>⚠️ CARGA MUY ALTA</div>";
-  } else if (mcDiaHoy && (mcDiaHoy.carga||'').toLowerCase() === 'alta') {
+  } else if (_cardMcDia && (_cardMcDia.carga||'').toLowerCase() === 'alta') {
     h += "<div style='margin-bottom:6px;font-size:9px;font-weight:800;color:#f97316;background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.25);border-radius:6px;padding:3px 8px;'>↑ CARGA ALTA</div>";
   }
-  // Estado sesión — prominente
-  var _sesIcon  = sesHoy ? '✅' : '⬜';
-  var _sesLabel = sesHoy ? 'Sesión registrada' : 'Sesión pendiente';
-  var _sesCol2  = sesHoy ? '#6ee7b7' : '#94a3b8';
-  var _sesBgB   = sesHoy ? 'rgba(16,185,129,.15)' : 'rgba(100,116,139,.1)';
-  var _sesBordB = sesHoy ? 'rgba(16,185,129,.35)' : 'rgba(100,116,139,.2)';
-  h += "<div style='display:flex;align-items:center;gap:8px;padding:8px 10px;background:" + _sesBgB + ";border:1px solid " + _sesBordB + ";border-radius:9px;margin-top:4px;'>";
-  h += "<span style='font-size:14px;'>" + _sesIcon + "</span>";
-  h += "<div style='flex:1;'>";
-  h += "<div style='font-size:11px;font-weight:800;color:" + _sesCol2 + ";'>" + _sesLabel + "</div>";
-  if (sesHoy && sesHoy.cdefSel) h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>CDEF: " + sesHoy.cdefSel + (sesHoy.duracion ? ' · ' + sesHoy.duracion + ' min' : '') + "</div>";
-  else if (!sesHoy) h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>Toca para registrar →</div>";
-  h += "</div>";
-  if (sesHoy) {
-    // Botón 👁 Vista previa — abre preview sin navegar a edición
-    // dashVerSesionHoy busca en HISTORIAL_DB por fecha (histVerPDF necesita id del historial)
-    h += "<button onclick=\"event.stopPropagation();dashVerSesionHoy('"+todayStr+"')\" style='flex-shrink:0;background:rgba(16,185,129,.18);border:1.5px solid rgba(16,185,129,.5);color:#6ee7b7;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:4px;'>👁 Ver</button>";
+
+  // Estado sesión — solo si es modo hoy
+  if (!_modoManana) {
+    var _sesIcon  = sesHoy ? '✅' : '⬜';
+    var _sesLabel = sesHoy ? 'Sesión registrada' : 'Sesión pendiente';
+    var _sesCol2  = sesHoy ? '#6ee7b7' : '#94a3b8';
+    var _sesBgB   = sesHoy ? 'rgba(16,185,129,.15)' : 'rgba(100,116,139,.1)';
+    var _sesBordB = sesHoy ? 'rgba(16,185,129,.35)' : 'rgba(100,116,139,.2)';
+    h += "<div style='display:flex;align-items:center;gap:8px;padding:8px 10px;background:"+_sesBgB+";border:1px solid "+_sesBordB+";border-radius:9px;margin-top:4px;'>";
+    h += "<span style='font-size:14px;'>"+_sesIcon+"</span>";
+    h += "<div style='flex:1;'>";
+    h += "<div style='font-size:11px;font-weight:800;color:"+_sesCol2+";'>"+_sesLabel+"</div>";
+    if (sesHoy && sesHoy.cdefSel) h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>CDEF: "+sesHoy.cdefSel+(sesHoy.duracion?' · '+sesHoy.duracion+' min':'')+"</div>";
+    else if (!sesHoy) h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>Toca para registrar →</div>";
+    h += "</div>";
+    if (sesHoy) {
+      h += "<button onclick=\"event.stopPropagation();dashVerSesionHoy('"+todayStr+"')\" style='flex-shrink:0;background:rgba(16,185,129,.18);border:1.5px solid rgba(16,185,129,.5);color:#6ee7b7;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:4px;'>👁 Ver</button>";
+    }
+    h += "</div>";
+  } else {
+    // Modo mañana: botón para preparar la sesión
+    h += "<div style='display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:9px;margin-top:4px;'>";
+    h += "<span style='font-size:14px;'>📋</span>";
+    h += "<div style='flex:1;'>";
+    h += "<div style='font-size:11px;font-weight:800;color:#fbbf24;'>Preparar sesión</div>";
+    h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>Toca para planificar →</div>";
+    h += "</div></div>";
   }
-  h += "</div>";
+
   h += "</div>";
 
   // Card: Disponibilidad superficial
@@ -7707,12 +7770,31 @@ function renderProgramacion() {
     var _wLabel  = _wOk ? 'Wellness completo' : (_wHoy===0?'Sin registros hoy':_wHoy+' de '+_wTotal+' jugadores');
     var _wSub    = _wOk ? 'Todo el plantel ha registrado' : (_wHoy===0?'Wellness pendiente para todo el plantel':'Faltan '+(_wTotal-_wHoy)+' por registrar');
     var _wBarW   = _wTotal>0 ? _wPct : 0;
+    // RPE post-sesión promedio del día
+    var _rpeRegs = safeArr(BIEN).filter(function(b){ return b.fecha===todayStr && b.rpe_post>0; });
+    var _rpeAvg  = _rpeRegs.length ? Math.round(_rpeRegs.reduce(function(a,b){ return a+(b.rpe_post||0); },0)/_rpeRegs.length*10)/10 : null;
+    var _rpeCol  = _rpeAvg===null ? '#475569' : (_rpeAvg>=8?'#ef4444':_rpeAvg>=6?'#f97316':_rpeAvg>=4?'#eab308':'#22c55e');
     h += "<div onclick=\"irA('kiosko')\" style='background:linear-gradient(135deg,rgba(99,102,241,.18),rgba(99,102,241,.06));border:1px solid rgba(99,102,241,.35);border-radius:16px;padding:16px 18px;cursor:pointer;transition:border-color .2s,box-shadow .2s;' onmouseover=\"this.style.borderColor='rgba(99,102,241,.7)';this.style.boxShadow='0 0 0 3px rgba(99,102,241,.15)'\" onmouseout=\"this.style.borderColor='rgba(99,102,241,.35)';this.style.boxShadow='none'\">";
     h += "<div style='font-size:9px;font-weight:800;color:#6366f1;text-transform:uppercase;letter-spacing:.10em;margin-bottom:8px;'>Wellness · Hoy</div>";
-    h += "<div style='display:flex;align-items:baseline;gap:6px;margin-bottom:6px;'>";
+    // Fila: número wellness + badge RPE al lado
+    h += "<div style='display:flex;align-items:center;gap:10px;margin-bottom:6px;'>";
+    h += "<div style='display:flex;align-items:baseline;gap:6px;'>";
     h += "<span style='font-size:32px;font-weight:900;color:"+_wCol+";line-height:1;'>"+_wHoy+"</span>";
     h += "<span style='font-size:14px;font-weight:700;color:#475569;'>/ "+_wTotal+"</span>";
     h += "<span style='font-size:18px;margin-left:4px;'>"+_wIcon+"</span>";
+    h += "</div>";
+    // Separador + badge RPE
+    if(_rpeAvg !== null){
+      h += "<div style='margin-left:auto;text-align:center;background:"+_rpeCol+"18;border:1px solid "+_rpeCol+"55;border-radius:10px;padding:5px 10px;min-width:52px;'>";
+      h += "<div style='font-size:18px;font-weight:900;color:"+_rpeCol+";line-height:1;'>"+_rpeAvg+"</div>";
+      h += "<div style='font-size:8px;font-weight:800;color:"+_rpeCol+";text-transform:uppercase;letter-spacing:.06em;margin-top:2px;'>RPE<br><span style='color:#475569;font-weight:600;'>"+_rpeRegs.length+" reg.</span></div>";
+      h += "</div>";
+    } else {
+      h += "<div style='margin-left:auto;text-align:center;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:5px 10px;min-width:52px;'>";
+      h += "<div style='font-size:18px;font-weight:900;color:#374151;line-height:1;'>—</div>";
+      h += "<div style='font-size:8px;font-weight:800;color:#374151;text-transform:uppercase;letter-spacing:.06em;margin-top:2px;'>RPE<br><span style='color:#374151;font-weight:600;'>sin reg.</span></div>";
+      h += "</div>";
+    }
     h += "</div>";
     h += "<div style='font-size:11px;font-weight:800;color:"+_wCol+";margin-bottom:3px;'>"+_wLabel+"</div>";
     h += "<div style='font-size:10px;color:#64748b;font-weight:600;margin-bottom:10px;'>"+_wSub+"</div>";
@@ -7733,6 +7815,73 @@ function renderProgramacion() {
     });
     if(!_bHoy.length) return; // Sin registros hoy: no mostrar panel
 
+    // ¿Jornada cerrada hoy? Leer bandera de localStorage
+    var _jornadaCerradaHoy = false;
+    try{ _jornadaCerradaHoy = localStorage.getItem('BFC_JORNADA_CERRADA_'+todayStr)==='1'; }catch(e){}
+
+    // ── MODO CERRADO: solo mostrar promedios ────────────────────────────
+    if(_jornadaCerradaHoy){
+      // Calcular promedio wellness
+      var _wDims=['sueno','fatiga','dolor','estres','disposicion'];
+      var _wSumTotal=0, _wCountTotal=0;
+      _bHoy.forEach(function(b){
+        _wDims.forEach(function(k){ if(b[k]&&b[k]>0){ _wSumTotal+=b[k]; _wCountTotal++; } });
+      });
+      var _wAvgTotal = _wCountTotal>0 ? Math.round(_wSumTotal/_wCountTotal*10)/10 : null;
+      var _wAvgCol = _wAvgTotal===null?'#475569':(_wAvgTotal<=2.4?'#ef4444':_wAvgTotal<4.0?'#fbbf24':'#4ade80');
+      var _wAvgLabel = _wAvgTotal===null?'—':_wAvgTotal.toFixed(1);
+      var _wAvgEmoji = _wAvgTotal===null?'':(_wAvgTotal<=2.4?'🔴':_wAvgTotal<4.0?'🟡':'🟢');
+      // Conteo semáforo
+      var _nRojo=0,_nAmar=0,_nVerde=0;
+      _bHoy.forEach(function(b){
+        var dims=['sueno','fatiga','dolor','estres','disposicion'];
+        var vals=dims.map(function(k){return b[k];}).filter(function(v){return v&&v>0;});
+        var avg=vals.length?(vals.reduce(function(a,v){return a+v;},0)/vals.length):0;
+        var hayUno=dims.some(function(k){return b[k]===1;});
+        var sem=hayUno||avg<=2.4?'rojo':avg<4.0?'amarillo':'verde';
+        if(sem==='rojo') _nRojo++; else if(sem==='amarillo') _nAmar++; else _nVerde++;
+      });
+      // RPE promedio
+      var _rpeR2 = safeArr(BIEN).filter(function(b){ return b.fecha===todayStr && b.rpe_post>0; });
+      var _rpeA2 = _rpeR2.length ? Math.round(_rpeR2.reduce(function(a,b){ return a+(b.rpe_post||0); },0)/_rpeR2.length*10)/10 : null;
+      var _rpeC2 = _rpeA2===null?'#475569':(_rpeA2>=8?'#ef4444':_rpeA2>=6?'#f97316':_rpeA2>=4?'#eab308':'#22c55e');
+
+      h += "<div style='padding:0 28px 16px;'>";
+      h += "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:16px 18px;'>";
+      // Header con badge "JORNADA CERRADA"
+      h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;'>";
+      h += "<div style='font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.10em;'>Wellness · Resumen jornada</div>";
+      h += "<div style='font-size:9px;font-weight:800;color:#22c55e;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:99px;padding:3px 9px;text-transform:uppercase;letter-spacing:.06em;'>✓ Jornada cerrada</div>";
+      h += "</div>";
+      // Fila de métricas
+      h += "<div style='display:flex;align-items:stretch;gap:12px;flex-wrap:wrap;'>";
+      // Bloque: Wellness promedio
+      h += "<div style='flex:1;min-width:110px;background:"+_wAvgCol+"15;border:1px solid "+_wAvgCol+"40;border-radius:12px;padding:12px 14px;text-align:center;'>";
+      h += "<div style='font-size:28px;font-weight:900;color:"+_wAvgCol+";line-height:1;'>"+_wAvgEmoji+" "+_wAvgLabel+"</div>";
+      h += "<div style='font-size:8px;font-weight:800;color:"+_wAvgCol+";text-transform:uppercase;letter-spacing:.07em;margin-top:4px;'>Wellness prom.</div>";
+      h += "<div style='font-size:9px;color:#64748b;font-weight:600;margin-top:2px;'>"+_bHoy.length+" registros</div>";
+      h += "</div>";
+      // Bloque: RPE promedio
+      h += "<div style='flex:1;min-width:110px;background:"+_rpeC2+"15;border:1px solid "+_rpeC2+"40;border-radius:12px;padding:12px 14px;text-align:center;'>";
+      h += "<div style='font-size:28px;font-weight:900;color:"+_rpeC2+";line-height:1;'>"+(_rpeA2!==null?_rpeA2:'—')+"</div>";
+      h += "<div style='font-size:8px;font-weight:800;color:"+_rpeC2+";text-transform:uppercase;letter-spacing:.07em;margin-top:4px;'>RPE prom.</div>";
+      h += "<div style='font-size:9px;color:#64748b;font-weight:600;margin-top:2px;'>"+(_rpeR2.length>0?_rpeR2.length+' reg.':'sin RPE')+"</div>";
+      h += "</div>";
+      // Bloque: conteo semáforo
+      h += "<div style='flex:1;min-width:110px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:12px 14px;text-align:center;'>";
+      h += "<div style='display:flex;justify-content:center;gap:8px;'>";
+      if(_nRojo>0)   h += "<div style='text-align:center;'><div style='font-size:20px;font-weight:900;color:#f87171;'>"+_nRojo+"</div><div style='font-size:8px;color:#f87171;font-weight:700;'>🔴</div></div>";
+      if(_nAmar>0)   h += "<div style='text-align:center;'><div style='font-size:20px;font-weight:900;color:#fbbf24;'>"+_nAmar+"</div><div style='font-size:8px;color:#fbbf24;font-weight:700;'>🟡</div></div>";
+      if(_nVerde>0)  h += "<div style='text-align:center;'><div style='font-size:20px;font-weight:900;color:#4ade80;'>"+_nVerde+"</div><div style='font-size:8px;color:#4ade80;font-weight:700;'>🟢</div></div>";
+      h += "</div>";
+      h += "<div style='font-size:8px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.07em;margin-top:6px;'>Semáforo</div>";
+      h += "</div>";
+      h += "</div>"; // end metrics row
+      h += "</div></div>"; // end card + padding
+      return;
+    }
+
+    // ── MODO ACTIVO: semáforo de chips individual ───────────────────────
     // Clasificar usando jornadaSemaforoWellness si existe, si no, calcular inline
     var _wRojo=[], _wAmarill=[], _wVerde=[];
     _bHoy.forEach(function(b){
