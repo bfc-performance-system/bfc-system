@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1119r</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1119s</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -956,7 +956,14 @@ function fbEscuchar() {
     if (d.expedientes_db && JSON.stringify(d.expedientes_db) !== JSON.stringify(EXPEDIENTES_DB)) { EXPEDIENTES_DB = safeArr(d.expedientes_db); try{ localStorage.setItem('BFC_EXPEDIENTES', JSON.stringify(EXPEDIENTES_DB)); }catch(e){} rerender = true; }
     if (d.novedades_db && JSON.stringify(d.novedades_db) !== JSON.stringify(NOVEDADES_DB)) { NOVEDADES_DB = safeArr(d.novedades_db); try{ localStorage.setItem('BFC_NOV', JSON.stringify(NOVEDADES_DB)); }catch(e){} rerender = true; }
     if (d.bien_extra && JSON.stringify(d.bien_extra) !== JSON.stringify(BIEN_EXTRA)) { BIEN_EXTRA = d.bien_extra; rerender = true; }
-    if (d.bien_sesiones && JSON.stringify(d.bien_sesiones) !== JSON.stringify(BIEN_SESIONES)) { BIEN_SESIONES = safeArr(d.bien_sesiones); try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){} rerender = true; }
+    if (d.bien_sesiones) {
+      // bien_sesiones puede llegar como array o como objeto {id: ses} según quién lo guardó
+      var _bsRaw = d.bien_sesiones;
+      var _bsArr = Array.isArray(_bsRaw) ? _bsRaw : ((_bsRaw && typeof _bsRaw==='object') ? Object.values(_bsRaw) : []);
+      _bsArr = _bsArr.filter(function(s){ return s && s.id && s.fecha; });
+      _bsArr.sort(function(a,b){ return (b.fecha||'').localeCompare(a.fecha||''); });
+      if(JSON.stringify(_bsArr) !== JSON.stringify(BIEN_SESIONES)){ BIEN_SESIONES = _bsArr; try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){} rerender = true; }
+    }
     if (d.pruebas && JSON.stringify(d.pruebas) !== JSON.stringify(PRUEBAS))     { PRUEBAS   = d.pruebas;   rerender = true; }
     if (d.ci_db   && JSON.stringify(d.ci_db)   !== JSON.stringify(CI_DB))       { CI_DB     = d.ci_db;     try{ localStorage.setItem('BFC_CI', JSON.stringify(CI_DB)); }catch(e){} rerender = true; }
     if (d.historial && Array.isArray(d.historial)) {
@@ -1023,6 +1030,8 @@ function fbEscuchar() {
           var exists = _mergedSesHist.some(function(rs){ return (rs.fecha||rs.fechaSes||'')===localFecha; });
           if(!exists) _mergedSesHist.push(ls);
         });
+        // Filtrar entradas con fecha futura — nunca deben aparecer como "registradas"
+        _mergedSesHist = _mergedSesHist.filter(function(s){ return (s.fecha||s.fechaSes||'') <= TODAY; });
         localStorage.setItem('bfc_ses_hist', JSON.stringify(_mergedSesHist));
         rerender = true;
       } catch(e) {}
@@ -7171,6 +7180,10 @@ function jornadaCrearSesionForzar(nombre, fecha){
   }
   // Publicar sesión activa a Firebase para sincronizar con todos los dispositivos
   jornadaPublicarActiva(nuevaSes);
+  // Escritura directa al sub-nodo para garantizar persistencia inmediata
+  if(window.fbDB){
+    window.fbDB.ref('bfc/bien_sesiones').set(BIEN_SESIONES).catch(function(){});
+  }
   guardar();
   fbGuardar();
   fbAuditLog('jornada','Sesión creada: '+nombre+' ('+fecha+')');
@@ -7310,11 +7323,9 @@ function jornadaCerrarConfirmado(){
       ts: Date.now(),
       nombre: sesActiva ? (sesActiva.nombre||'') : ''
     }).catch(function(){});
-    // Escritura directa por ID para garantizar persistencia sin pisar datos de otros dispositivos
-    var _sesMap = {};
-    safeArr(BIEN_SESIONES).forEach(function(s){ if(s && s.id) _sesMap[s.id] = s; });
-    if(Object.keys(_sesMap).length > 0){
-      window.fbDB.ref('bfc/bien_sesiones').update(_sesMap).catch(function(){});
+    // Guardar bien_sesiones siempre como array para consistencia con fbGuardar()
+    if(safeArr(BIEN_SESIONES).length > 0){
+      window.fbDB.ref('bfc/bien_sesiones').set(BIEN_SESIONES).catch(function(){});
     }
     // Guardar bien (wellness + RPE) para que no se pierdan los datos de la sesión
     window.fbDB.ref('bfc/bien').set(BIEN||[]).catch(function(){});
@@ -19272,6 +19283,8 @@ function sesEscucharFb(){
         sesData[k] = d[k];
       }
     });
+    // Corregir fecha futura que Firebase puede empujar (p.ej. sesión guardada con fecha mañana)
+    if(sesData.fecha && sesData.fecha > TODAY){ sesData.fecha = TODAY; }
     _sesLastRemoteTs = d._ts || d.ts || Date.now();
     // Re-renderizar solo si la sesión está activa y el usuario NO está en un input importante
     var pg = document.getElementById('page-sesion');
