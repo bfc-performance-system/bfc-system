@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1119o</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1119q</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -8150,6 +8150,15 @@ function renderProgramacion() {
     for (var si = 0; si < SES_DB_RAW.length; si++) {
       if ((SES_DB_RAW[si].fecha || SES_DB_RAW[si].fechaSes) === dateStr) { ses = SES_DB_RAW[si]; break; }
     }
+    // Si la sesión del índice no tiene videoLink, buscarlo en HISTORIAL_DB (entradas guardadas antes del fix)
+    if (ses && !ses.videoLink) {
+      var _hist2 = (typeof HISTORIAL_DB !== 'undefined' && HISTORIAL_DB.length) ? HISTORIAL_DB : [];
+      if(!_hist2.length){ try{ var _hd2=localStorage.getItem('BFC_HISTORIAL'); if(_hd2) _hist2=JSON.parse(_hd2)||[]; }catch(e){} }
+      for (var _hi=0; _hi<_hist2.length; _hi++) {
+        var _hf = _hist2[_hi].fecha || _hist2[_hi].fechaSes || '';
+        if (_hf === dateStr && _hist2[_hi].videoLink) { ses = Object.assign({}, ses, {videoLink: _hist2[_hi].videoLink}); break; }
+      }
+    }
     var evs = safeArr(EVS).filter(function(ev) { return ev.fecha === dateStr; });
     var res = null;
     for (var ri = 0; ri < ipdbRaw.length; ri++) { if (ipdbRaw[ri].fecha === dateStr) { res = ipdbRaw[ri]; break; } }
@@ -8306,6 +8315,7 @@ function renderProgramacion() {
   var _cardAccent = _modoManana ? '#f59e0b' : '#64748b';
 
   // Click: si modo mañana → va a sesión (para prepararla); si hoy sin sesión → va a sesión
+  // Usamos _cardSes para el click (no _cardSesDisplay) para mantener comportamiento de navegación
   var _sesDivClick = (_cardSes && !_modoManana) ? "" : "onclick=\"irA('sesion')\" ";
   var _sesDivCursor = (_cardSes && !_modoManana) ? "default" : "pointer";
   var _hoverStyle = (_cardSes && !_modoManana) ? "" :
@@ -8337,9 +8347,11 @@ function renderProgramacion() {
     }
   }
 
-  // CDEF: muestra si hay sesión registrada para el día del card
-  if (_cardSes && _cardSes.cdefSel) {
-    h += "<div style='margin-bottom:6px;'>" + cdefHtml(_cardSes.cdefSel) + "</div>";
+  // CDEF: muestra si hay sesión registrada para el día del card (con fecha validada)
+  // _cardSesDisplay se calcula más abajo; aquí necesitamos validar también
+  var _cardSesValid = _cardSes && (_cardSes.fecha || _cardSes.fechaSes || '') === _cardFecha ? _cardSes : null;
+  if (_cardSesValid && _cardSesValid.cdefSel) {
+    h += "<div style='margin-bottom:6px;'>" + cdefHtml(_cardSesValid.cdefSel) + "</div>";
   } else if (_cardMcDia && _cardMcDia.tipo === 'descanso') {
     h += "<div style='font-size:11px;color:#64748b;font-weight:600;margin-bottom:6px;'>Día de descanso</div>";
   }
@@ -8352,16 +8364,20 @@ function renderProgramacion() {
   }
 
   // Estado sesión — hoy o mañana según modo
-  if (_cardSes) {
-    // Sesión ya registrada (aplica tanto a hoy como a mañana)
+  // En modo mañana: solo mostrar si la entrada del índice tiene fecha exactamente == _mananaStr
+  var _cardSesDisplay = _cardSes && (_cardSes.fecha || _cardSes.fechaSes || '') === _cardFecha ? _cardSes : null;
+  if (_cardSesDisplay) {
+    // Sesión ya registrada (hoy) o planificada (mañana)
     var _sesBgB   = _modoManana ? 'rgba(245,158,11,.12)' : 'rgba(16,185,129,.15)';
     var _sesBordB = _modoManana ? 'rgba(245,158,11,.35)' : 'rgba(16,185,129,.35)';
     var _sesCol2  = _modoManana ? '#fcd34d'              : '#6ee7b7';
+    var _sesLabel = _modoManana ? 'Sesión planificada' : 'Sesión registrada';
+    var _sesIcon  = _modoManana ? '📋' : '✅';
     h += "<div style='display:flex;align-items:center;gap:8px;padding:8px 10px;background:"+_sesBgB+";border:1px solid "+_sesBordB+";border-radius:9px;margin-top:4px;'>";
-    h += "<span style='font-size:14px;'>✅</span>";
+    h += "<span style='font-size:14px;'>"+_sesIcon+"</span>";
     h += "<div style='flex:1;'>";
-    h += "<div style='font-size:11px;font-weight:800;color:"+_sesCol2+";'>Sesión registrada</div>";
-    if (_cardSes.cdefSel) h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>CDEF: "+_cardSes.cdefSel+(_cardSes.duracion?' · '+_cardSes.duracion+' min':'')+"</div>";
+    h += "<div style='font-size:11px;font-weight:800;color:"+_sesCol2+";'>"+_sesLabel+"</div>";
+    if (_cardSesDisplay.cdefSel) h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>CDEF: "+_cardSesDisplay.cdefSel+(_cardSesDisplay.duracion?' · '+_cardSesDisplay.duracion+' min':'')+"</div>";
     h += "</div>";
     h += "<button onclick=\"event.stopPropagation();dashVerSesionHoy('"+_cardFecha+"')\" style='flex-shrink:0;background:"+(_modoManana?'rgba(245,158,11,.18)':'rgba(16,185,129,.18)')+";border:1.5px solid "+(_modoManana?'rgba(245,158,11,.5)':'rgba(16,185,129,.5)')+";color:"+_sesCol2+";border-radius:8px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:4px;'>👁 Ver</button>";
     h += "</div>";
@@ -19258,6 +19274,8 @@ function sesCargarActivaFb(cb){
   // Si hay sesión en localStorage, usarla como base mientras llega Firebase
   if(localGuardado){
     sesData = localGuardado;
+    // Corregir fecha futura en sesión local (puede quedar de sesión guardada con fecha equivocada)
+    if(sesData.fecha && sesData.fecha > TODAY) { sesData.fecha = TODAY; }
     _sesLocalTs = localTs;
     delete sesData._fecha;
   }
@@ -19280,6 +19298,9 @@ function sesCargarActivaFb(cb){
         return tR;
       });
       sesData = Object.assign({}, d, { tareas: tareasConImg });
+      // Corregir fecha futura: si la sesión guardada tiene fecha > hoy, forzar a TODAY
+      // (puede ocurrir si se guardó con fecha equivocada o después de las 14:00 con modo mañana)
+      if(sesData.fecha && sesData.fecha > TODAY) { sesData.fecha = TODAY; }
       _sesLocalTs = tsRemoto; // adoptar ts remoto como nuestro punto de referencia
       _sesLastRemoteTs = tsRemoto; // inicializar para que el listener acepte solo updates MÁS NUEVOS
       try{ localStorage.setItem('BFC_SES_LOCAL', JSON.stringify(sesData)); }catch(e){}
@@ -19289,6 +19310,8 @@ function sesCargarActivaFb(cb){
       if(tsRemoto > 0) _sesLastRemoteTs = tsRemoto;
     }
     // Si local es más reciente, ya tenemos sesData del localStorage arriba
+    // Corregir también si el localStorage tenía fecha futura
+    if(sesData && sesData.fecha && sesData.fecha > TODAY) { sesData.fecha = TODAY; }
     delete sesData._ts; delete sesData._fecha;
     if(cb) cb(true);
   }, function(){ if(cb) cb(!!localGuardado); });
@@ -21893,6 +21916,19 @@ function histSave(){
   fbAuditLog('historial','Guardado historial de sesiones');
 }
 function histLoad(){
+  // Auto-limpiar bfc_ses_hist: eliminar entradas con fecha futura (datos fantasma)
+  // Esto corrige el bug donde entrar a Sesión del día con fecha equivocada dejaba una entrada en el índice
+  try{
+    var _shRaw = localStorage.getItem('bfc_ses_hist');
+    if(_shRaw){
+      var _shArr = JSON.parse(_shRaw)||[];
+      var _shClean = _shArr.filter(function(s){ return (s.fecha||s.fechaSes||'') <= TODAY; });
+      if(_shClean.length < _shArr.length){
+        localStorage.setItem('bfc_ses_hist', JSON.stringify(_shClean));
+        console.log('[BFC] histLoad: limpiadas '+ (_shArr.length-_shClean.length) +' entradas futuras de bfc_ses_hist');
+      }
+    }
+  }catch(e){}
   try{ var d = localStorage.getItem('BFC_HISTORIAL'); if(d) HISTORIAL_DB = JSON.parse(d)||[]; }catch(e){}
   // Reintegrar imágenes base64 guardadas por separado en BFC_HIST_IMGS
   try{
@@ -24639,14 +24675,17 @@ function ciTabCatapult(plantel, fechaForzada){
 
   // Instrucciones rápidas
   h += "<div style='background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.15);border-radius:10px;padding:12px 14px;font-size:10px;color:#94a3b8;line-height:1.6;'>";
-  h += "<strong style='color:#a5b4fc;'>Columnas reconocidas:</strong> ";
-  h += "Athlete / Player Name / Name → jugador &nbsp;|&nbsp; ";
-  h += "Total Distance / Distance → dist total &nbsp;|&nbsp; ";
-  h += "High Speed Running / HSR / High Speed Distance → HSR &nbsp;|&nbsp; ";
-  h += "Sprint Distance / Sprints → sprints &nbsp;|&nbsp; ";
-  h += "Duration / Time → duración (min) &nbsp;|&nbsp; ";
-  h += "Max Velocity / Max Speed / Vmax → vel máx &nbsp;|&nbsp; ";
-  h += "Acelerations / Accelerations / Acc → aceleraciones";
+  h += "<strong style='color:#a5b4fc;'>Columnas reconocidas (Catapult ES/EN):</strong><br>";
+  h += "Jugador / Athlete / Player → jugador &nbsp;·&nbsp; ";
+  h += "Tot Dist (m) / Total Distance → distancia &nbsp;·&nbsp; ";
+  h += "Tot Dur (min) / Duration → duración &nbsp;·&nbsp; ";
+  h += "High Speed Dist (m) / HSR → HSR &nbsp;·&nbsp; ";
+  h += "Mts Sprint (+25 km/h) → sprints &nbsp;·&nbsp; ";
+  h += "Max Vel (km/h) → vel máx &nbsp;·&nbsp; ";
+  h += "Max Vel (% Max) → % vel máx &nbsp;·&nbsp; ";
+  h += "# Acel &gt;3m/s2 → aceleraciones &nbsp;·&nbsp; ";
+  h += "# Desacel &gt;3m/s2 → desaceleraciones &nbsp;·&nbsp; ";
+  h += "Tot PL → Player Load &nbsp;·&nbsp; Metraje por Minuto → m/min";
   h += "</div>";
 
   h += "<div id='cat-import-result' style='margin-top:12px;'></div>";
@@ -24664,36 +24703,76 @@ function catapultProcesarCSV(){
   var reader = new FileReader();
   reader.onload = function(e){
     var text = e.target.result || '';
-    // Detectar separador
+    // Detectar separador (coma o punto y coma)
     var sep = ',';
     var firstLine = text.split('\n')[0] || '';
     if((firstLine.split(';').length) > (firstLine.split(',').length)) sep = ';';
 
-    var lines = text.split('\n').map(function(l){ return l.trim(); }).filter(function(l){ return l.length>0; });
-    if(lines.length < 2){ toast('❌ CSV vacío o sin datos'); return; }
+    var allLines = text.split('\n').map(function(l){ return l.trim(); });
 
-    // Detectar fila de cabecera (primera línea no numérica)
-    var headerIdx = 0;
+    // ── Soporte multi-sección (CSV Catapult con SECCION 1, 2, 3) ──
+    // Buscar la primera tabla con cabecera Jugador/Athlete, ignorar bloques de sección 2+
+    var lines = [];
+    var inSec1 = false;
+    var sec1HeaderFound = false;
+    for(var li=0; li<allLines.length; li++){
+      var ll = allLines[li];
+      if(!ll) continue;
+      // Detectar inicio de SECCION 1
+      if(!sec1HeaderFound && ll.toUpperCase().match(/SECCI[OÓ]N\s*1/)){
+        inSec1 = true; continue;
+      }
+      // Detectar inicio de SECCION 2+ → parar
+      if(sec1HeaderFound && ll.toUpperCase().match(/SECCI[OÓ]N\s*[2-9]/)) break;
+      // Detectar cabecera de datos (tiene columna Jugador/Athlete)
+      if(!sec1HeaderFound){
+        var llLow = ll.toLowerCase();
+        if(llLow.indexOf('jugador')>-1 || llLow.indexOf('athlete')>-1 || llLow.indexOf('player')>-1){
+          sec1HeaderFound = true; lines.push(ll); continue;
+        }
+        if(!inSec1) continue;
+        continue;
+      }
+      // Dentro de sección 1 con cabecera ya encontrada
+      // Ignorar filas de Total/Promedio/Summary
+      if(ll.match(/^(Total|Promedio|Average|Summary)/i)) continue;
+      lines.push(ll);
+    }
+    // Fallback: si no encontró sección, usar todas las líneas no vacías
+    if(lines.length < 2){
+      lines = allLines.filter(function(l){ return l.length>0; });
+      lines = lines.filter(function(l,idx){
+        if(idx===0) return true;
+        return !l.match(/^(Total|Promedio|Average|Summary)/i);
+      });
+    }
+    if(lines.length < 2){ toast('❌ CSV vacío o sin datos reconocibles'); return; }
+
     var headers = lines[0].split(sep).map(function(h){ return h.replace(/"/g,'').trim().toLowerCase(); });
 
-    // Mapeo de columnas
+    // ── Mapeo de columnas ampliado (Catapult en español e inglés) ──
     function findCol(candidates){
-      for(var i=0;i<candidates.length;i++){
-        for(var j=0;j<headers.length;j++){
-          if(headers[j].indexOf(candidates[i].toLowerCase())>-1) return j;
+      for(var ci=0;ci<candidates.length;ci++){
+        for(var hi=0;hi<headers.length;hi++){
+          if(headers[hi].indexOf(candidates[ci].toLowerCase())>-1) return hi;
         }
       }
       return -1;
     }
-    var colName = findCol(['athlete','player name','player','name','jugador','nombre','atleta']);
-    var colDist = findCol(['total distance','total dist','distance','distancia']);
-    var colHSR  = findCol(['high speed running','high speed distance','hsr','high speed','alta velocidad','dist alta']);
-    var colSpr  = findCol(['sprint distance','sprint','sprints','dist sprint']);
-    var colDur  = findCol(['duration','time','tiempo','duracion','duración','minutes','mins']);
-    var colVmax = findCol(['max velocity','max speed','maximum velocity','vmax','vel max','vel máx','velocidad']);
-    var colAcc  = findCol(['acceleration','accelerations','acelerations','aceleraciones','acc']);
+    var colName    = findCol(['jugador','athlete','player name','player','nombre','atleta','name']);
+    var colDist    = findCol(['tot dist','total distance','total dist','distance (m)','distancia total','dist total','distancia']);
+    var colDur     = findCol(['tot dur','duration','time (min)','tiempo total','tiempo','duracion','duración','minutes','mins','time']);
+    var colHSR     = findCol(['high speed dist','high speed running','high speed distance','hsr','hir','alta velocidad','dist alta','vel b4']);
+    var colSpr     = findCol(['mts sprint','sprint (+25','sprint distance','sprint dist','dist sprint','sprint','sprints']);
+    var colVmax    = findCol(['max vel (km','max velocity','max speed','maximum velocity','vmax','vel max','vel máx','velocidad max','max vel']);
+    var colVmaxPct = findCol(['max vel (% max)','% max','vel (% max)','pct max','percent max','% vel']);
+    var colAcc     = findCol(['# acel','acel >','acceleration','accelerations','acelerations','aceleraciones','acc ']);
+    var colDeac    = findCol(['# desacel','desacel >','deceleration','decelerations','desaceleraciones','deac']);
+    var colPL      = findCol(['tot pl','player load','playerload']);
+    var colMpm     = findCol(['metraje por minuto','metros/min','m/min','met por min','distance per min']);
+    var colNSpr    = findCol(['# sprint +','# sprint','num sprint','sprint count']);
 
-    if(colName === -1){ toast('❌ No se encontró columna de jugador (Athlete, Player Name, Name)'); return; }
+    if(colName === -1){ toast('❌ No se encontró columna de jugador. Buscá: Jugador, Athlete, Player, Name'); return; }
 
     var plantelAll = safeArr(JDB).length>0 ? safeArr(JDB) : safeArr(PL);
     var gpsDB = [];
@@ -24702,47 +24781,63 @@ function catapultProcesarCSV(){
     // Eliminar registros previos de esta fecha (re-importar)
     gpsDB = gpsDB.filter(function(r){ return r.fecha!==fecha; });
 
-    var importados = 0, noEncontrados = [], errores = [];
+    var importados = 0, noEncontrados = [];
+
+    function normStr(s){ return (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim(); }
 
     for(var i=1; i<lines.length; i++){
       var parts = lines[i].split(sep).map(function(p){ return p.replace(/"/g,'').trim(); });
       if(parts.length < 2) continue;
       var nameRaw = colName>-1 ? (parts[colName]||'') : '';
-      if(!nameRaw) continue;
+      nameRaw = nameRaw.trim();
+      if(!nameRaw || /^\d+$/.test(nameRaw)) continue;
 
-      // Fuzzy match contra plantel
-      var nameNorm = nameRaw.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+      // ── Fuzzy match contra plantel ──
+      var nameNorm = normStr(nameRaw);
       var matched = null, bestScore = 0;
       plantelAll.forEach(function(j){
-        var jName = ((j.apellido||j.lastname||'')+' '+(j.nombre||j.name||'')).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
-        var jApell = ((j.apellido||j.lastname||'')).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
-        // Score: exacto = 3, apellido incluido = 2, palabras comunes = 1
+        var jFull  = normStr((j.apellido||j.lastname||'')+' '+(j.nombre||j.name||''));
+        var jApell = normStr(j.apellido||j.lastname||'');
+        var jNom   = normStr(j.nombre||j.name||'');
         var score = 0;
-        if(jName === nameNorm || jApell === nameNorm) score = 3;
-        else if(jName.indexOf(nameNorm)>-1 || nameNorm.indexOf(jApell)>-1) score = 2;
+        if(jFull === nameNorm || jApell === nameNorm) score = 10;
+        // CSV puede tener apellido repetido (ej: "GUERRA GUERRA") — comparar primer token
+        else if(nameNorm.split(/\s+/)[0] === jApell && jApell.length>2) score = 8;
+        else if(nameNorm.indexOf(jApell)>-1 && jApell.length>3) score = 6;
+        else if(jApell.indexOf(nameNorm.split(/\s+/)[0])>-1 && nameNorm.split(/\s+/)[0].length>3) score = 5;
         else {
           var words = nameNorm.split(/\s+/);
-          words.forEach(function(w){ if(w.length>2 && jName.indexOf(w)>-1) score++; });
+          words.forEach(function(w){ if(w.length>3 && (jFull.indexOf(w)>-1||jApell.indexOf(w)>-1)) score+=2; });
+          words.forEach(function(w){ if(w.length>2 && jNom.indexOf(w)>-1) score+=1; });
         }
         if(score > bestScore){ bestScore = score; matched = j; }
       });
 
-      if(!matched || bestScore===0){ noEncontrados.push(nameRaw); continue; }
+      if(!matched || bestScore<2){ noEncontrados.push(nameRaw); continue; }
 
-      function parseNum(idx){ if(idx<0||!parts[idx]) return 0; return parseFloat((parts[idx]||'0').replace(',','.'))||0; }
+      function parseNum(idx){
+        if(idx<0 || idx>=parts.length || !parts[idx]) return 0;
+        var val = (parts[idx]||'').replace('%','').replace(',','.').trim();
+        return parseFloat(val)||0;
+      }
 
       gpsDB.push({
-        pid: matched.id,
-        nombre: ((matched.nombre||matched.name||'')+' '+(matched.apellido||matched.lastname||'')).trim(),
-        fecha: fecha,
-        distancia: parseNum(colDist),
-        hsr: parseNum(colHSR),
-        sprints: parseNum(colSpr),
-        duracion: parseNum(colDur),
-        velMax: parseNum(colVmax),
-        aceleraciones: parseNum(colAcc),
-        fuente: 'catapult_csv',
-        ts: Date.now()
+        pid:              matched.id,
+        nombre:           ((matched.nombre||matched.name||'')+' '+(matched.apellido||matched.lastname||'')).trim(),
+        fecha:            fecha,
+        distancia:        parseNum(colDist),
+        hsr:              parseNum(colHSR),
+        sprints:          parseNum(colSpr),
+        nSprints:         parseNum(colNSpr),
+        duracion:         parseNum(colDur),
+        velMax:           parseNum(colVmax),
+        velMaxPct:        parseNum(colVmaxPct),
+        aceleraciones:    parseNum(colAcc),
+        desaceleraciones: parseNum(colDeac),
+        playerLoad:       parseNum(colPL),
+        metrajeMin:       parseNum(colMpm),
+        fuente:           'catapult_csv',
+        ts:               Date.now()
       });
       importados++;
     }
@@ -24755,16 +24850,28 @@ function catapultProcesarCSV(){
     var resEl = document.getElementById('cat-import-result');
     if(resEl){
       var rh = "<div style='background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:10px;padding:12px 14px;font-size:12px;'>";
-      rh += "<div style='color:#4ade80;font-weight:800;margin-bottom:6px;'>✅ "+importados+" registro(s) importado(s) para el "+fecha+"</div>";
+      rh += "<div style='color:#4ade80;font-weight:800;margin-bottom:8px;'>✅ "+importados+" jugador(es) importado(s) para el "+fecha+"</div>";
       if(noEncontrados.length){
-        rh += "<div style='color:#fbbf24;font-size:11px;margin-top:4px;'>⚠️ No encontrados en plantel ("+noEncontrados.length+"): "+noEncontrados.slice(0,5).join(', ')+(noEncontrados.length>5?' …':'')+"</div>";
+        rh += "<div style='color:#fbbf24;font-size:11px;margin-top:2px;'>⚠️ No encontrados en plantel ("+noEncontrados.length+"): "+noEncontrados.slice(0,8).join(', ')+(noEncontrados.length>8?' …':'')+"</div>";
         rh += "<div style='font-size:10px;color:#64748b;margin-top:2px;'>Verificá que el nombre en el CSV coincida con el plantel, o ingresá manualmente.</div>";
       }
+      var colDets = [];
+      if(colDist>=0)    colDets.push('Distancia');
+      if(colDur>=0)     colDets.push('Duración');
+      if(colHSR>=0)     colDets.push('HSR');
+      if(colSpr>=0)     colDets.push('Sprints');
+      if(colVmax>=0)    colDets.push('Vel Máx');
+      if(colVmaxPct>=0) colDets.push('% Vel Máx');
+      if(colAcc>=0)     colDets.push('Aceleraciones');
+      if(colDeac>=0)    colDets.push('Desaceleraciones');
+      if(colPL>=0)      colDets.push('Player Load');
+      if(colMpm>=0)     colDets.push('Metraje/min');
+      if(colNSpr>=0)    colDets.push('# Sprints');
+      rh += "<div style='font-size:10px;color:#64748b;margin-top:6px;'>Columnas detectadas: "+colDets.join(' · ')+"</div>";
       rh += "</div>";
       resEl.innerHTML = rh;
     }
     toast('✅ GPS importado: '+importados+' jugadores');
-    // Si estamos en Jornada, re-renderizar
     if(window._jornadaPaso==='gps' && typeof renderJornada==='function') renderJornada();
   };
   reader.readAsText(file, 'UTF-8');
