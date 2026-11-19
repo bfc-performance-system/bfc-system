@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118p</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118q</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -7050,25 +7050,15 @@ function jornadaCrearSesion(){
   var fecha  = (document.getElementById('jornada-ses-fecha')||{}).value||TODAY;
   nombre = nombre.trim();
   if(!nombre){ alert('Escribe un nombre para la sesión'); return; }
-  // Verificar si ya existe sesión con esa fecha
+  // Verificar si ya existe sesión con esa fecha — si existe, simplemente activarla (nunca reemplazar)
   var existente = safeArr(BIEN_SESIONES).find(function(s){ return s.fecha===fecha; });
   if(existente){
-    // Usar modal seguro en lugar de confirm() para evitar borrado accidental
-    var _nomPend = nombre;
-    var _fechaPend = fecha;
-    var _mWarn = "<div style='padding:22px 20px;max-width:380px;'>";
-    _mWarn += "<div style='font-size:22px;text-align:center;margin-bottom:10px;'>⚠️</div>";
-    _mWarn += "<div style='font-size:15px;font-weight:900;color:#fbbf24;text-align:center;margin-bottom:12px;'>Sesión ya existe</div>";
-    _mWarn += "<div style='font-size:11px;color:#e2e8f0;line-height:1.6;margin-bottom:16px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:12px;'>";
-    _mWarn += "Ya hay una sesión <strong>\""+escHtml(existente.nombre)+"\"</strong> guardada para el <strong>"+_fechaPend+"</strong>.<br><br>";
-    _mWarn += "<span style='color:#f87171;font-weight:800;'>⛔ Si creás una nueva, se BORRARÁ toda la sesión de hoy:<br>tareas, videos, notas, jugadores extra y observaciones.</span>";
-    _mWarn += "</div>";
-    _mWarn += "<div style='font-size:11px;color:#94a3b8;margin-bottom:16px;'>Si lo que querés es editar la sesión actual, cerrá este panel y usá el módulo de <strong>Sesión</strong> directamente.</div>";
-    _mWarn += "<div style='display:flex;gap:8px;'>";
-    _mWarn += "<button onclick='closeModal()' style='flex:2;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:10px;padding:10px;font-size:12px;cursor:pointer;font-weight:700;'>✗ Cancelar — mantener actual</button>";
-    _mWarn += "<button onclick='jornadaCrearSesionForzar(\""+escHtml(_nomPend)+"\",\""+_fechaPend+"\")' style='flex:1;background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:10px;padding:10px;font-size:12px;cursor:pointer;font-weight:700;'>Reemplazar</button>";
-    _mWarn += "</div></div>";
-    showModal(_mWarn);
+    // Ya existe: activar directamente, no borrar nada
+    window._jornadaSesionActiva = existente;
+    try{ localStorage.removeItem('BFC_JORNADA_CERRADA_'+fecha); }catch(e){}
+    guardar(); fbGuardar();
+    toast('📅 Sesión "'+existente.nombre+'" activada (ya existía para '+fecha+')');
+    renderJornada();
     return;
   }
   jornadaCrearSesionForzar(nombre, fecha);
@@ -7148,6 +7138,27 @@ function jornadaActivarSesion(sesId){
   if(!ses) return;
   window._jornadaSesionActiva = ses;
   guardar();
+  renderJornada();
+}
+
+function jornadaRenombrar(sesId){
+  var ses = safeArr(BIEN_SESIONES).find(function(s){ return s.id===sesId; });
+  if(!ses) return;
+  var nuevoNombre = prompt('Nuevo nombre para la sesión:', ses.nombre||'');
+  if(nuevoNombre===null) return; // canceló
+  nuevoNombre = nuevoNombre.trim();
+  if(!nuevoNombre){ alert('El nombre no puede estar vacío'); return; }
+  ses.nombre = nuevoNombre;
+  if(window._jornadaSesionActiva && window._jornadaSesionActiva.id===sesId){
+    window._jornadaSesionActiva.nombre = nuevoNombre;
+  }
+  try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){}
+  if(window.fbDB){
+    window.fbDB.ref('bfc/bien_sesiones/'+sesId+'/nombre').set(nuevoNombre).catch(function(){});
+  }
+  guardar(); fbGuardar();
+  fbAuditLog('jornada','Sesión renombrada: '+nuevoNombre+' ('+sesId+')');
+  toast('✏️ Sesión renombrada a "'+nuevoNombre+'"');
   renderJornada();
 }
 
@@ -7324,6 +7335,7 @@ function jornadaSesionesPanel(){
     h += "</div>";
     // Botones de acción rápida
     h += "<div style='display:flex;gap:6px;flex-wrap:wrap;'>";
+    h += "<button onclick=\"jornadaRenombrar('"+activa.id+"')\" style='padding:5px 12px;border-radius:8px;border:1px solid rgba(99,102,241,.3);background:rgba(99,102,241,.08);color:#a5b4fc;font-size:10px;font-weight:700;cursor:pointer;'>✏️ Renombrar</button>";
     h += "<button onclick=\"window._jornadaPaso='gps';renderJornada()\" style='padding:5px 12px;border-radius:8px;border:1px solid rgba(34,197,94,.3);background:rgba(34,197,94,.08);color:#4ade80;font-size:10px;font-weight:700;cursor:pointer;'>📡 "+(cntGA>0?'Reimportar GPS':'Importar GPS')+"</button>";
     h += "<button onclick=\"window._jornadaPaso='evaluacion';renderJornada()\" style='padding:5px 12px;border-radius:8px;border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.08);color:#fbbf24;font-size:10px;font-weight:700;cursor:pointer;'>🔬 "+(cntEA>0?'Reimportar Eval PRE':'Importar Eval PRE')+"</button>";
     h += "<button data-sid='"+activa.id+"' onclick='jornadaEliminarSesion(this.dataset.sid)' style='padding:5px 12px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:#ef4444;font-size:10px;font-weight:700;cursor:pointer;margin-left:auto;'>🗑 Eliminar jornada</button>";
