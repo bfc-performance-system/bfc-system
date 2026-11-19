@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1117s</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118a</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -459,6 +459,7 @@ function fbInit() {
     fbDB = firebase.database();
     fbEscuchar();
     fbEscucharFotos();       // 📸 Listener dedicado bfc/fotos — sync fotos en tiempo real
+    fbEscucharFotosSesion(); // 📸 Listener bfc/fotos_sesion — sync fotos de tareas historial
     fbMonitorConexion();     // 🔌 Monitor de conexión en tiempo real
     fbPresenciaInit();       // 👥 Presencia multi-usuario
     fbBackupAutoInit();      // 💾 Backup automático periódico
@@ -1089,6 +1090,59 @@ function fbEscucharFotos() {
       if (typeof renderPlantel === 'function') try{ renderPlantel(); }catch(e){}
     }
   }, function(err){ console.warn('[BFC-FOTO] Error listener fotos:', err.message); });
+}
+
+// ── Sincronizar fotos de tareas de sesión — nodo bfc/fotos_sesion/{sesId}/{tareaIdx} ──
+// Permite que imágenes de tareas sean visibles en todos los dispositivos aunque
+// sean >150KB y se hayan stripeado del payload principal del historial.
+function fbGuardarFotosSesion(sesId, tareas){
+  if(!window.fbDB || !sesId || !tareas || !tareas.length) return;
+  var fotosMap = {};
+  var total = 0;
+  tareas.forEach(function(t, i){
+    if(t.img && typeof t.img === 'string' && t.img.indexOf('data:') === 0){
+      // Guardar solo si no es demasiado grande (límite prudente: 1MB por foto)
+      if(t.img.length <= 1400000){
+        fotosMap['t'+i] = t.img;
+        total++;
+      }
+    }
+  });
+  if(total === 0) return;
+  console.log('[BFC-FOTO-SES] Subiendo', total, 'fotos de tareas para sesión', sesId);
+  window.fbDB.ref('bfc/fotos_sesion/'+sesId).update(fotosMap).catch(function(e){
+    console.warn('[BFC-FOTO-SES] Error subiendo fotos sesión:', e.message);
+  });
+}
+
+// ── Listener bfc/fotos_sesion — inyecta fotos en HISTORIAL_DB cuando llegan de otro dispositivo ──
+function fbEscucharFotosSesion(){
+  if(!window.fbDB) return;
+  window.fbDB.ref('bfc/fotos_sesion').on('value', function(snap){
+    var fotosPorSes = snap.val();
+    if(!fotosPorSes || typeof fotosPorSes !== 'object') return;
+    var _cambio = false;
+    HISTORIAL_DB = safeArr(HISTORIAL_DB).map(function(ses){
+      var sesId = ses.id;
+      if(!sesId || !fotosPorSes[sesId]) return ses;
+      var fotasTarea = fotosPorSes[sesId];
+      var tareasActualizadas = (ses.tareas||[]).map(function(t, i){
+        var key = 't'+i;
+        var imgRemota = fotasTarea[key];
+        if(imgRemota && !t.img){
+          console.log('[BFC-FOTO-SES] Foto recibida para sesión', sesId, 'tarea', i);
+          _cambio = true;
+          return Object.assign({}, t, { img: imgRemota });
+        }
+        return t;
+      });
+      return Object.assign({}, ses, { tareas: tareasActualizadas });
+    });
+    if(_cambio){
+      try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){}
+      console.log('[BFC-FOTO-SES] Historial actualizado con fotos de tareas');
+    }
+  }, function(err){ console.warn('[BFC-FOTO-SES] Error listener fotos_sesion:', err.message); });
 }
 
 // ── Guardar disponibilidad médica de forma aislada (nunca pisada por fbGuardar general) ──
@@ -6359,6 +6413,38 @@ function renderJornada(){
   }
   var fechaEfectiva = (sesActiva && sesActiva.fecha) ? sesActiva.fecha : hoy;
 
+  // ── JORNADA CERRADA — mostrar pantalla de cierre y no el módulo activo ──
+  var _jcCerrada = false;
+  try{ _jcCerrada = localStorage.getItem('BFC_JORNADA_CERRADA_'+fechaEfectiva)==='1'; }catch(e){}
+  if(_jcCerrada){
+    // Buscar la sesión en historial para poder abrirla
+    var _jcSesHist = null;
+    safeArr(SES_DB_RAW).forEach(function(s){
+      var sf = s.fecha||s.fechaSes;
+      if(sf===fechaEfectiva) _jcSesHist = s;
+    });
+    var _jcFechaLabel = (function(){
+      try{
+        var p=fechaEfectiva.split('-'); // YYYY-MM-DD
+        var d=new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2]));
+        return d.toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+      }catch(e){ return fechaEfectiva; }
+    })();
+    var _jcHtml = "<div style='padding:28px 20px;max-width:600px;margin:0 auto;text-align:center;'>";
+    _jcHtml += "<div style='font-size:52px;margin-bottom:16px;'>✅</div>";
+    _jcHtml += "<div style='font-size:20px;font-weight:900;color:#4ade80;margin-bottom:8px;'>Jornada cerrada</div>";
+    _jcHtml += "<div style='font-size:13px;color:#64748b;margin-bottom:24px;'>"+_jcFechaLabel+"</div>";
+    _jcHtml += "<div style='font-size:12px;color:#475569;margin-bottom:28px;line-height:1.6;max-width:340px;margin-left:auto;margin-right:auto;'>Esta jornada ya fue finalizada. Los datos están protegidos y guardados en el historial.</div>";
+    if(_jcSesHist){
+      var _jcSesId = _jcSesHist.id||_jcSesHist.sesId||'';
+      _jcHtml += "<button onclick=\"dashVerSesionHoy('"+fechaEfectiva+"')\" style='display:inline-flex;align-items:center;gap:8px;padding:12px 24px;border-radius:12px;border:1px solid rgba(99,102,241,.4);background:rgba(99,102,241,.12);color:#818cf8;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px;'>👁 Ver sesión registrada</button><br>";
+    }
+    _jcHtml += "<button onclick=\"jornadaReabrir('"+fechaEfectiva+"')\" style='display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:10px;border:1px solid rgba(100,116,139,.3);background:rgba(100,116,139,.08);color:#64748b;font-size:11px;font-weight:700;cursor:pointer;margin-top:4px;'>🔓 Reabrir jornada</button>";
+    _jcHtml += "</div>";
+    el.innerHTML = _jcHtml;
+    return;
+  }
+
   // Contadores de progreso
   var bWell = safeArr(BIEN).filter(function(b){ return b.fecha===fechaEfectiva&&(b.sueno||b.fatiga); });
   var bRpe  = safeArr(BIEN).filter(function(b){ return b.fecha===fechaEfectiva&&b.rpe_post>0; });
@@ -6860,6 +6946,22 @@ function jornadaCerrarConfirmado(){
   jornadaDetenerListener();
   fbAuditLog('jornada','Jornada cerrada manualmente: '+(sesActiva?sesActiva.nombre+' ('+sesActiva.fecha+')':'sin sesión activa'));
   toast('✅ Jornada cerrada — podés crear una nueva desde Paso 1');
+  renderJornada();
+}
+
+// Reabrir una jornada cerrada sin crear sesión nueva — solo quita el flag de cierre
+function jornadaReabrir(fecha){
+  if(!fecha) return;
+  try{ localStorage.removeItem('BFC_JORNADA_CERRADA_'+fecha); }catch(e){}
+  if(window.fbDB){
+    window.fbDB.ref('bfc/jornada_cerrada/'+fecha).remove().catch(function(){});
+  }
+  // Restaurar sesión activa desde BIEN_SESIONES
+  var ses = safeArr(BIEN_SESIONES).find(function(s){ return s.fecha===fecha; });
+  if(ses){ window._jornadaSesionActiva = ses; }
+  window._jornadaPaso = 'sesion';
+  fbAuditLog('jornada','Jornada reabierta: '+fecha);
+  toast('🔓 Jornada reabierta');
   renderJornada();
 }
 
@@ -21203,6 +21305,15 @@ function histSave(){
       console.warn('[BFC] Error historial en Firebase:', e.message);
     });
   }
+  // Subir fotos de tareas al nodo separado bfc/fotos_sesion para que otros dispositivos las reciban
+  // (las imgs base64 se strippean del payload principal arriba)
+  if(window.fbDB){
+    HISTORIAL_DB.forEach(function(ses){
+      if(ses.id && ses.tareas && ses.tareas.some(function(t){ return t.img && t.img.indexOf('data:')===0; })){
+        fbGuardarFotosSesion(ses.id, ses.tareas);
+      }
+    });
+  }
   fbGuardar(); // payload completo (debounce 800ms, como respaldo)
   fbAuditLog('historial','Guardado historial de sesiones');
 }
@@ -21494,15 +21605,39 @@ function histVerPDF(id){
   histLoad();
   var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
   if(!snap) return;
-  // Cargar y abrir vista previa sin pasar por DOM (los inputs no están visibles)
-  if(!sesData) _sesInitBlanco();
-  histCargarSesionSilencioso(snap);
-  // Flag para que sesVerPreview no sobreescriba sesData con valores vacíos del DOM
-  window._sesVerDesdeHistorial = true;
-  setTimeout(function(){
-    sesVerPreview();
-    window._sesVerDesdeHistorial = false;
-  }, 200);
+
+  // Función interna que carga y abre la sesión en el preview
+  function _abrirSnap(s){
+    if(!sesData) _sesInitBlanco();
+    histCargarSesionSilencioso(s);
+    window._sesVerDesdeHistorial = true;
+    setTimeout(function(){ sesVerPreview(); window._sesVerDesdeHistorial = false; }, 200);
+  }
+
+  // Si hay tareas sin imagen, intentar cargar desde bfc/fotos_sesion antes de mostrar
+  var tieneTareasSinImg = (snap.tareas||[]).some(function(t){ return !t.img; });
+  if(tieneTareasSinImg && window.fbDB && snap.id){
+    window.fbDB.ref('bfc/fotos_sesion/'+snap.id).once('value', function(fSnap){
+      var fotasTarea = fSnap.val();
+      if(fotasTarea && typeof fotasTarea === 'object'){
+        var actualizado = false;
+        var tareasNew = (snap.tareas||[]).map(function(t, i){
+          var imgRemota = fotasTarea['t'+i];
+          if(imgRemota && !t.img){ actualizado = true; return Object.assign({}, t, { img: imgRemota }); }
+          return t;
+        });
+        if(actualizado){
+          snap = Object.assign({}, snap, { tareas: tareasNew });
+          // Actualizar en HISTORIAL_DB para futuras aperturas
+          HISTORIAL_DB = HISTORIAL_DB.map(function(s){ return s.id===id ? snap : s; });
+          try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){}
+        }
+      }
+      _abrirSnap(snap);
+    }, function(){ _abrirSnap(snap); }); // si falla, mostrar igual
+    return; // la apertura ocurre dentro del callback
+  }
+  _abrirSnap(snap);
 }
 
 function histCargarSesionSilencioso(snap){
