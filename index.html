@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118r</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1119n</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -812,7 +812,7 @@ function fbEscucharJornadaCerrada(){
     // d es un objeto { 'YYYY-MM-DD': { cerrada:true, ts:..., fecha:... }, ... }
     Object.keys(d).forEach(function(fecha){
       if(d[fecha] && d[fecha].cerrada){
-        try{ localStorage.setItem('BFC_JORNADA_CERRADA_'+fecha,'1'); }catch(e){}
+        // Limpiar sesión activa local si coincide con la fecha cerrada desde otro dispositivo
         if(window._jornadaSesionActiva && window._jornadaSesionActiva.fecha===fecha){
           window._jornadaSesionActiva = null;
         }
@@ -826,11 +826,63 @@ function fbEscucharJornadaCerrada(){
   });
 }
 
+// ── Publicar sesión activa de Jornada a Firebase (todos los dispositivos la reciben) ──
+function jornadaPublicarActiva(ses){
+  if(!window.fbDB) return;
+  if(!ses){
+    // null = no hay sesión activa (jornada cerrada o sin sesión)
+    window.fbDB.ref('bfc/jornada_sesion_activa').remove().catch(function(){});
+    return;
+  }
+  window.fbDB.ref('bfc/jornada_sesion_activa').set({
+    sesId: ses.id,
+    fecha: ses.fecha,
+    nombre: ses.nombre||'',
+    ts: Date.now()
+  }).catch(function(e){ console.warn('[BFC] jornadaPublicarActiva err:', e.message); });
+}
+
+// ── Escuchar cuál sesión de Jornada está activa (para sincronizar entre dispositivos) ──
+var _jornadaSesActiListenerOn = false;
+function fbEscucharJornadaSesionActiva(){
+  if(!window.fbDB || _jornadaSesActiListenerOn) return;
+  _jornadaSesActiListenerOn = true;
+  window.fbDB.ref('bfc/jornada_sesion_activa').on('value', function(snap){
+    var d = snap.val();
+    if(!d){
+      // No hay sesión activa publicada en Firebase — limpiar local si la local es de hoy
+      // (podría haberse cerrado desde otro dispositivo)
+      if(window._jornadaSesionActiva && window._jornadaSesionActiva.fecha===TODAY){
+        // Solo limpiar si no fue nosotros quienes la publicamos recientemente
+        // (el remove que hicimos nosotros también dispara este listener)
+        window._jornadaSesionActiva = null;
+      }
+    } else {
+      // Si esta sesión fue cerrada manualmente, ignorar actualizaciones de Firebase
+      if(window._jornadaCerradaFlag) return;
+      // Buscar la sesión en BIEN_SESIONES local
+      var ses = safeArr(BIEN_SESIONES).find(function(s){ return s.id===d.sesId; });
+      if(ses){
+        // Si ya tenemos esta misma sesión activa, no hacer nada
+        if(window._jornadaSesionActiva && window._jornadaSesionActiva.id===ses.id) return;
+        window._jornadaSesionActiva = ses;
+        console.log('[BFC-SYNC] jornada_sesion_activa sincronizada: '+ses.nombre+' ('+ses.fecha+')');
+        // Refrescar pantalla si está en Jornada
+        var pgJ = document.getElementById('page-jornada');
+        if(pgJ && pgJ.classList.contains('on') && typeof renderJornada==='function'){
+          setTimeout(renderJornada, 150);
+        }
+      }
+    }
+  }, function(e){ console.warn('[BFC-SYNC] jornada_sesion_activa err:', e.message); });
+}
+
 // Escuchar cambios en tiempo real desde Firebase → actualizar variables locales
 function fbEscuchar() {
   if (!fbDB) return;
   fbEscucharHistorial(); // listener dedicado para historial
   fbEscucharJornadaCerrada(); // propaga cierre de jornada a todos los dispositivos
+  fbEscucharJornadaSesionActiva(); // sincroniza qué sesión está activa entre dispositivos
   fbDB.ref('bfc').on('value', function(snap) {
     var d = snap.val();
     if (!d) return;
@@ -1193,6 +1245,13 @@ function fbEscucharSubnodos(){
     var v = snap.val();
     if(!v) return;
     var arr = Array.isArray(v) ? v : Object.values(v);
+    // Filtrar nulls y ordenar por fecha desc (más reciente primero)
+    arr = arr.filter(function(s){ return s && s.id && s.fecha; });
+    arr.sort(function(a,b){
+      var df = (b.fecha||'').localeCompare(a.fecha||'');
+      if(df!==0) return df;
+      return (b.creadaEn||'').localeCompare(a.creadaEn||'');
+    });
     if(JSON.stringify(arr)===JSON.stringify(BIEN_SESIONES)) return;
     BIEN_SESIONES = arr;
     try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){}
@@ -2367,6 +2426,10 @@ function plantillaModalDisp(pid){
   var plantelAll = safeArr(JDB).length>0 ? safeArr(JDB) : safeArr(PL);
   var j = plantelAll.find(function(x){ return x.id===pid; })
        || safeArr(_plantillaManual).find(function(x){ return x.id===pid; });
+  // Buscar también en invitados (jugadoresExtra de sesData)
+  if(!j && typeof sesData !== 'undefined' && sesData){
+    j = safeArr(sesData.jugadoresExtra).find(function(x){ return x.id===pid; });
+  }
   if(!j) return;
   var nombre = ((j.nombre||j.name||'')+' '+(j.apellido||j.lastname||'')).trim();
 
@@ -2529,6 +2592,20 @@ function renderPlantilla(){
   var _ov2 = document.getElementById("overlay");
   if (_ov2 && _ov2.style.display !== "none") return;
   var plantelAll = safeArr(JDB).length>0 ? safeArr(JDB) : safeArr(PL);
+  // Incluir jugadores invitados (jugadoresExtra de sesData) que tengan estado en DISP_DB
+  if(typeof sesData !== 'undefined' && sesData && safeArr(sesData.jugadoresExtra).length){
+    var _idsBase2 = plantelAll.map(function(j){ return j.id; });
+    var _hoyDisp = TODAY;
+    safeArr(sesData.jugadoresExtra).forEach(function(j){
+      if(_idsBase2.indexOf(j.id)>=0) return; // ya está en el plantel
+      var _est = dispGetEstado(j.id, _hoyDisp);
+      // Mostrar en plantilla solo si tiene un estado registrado diferente a disponible
+      if(_est && _est.estado && _est.estado !== 'disponible'){
+        plantelAll = plantelAll.concat([Object.assign({}, j, {_esInvitado: true})]);
+        _idsBase2.push(j.id);
+      }
+    });
+  }
   var hoy = TODAY;
   var hoyLabel = new Date().toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
 
@@ -2788,6 +2865,7 @@ function renderPlantilla(){
       h += "<div style=\"font-size:7.5px;font-weight:800;color:#fff;margin-top:2px;text-shadow:0 1px 4px rgba(0,0,0,.95);white-space:nowrap;line-height:1.1;max-width:58px;overflow:hidden;text-overflow:ellipsis;\">"+escHtml(nombre)+"</div>";
       if(anioNac) h += "<div style=\"font-size:6px;color:rgba(255,255,255,.45);line-height:1.1;text-shadow:0 1px 3px rgba(0,0,0,.9);\">"+anioNac+"</div>";
       if(j._esManual) h += "<div style=\"font-size:6px;color:#a5b4fc;background:rgba(99,102,241,.4);border-radius:4px;padding:0 3px;margin-top:1px;\">"+escHtml(j.tag||'Manual')+"</div>";
+      if(j._esInvitado) h += "<div style=\"font-size:6px;color:#fb923c;background:rgba(249,115,22,.4);border-radius:4px;padding:0 3px;margin-top:1px;font-weight:800;\">INV</div>";
       // Badge médico visible en cancha para lesionados
       if(est==='lesion' && _lesionLbl){
         var _nts2 = _lesionNts ? _lesionNts.substring(0,14)+(_lesionNts.length>14?'…':'') : '';
@@ -2921,6 +2999,9 @@ function renderPlantilla(){
 
       if(j._esManual){
         h += "<button onclick='event.stopPropagation();plantillaEliminarManual(\""+j.id+"\")' style='position:absolute;top:2px;right:2px;background:rgba(239,68,68,.15);border:none;color:#f87171;border-radius:3px;width:12px;height:12px;font-size:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;'>✕</button>";
+      }
+      if(j._esInvitado){
+        h += "<div style='font-size:6.5px;font-weight:800;color:#f97316;background:rgba(249,115,22,.15);border:1px solid rgba(249,115,22,.4);border-radius:4px;padding:1px 4px;margin-top:2px;line-height:1;'>INV</div>";
       }
 
       h += "</div>"; // cierra tarjeta
@@ -3361,6 +3442,10 @@ function plantillaMostrarJugador(jid){
   var plantelAll = safeArr(JDB).length>0 ? safeArr(JDB) : safeArr(PL);
   var j = plantelAll.find(function(x){ return x.id===jid; });
   if(!j) j = safeArr(_plantillaManual).find(function(x){ return x.id===jid; });
+  // Buscar también en invitados (jugadoresExtra de sesData)
+  if(!j && typeof sesData !== 'undefined' && sesData){
+    j = safeArr(sesData.jugadoresExtra).find(function(x){ return x.id===jid; });
+  }
   if(!j) return;
   var nombre = ((j.nombre||j.name||'')+' '+(j.apellido||j.lastname||'')).trim();
   var linea = plantillaLinea(j.pos||j.posicion||'');
@@ -6669,45 +6754,41 @@ function renderJornada(){
   // Bug fix: SES_DB_RAW se usa antes de la declaración local — declarar aquí al inicio
   var SES_DB_RAW = []; try{ SES_DB_RAW = JSON.parse(localStorage.getItem('bfc_ses_hist')||'[]')||[]; }catch(e){}
   var paso = window._jornadaPaso || 'sesion';
+  // plantelAll = plantel fijo + jugadoresExtra de la sesión de entrenamiento activa (invitados)
   var plantelAll = safeArr(JDB).length>0 ? safeArr(JDB) : safeArr(PL);
+  if(typeof sesData !== 'undefined' && sesData && safeArr(sesData.jugadoresExtra).length){
+    var _idsBase = plantelAll.map(function(j){ return j.id; });
+    var _extrasNuevos = safeArr(sesData.jugadoresExtra).filter(function(j){ return _idsBase.indexOf(j.id)<0; });
+    if(_extrasNuevos.length) plantelAll = plantelAll.concat(_extrasNuevos);
+  }
   var hoy = TODAY;
   var hoyLabel = new Date().toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long'});
 
   // Fecha efectiva — si hay sesión activa, usar su fecha; si no, TODAY
+  // No auto-activar: respetar _jornadaCerradaFlag y solo usar lo que ya está en _jornadaSesionActiva
   var sesActiva = window._jornadaSesionActiva || null;
-  if(!sesActiva){
-    var _sesHoy = safeArr(BIEN_SESIONES).find(function(s){ return s.fecha===hoy; });
-    if(_sesHoy){ sesActiva = _sesHoy; window._jornadaSesionActiva = _sesHoy; }
-  }
   var fechaEfectiva = (sesActiva && sesActiva.fecha) ? sesActiva.fecha : hoy;
 
-  // ── JORNADA CERRADA — banner compacto + botón nueva jornada (Paso 1) ──
-  var _jcCerrada = false;
-  try{ _jcCerrada = localStorage.getItem('BFC_JORNADA_CERRADA_'+fechaEfectiva)==='1'; }catch(e){}
-  if(_jcCerrada){
-    var _jcFechaLabel = (function(){
-      try{
-        var p=fechaEfectiva.split('-');
-        var d=new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2]));
-        return d.toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
-      }catch(e){ return fechaEfectiva; }
-    })();
-    var _jcHtml = "<div style='padding:40px 20px;max-width:500px;margin:0 auto;text-align:center;'>";
-    _jcHtml += "<div style='font-size:56px;margin-bottom:16px;'>✅</div>";
-    _jcHtml += "<div style='font-size:22px;font-weight:900;color:#4ade80;margin-bottom:6px;'>Jornada cerrada</div>";
-    _jcHtml += "<div style='font-size:13px;color:#64748b;margin-bottom:28px;'>"+_jcFechaLabel+"</div>";
-    // Botón único: ir al panel de sesiones (quita flag, restaura sesión activa si existe)
-    _jcHtml += "<button onclick=\"jornadaReabrir('"+fechaEfectiva+"')\" style='display:inline-flex;align-items:center;gap:10px;padding:14px 28px;border-radius:14px;border:none;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 4px 20px rgba(99,102,241,.35);width:100%;justify-content:center;'>📋 Ir a sesiones de jornada</button>";
-    _jcHtml += "</div>";
-    el.innerHTML = _jcHtml;
-    return;
-  }
+  // (pantalla de "Jornada cerrada" eliminada — al cerrar se va directo al Paso 1 de sesiones)
 
-  // Contadores de progreso
-  var bWell = safeArr(BIEN).filter(function(b){ return b.fecha===fechaEfectiva&&(b.sueno||b.fatiga); });
-  var bRpe  = safeArr(BIEN).filter(function(b){ return b.fecha===fechaEfectiva&&b.rpe_post>0; });
+  // Contadores de progreso — filtrar por sesId cuando hay sesión activa (soporte multi-sesión por fecha)
+  var _sesIdHdr = sesActiva && sesActiva.id ? sesActiva.id : null;
+  var bWell = safeArr(BIEN).filter(function(b){
+    if(b.fecha!==fechaEfectiva || !(b.sueno||b.fatiga)) return false;
+    if(_sesIdHdr) return b.sesId===_sesIdHdr;
+    return !b.sesId; // compatibilidad registros sin sesId
+  });
+  var bRpe = safeArr(BIEN).filter(function(b){
+    if(b.fecha!==fechaEfectiva || !(b.rpe_post>0)) return false;
+    if(_sesIdHdr) return b.sesId===_sesIdHdr;
+    return !b.sesId;
+  });
   var gpsDB=[]; try{ var gd=localStorage.getItem('BFC_GPS_CAT'); if(gd) gpsDB=JSON.parse(gd)||[]; }catch(e){}
-  var gpsHoy = gpsDB.filter(function(r){ return r.fecha===fechaEfectiva; });
+  var gpsHoy = gpsDB.filter(function(r){
+    if(r.fecha!==fechaEfectiva) return false;
+    if(_sesIdHdr) return r.sesId===_sesIdHdr;
+    return !r.sesId;
+  });
   var totalJug = plantelAll.length;
 
   var h = "<div style='padding:20px;max-width:1100px;'>";
@@ -6741,6 +6822,14 @@ function renderJornada(){
   var evalDB = {};
   try{ var ev=localStorage.getItem('BFC_EVAL_PRE'); if(ev) evalDB=JSON.parse(ev)||{}; }catch(e){}
   var evalHoy = evalDB[fechaEfectiva] ? Object.keys(evalDB[fechaEfectiva]).filter(function(k){ return k!=='_loaded'; }).length : 0;
+  // ── Sin sesión activa: mostrar solo el panel de sesiones, sin barra de pasos ──
+  if(!sesActiva){
+    h += jornadaSesionesPanel();
+    h += "</div>";
+    el.innerHTML = h;
+    return;
+  }
+
   var pasos = [
     {k:'sesion',     l:'Sesión',        icon:'📅', done: !!sesActiva},
     {k:'wellness',   l:'Wellness PRE',  icon:'🌅', done: bWell.length>=Math.ceil(totalJug*0.5)},
@@ -7055,34 +7144,31 @@ function jornadaCrearSesion(){
   var fecha  = (document.getElementById('jornada-ses-fecha')||{}).value||TODAY;
   nombre = nombre.trim();
   if(!nombre){ alert('Escribe un nombre para la sesión'); return; }
-  // Verificar si ya existe sesión con esa fecha — si existe, simplemente activarla (nunca reemplazar)
-  var existente = safeArr(BIEN_SESIONES).find(function(s){ return s.fecha===fecha; });
-  if(existente){
-    // Ya existe: activar directamente, no borrar nada
-    window._jornadaSesionActiva = existente;
-    try{ localStorage.removeItem('BFC_JORNADA_CERRADA_'+fecha); }catch(e){}
-    guardar(); fbGuardar();
-    toast('📅 Sesión "'+existente.nombre+'" activada (ya existía para '+fecha+')');
-    renderJornada();
-    return;
-  }
+  // Siempre crear nueva sesión (se permiten varias por fecha — ej: mañana y tarde)
   jornadaCrearSesionForzar(nombre, fecha);
 }
 
 function jornadaCrearSesionForzar(nombre, fecha){
   closeModal();
-  BIEN_SESIONES = BIEN_SESIONES.filter(function(s){ return s.fecha!==fecha; });
+  // No filtrar por fecha — se permiten múltiples sesiones el mismo día (mañana, tarde, etc.)
   var nuevaSes = { id:'ses_'+Date.now(), nombre:nombre, fecha:fecha, creadaEn:new Date().toISOString() };
   BIEN_SESIONES.push(nuevaSes);
-  BIEN_SESIONES.sort(function(a,b){ return b.fecha.localeCompare(a.fecha); }); // más reciente primero
+  BIEN_SESIONES.sort(function(a,b){ // más reciente primero; misma fecha → más reciente por creación
+    var df = (b.fecha||'').localeCompare(a.fecha||'');
+    if(df!==0) return df;
+    return (b.creadaEn||'').localeCompare(a.creadaEn||'');
+  });
   // Activar automáticamente la sesión recién creada
   window._jornadaSesionActiva = nuevaSes;
+  window._jornadaCerradaFlag = false; // nueva sesión creada → limpiar bandera de cierre
   // Limpiar bandera de "cerrada" para esta fecha (si se abre nueva sesión, vuelve al modo en vivo)
   try{ localStorage.removeItem('BFC_JORNADA_CERRADA_'+nuevaSes.fecha); }catch(e){}
   // Limpiar también en Firebase para que todos los dispositivos sepan que la jornada se reabrió
   if(window.fbDB){
     window.fbDB.ref('bfc/jornada_cerrada/'+nuevaSes.fecha).remove().catch(function(){});
   }
+  // Publicar sesión activa a Firebase para sincronizar con todos los dispositivos
+  jornadaPublicarActiva(nuevaSes);
   guardar();
   fbGuardar();
   fbAuditLog('jornada','Sesión creada: '+nombre+' ('+fecha+')');
@@ -7109,6 +7195,8 @@ function jornadaEliminarSesion(sesId){
   BIEN_SESIONES = BIEN_SESIONES.filter(function(s){ return s.id!==sesId; });
   if(window._jornadaSesionActiva && window._jornadaSesionActiva.id===sesId){
     window._jornadaSesionActiva = null;
+    // Publicar null a Firebase para que todos los dispositivos sepan que no hay sesión activa
+    jornadaPublicarActiva(null);
   }
   // Eliminar datos de wellness y RPE de esa fecha
   BIEN = safeArr(BIEN).filter(function(b){ return b.fecha!==ses.fecha; });
@@ -7142,6 +7230,12 @@ function jornadaActivarSesion(sesId){
   var ses = safeArr(BIEN_SESIONES).find(function(s){ return s.id===sesId; });
   if(!ses) return;
   window._jornadaSesionActiva = ses;
+  window._jornadaCerradaFlag = false; // el usuario decidió activar → limpiar bandera de cierre
+  // Limpiar flag de cerrada para esta fecha (por si se reabre una sesión anterior)
+  try{ localStorage.removeItem('BFC_JORNADA_CERRADA_'+ses.fecha); }catch(e){}
+  if(window.fbDB) window.fbDB.ref('bfc/jornada_cerrada/'+ses.fecha).remove().catch(function(){});
+  // Publicar sesión activa a Firebase para sincronizar con todos los dispositivos
+  jornadaPublicarActiva(ses);
   guardar();
   renderJornada();
 }
@@ -7190,20 +7284,13 @@ function jornadaCerrarConfirmado(){
   window._jornadaCerrarConfirmando = false;
   var sesActiva = window._jornadaSesionActiva;
   var fechaCierre = (sesActiva && sesActiva.fecha) ? sesActiva.fecha : TODAY;
-  // Guardar bandera localmente
-  try{ localStorage.setItem('BFC_JORNADA_CERRADA_'+fechaCierre,'1'); }catch(e){}
   // ── Sincronizar cierre a Firebase para que todos los dispositivos lo reciban ──
   if(window.fbDB){
-    // Escribir estado de cierre en Firebase (con TTL implícito — se borra al crear nueva sesión)
-    window.fbDB.ref('bfc/jornada_cerrada/'+fechaCierre).set({
-      cerrada: true,
-      ts: Date.now(),
-      fecha: fechaCierre
-    }).catch(function(){});
     // Eliminar sesion_activa de Firebase para que el iPad deje de mostrarla como activa
     window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
   }
   window._jornadaSesionActiva = null;
+  window._jornadaCerradaFlag = true; // bandera: no re-activar aunque Firebase llegue tarde
   window._jornadaPaso = 'sesion';
   // Limpiar estado kiosko residual
   _kioskoFase = 'select';
@@ -7211,10 +7298,34 @@ function jornadaCerrarConfirmado(){
   _kioskoRpe = 0;
   _kioskoModoForzado = null;
   if(typeof _kioskoRestaurarUI === 'function') _kioskoRestaurarUI();
+  // Publicar null a Firebase para que todos los dispositivos sepan que no hay sesión activa
+  jornadaPublicarActiva(null);
+  // Marcar la jornada como cerrada en Firebase para que todos los dispositivos lo sepan
+  if(window.fbDB && fechaCierre){
+    window.fbDB.ref('bfc/jornada_cerrada/'+fechaCierre).set({
+      cerrada: true,
+      fecha: fechaCierre,
+      ts: Date.now(),
+      nombre: sesActiva ? (sesActiva.nombre||'') : ''
+    }).catch(function(){});
+    // Escritura directa por ID para garantizar persistencia sin pisar datos de otros dispositivos
+    var _sesMap = {};
+    safeArr(BIEN_SESIONES).forEach(function(s){ if(s && s.id) _sesMap[s.id] = s; });
+    if(Object.keys(_sesMap).length > 0){
+      window.fbDB.ref('bfc/bien_sesiones').update(_sesMap).catch(function(){});
+    }
+    // Guardar bien (wellness + RPE) para que no se pierdan los datos de la sesión
+    window.fbDB.ref('bfc/bien').set(BIEN||[]).catch(function(){});
+  }
+  // Persistir en localStorage también
+  try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES||[])); }catch(e){}
+  // Persistir todos los datos (fbGuardar tiene debounce pero guardar() es inmediato para localStorage)
+  guardar();
+  fbGuardar();
   // Detener listener de monitor en vivo
   jornadaDetenerListener();
   fbAuditLog('jornada','Jornada cerrada manualmente: '+(sesActiva?sesActiva.nombre+' ('+sesActiva.fecha+')':'sin sesión activa'));
-  toast('✅ Jornada cerrada — podés crear una nueva desde Paso 1');
+  toast('✅ Jornada cerrada');
   renderJornada();
 }
 
@@ -7227,7 +7338,12 @@ function jornadaReabrir(fecha){
   }
   // Restaurar sesión activa desde BIEN_SESIONES
   var ses = safeArr(BIEN_SESIONES).find(function(s){ return s.fecha===fecha; });
-  if(ses){ window._jornadaSesionActiva = ses; }
+  if(ses){
+    window._jornadaSesionActiva = ses;
+    window._jornadaCerradaFlag = false; // reabriendo → limpiar bandera de cierre
+    // Publicar a Firebase para sincronizar con todos los dispositivos
+    jornadaPublicarActiva(ses);
+  }
   window._jornadaPaso = 'sesion';
   fbAuditLog('jornada','Jornada reabierta: '+fecha);
   toast('🔓 Jornada reabierta');
@@ -7249,6 +7365,8 @@ function jornadaNuevaDesdecierre(){
     // Ya existe sesión para esa fecha — activarla directamente y arrancar flujo
     window._jornadaSesionActiva = existente;
     window._jornadaPaso = 'sesion';
+    // Publicar a Firebase para sincronizar con todos los dispositivos
+    jornadaPublicarActiva(existente);
     toast('📲 Jornada del '+fechaMañana+' cargada');
     renderJornada();
     return;
@@ -7295,6 +7413,7 @@ function jornadaNuevaDesdecierre(){
   }
 
   window._jornadaSesionActiva = nuevaSes;
+  window._jornadaCerradaFlag = false; // nueva sesión creada → limpiar bandera de cierre
   window._jornadaPaso = 'sesion';
   fbAuditLog('jornada','Nueva jornada creada desde cierre: '+nuevaSes.nombre+' ('+fechaMañana+')');
   toast('📲 Nueva jornada "'+nuevaSes.nombre+'" creada');
@@ -7305,11 +7424,7 @@ function jornadaSesionesPanel(){
   var hoy = TODAY;
   var sesiones = safeArr(BIEN_SESIONES);
   var activa   = window._jornadaSesionActiva || null;
-  // Si no hay sesión activa pero existe la de hoy, activarla automáticamente
-  if(!activa){
-    var sesHoy = sesiones.find(function(s){ return s.fecha===hoy; });
-    if(sesHoy){ activa = sesHoy; window._jornadaSesionActiva = activa; }
-  }
+  // No auto-activar: el usuario debe activar manualmente desde el historial
 
   var h = "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px 20px;margin-bottom:16px;'>";
   h += "<div style='font-size:13px;font-weight:800;color:#fff;margin-bottom:12px;'>📅 Sesión de Jornada</div>";
@@ -7346,28 +7461,43 @@ function jornadaSesionesPanel(){
     h += "<button data-sid='"+activa.id+"' onclick='jornadaEliminarSesion(this.dataset.sid)' style='padding:5px 12px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:#ef4444;font-size:10px;font-weight:700;cursor:pointer;margin-left:auto;'>🗑 Eliminar jornada</button>";
     h += "</div>";
     h += "</div>";
-  } else {
-    h += "<div style='background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:10px 14px;font-size:12px;color:#fca5a5;margin-bottom:12px;'>⚠️ Sin sesión activa — crea una para vincular los datos de hoy.</div>";
   }
 
-  // Formulario crear sesión
-  h += "<div style='display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;'>";
-  h += "<div style='flex:1;min-width:140px;'>";
-  h += "<div style='font-size:10px;color:#64748b;font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em;'>Nombre de la sesión</div>";
-  h += "<input id='jornada-ses-nombre' placeholder='Ej: Entreno táctico, Partido vs Tolima…' style='width:100%;box-sizing:border-box;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:9px 12px;color:#e2e8f0;font-size:12px;'>";
-  h += "</div>";
-  h += "<div style='flex-shrink:0;'>";
-  h += "<div style='font-size:10px;color:#64748b;font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em;'>Fecha</div>";
-  h += "<input id='jornada-ses-fecha' type='date' value='"+hoy+"' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:9px 12px;color:#e2e8f0;font-size:12px;cursor:pointer;'>";
-  h += "</div>";
-  h += "<button onclick='jornadaCrearSesion()' style='flex-shrink:0;padding:9px 18px;border-radius:10px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;'>＋ Crear sesión</button>";
-  h += "</div>";
+  // Formulario crear sesión — solo visible cuando hay sesión activa (si no hay, se muestra arriba como acción principal)
+  if(activa){
+    h += "<div style='display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;'>";
+    h += "<div style='flex:1;min-width:140px;'>";
+    h += "<div style='font-size:10px;color:#64748b;font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em;'>Nombre de la sesión</div>";
+    h += "<input id='jornada-ses-nombre' placeholder='Ej: Entreno táctico, Partido vs Tolima…' style='width:100%;box-sizing:border-box;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:9px 12px;color:#e2e8f0;font-size:12px;'>";
+    h += "</div>";
+    h += "<div style='flex-shrink:0;'>";
+    h += "<div style='font-size:10px;color:#64748b;font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em;'>Fecha</div>";
+    h += "<input id='jornada-ses-fecha' type='date' value='"+hoy+"' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:9px 12px;color:#e2e8f0;font-size:12px;cursor:pointer;'>";
+    h += "</div>";
+    h += "<button onclick='jornadaCrearSesion()' style='flex-shrink:0;padding:9px 18px;border-radius:10px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;'>＋ Crear sesión</button>";
+    h += "</div>";
+  } else {
+    // Sin sesión activa: mostrar formulario de creación como acción principal
+    h += "<div style='margin-bottom:12px;'>";
+    h += "<div style='font-size:11px;color:#64748b;font-weight:600;margin-bottom:10px;'>Nueva sesión</div>";
+    h += "<div style='display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;'>";
+    h += "<div style='flex:1;min-width:140px;'>";
+    h += "<div style='font-size:10px;color:#64748b;font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em;'>Nombre</div>";
+    h += "<input id='jornada-ses-nombre' placeholder='Ej: Entreno táctico, Partido vs Tolima…' style='width:100%;box-sizing:border-box;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:9px 12px;color:#e2e8f0;font-size:12px;'>";
+    h += "</div>";
+    h += "<div style='flex-shrink:0;'>";
+    h += "<div style='font-size:10px;color:#64748b;font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em;'>Fecha</div>";
+    h += "<input id='jornada-ses-fecha' type='date' value='"+hoy+"' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:9px 12px;color:#e2e8f0;font-size:12px;cursor:pointer;'>";
+    h += "</div>";
+    h += "<button onclick='jornadaCrearSesion()' style='flex-shrink:0;padding:9px 18px;border-radius:10px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;'>＋ Crear sesión</button>";
+    h += "</div></div>";
+  }
 
   // Lista de sesiones anteriores (excluyendo la activa)
   var sesOtras = sesiones.filter(function(s){ return !(activa && activa.id===s.id); });
   if(sesOtras.length){
     h += "<div style='margin-top:14px;'>";
-    h += "<div style='font-size:10px;color:#475569;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;'>Sesiones anteriores</div>";
+    h += "<div style='font-size:10px;color:#475569;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;'>"+(activa?'Sesiones anteriores':'Historial de sesiones')+"</div>";
     h += "<div style='display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;'>";
     sesOtras.slice(0,20).forEach(function(s){
       var esHoy2  = s.fecha===hoy;
@@ -8732,6 +8862,12 @@ function renderProgramacion() {
     if (ses4 && ses4.cdefSel && !rinf2) {
       h += "<div style='margin-top:2px;'>" + cdefHtml(ses4.cdefSel) + "</div>";
     }
+    // ── LINK VIDEO sesión — icono 🎬 si hay videoLink ──
+    if (ses4 && ses4.videoLink) {
+      var _vl = ses4.videoLink.trim();
+      if(!_vl.startsWith('http')) _vl = 'https://'+_vl;
+      h += "<div style='margin-top:3px;'><a href='"+_vl.replace(/'/g,'%27')+"' target='_blank' rel='noopener noreferrer' onclick='event.stopPropagation()' style='font-size:8px;font-weight:800;color:#818cf8;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.35);border-radius:4px;padding:1px 5px;text-decoration:none;white-space:nowrap;'>🎬 Ver</a></div>";
+    }
 
     // ── LUGAR ENTRENAMIENTO ──
     if (mc4 && mc4.lugEnt && mc4.tipo !== 'descanso') {
@@ -8912,9 +9048,15 @@ function _progAbrirNotaDia(dateStr) {
     if(sesDia){
       html += "<div style='background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);border-radius:10px;padding:9px 12px;display:flex;align-items:center;gap:10px;'>";
       html += "<span style='font-size:18px;'>✅</span>";
-      html += "<div><div style='font-size:11px;font-weight:800;color:#6ee7b7;'>Sesión registrada</div>";
+      html += "<div style='flex:1;min-width:0;'><div style='font-size:11px;font-weight:800;color:#6ee7b7;'>Sesión registrada</div>";
       if(sesDia.cdefSel) html += "<div style='font-size:9px;color:#475569;margin-top:1px;'>CDEF: " + sesDia.cdefSel + (sesDia.duracion?' · '+sesDia.duracion+' min':'') + "</div>";
-      html += "</div></div>";
+      html += "</div>";
+      if(sesDia.videoLink){
+        var _modalVL = (sesDia.videoLink||'').trim();
+        if(!_modalVL.startsWith('http')) _modalVL = 'https://'+_modalVL;
+        html += "<a href='" + _modalVL.replace(/'/g,'%27') + "' target='_blank' rel='noopener noreferrer' style='flex-shrink:0;background:rgba(99,102,241,.25);border:1.5px solid rgba(99,102,241,.5);color:#a5b4fc;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:800;text-decoration:none;white-space:nowrap;display:flex;align-items:center;gap:4px;'>🎬 Ver video</a>";
+      }
+      html += "</div>";
     }
     // Resultado partido
     if(resDia && resDia.golesF!==undefined){
@@ -20465,6 +20607,7 @@ function sesVerPreview(){
   var accentLight = accentColor+"22";
 
   var rep = "<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"+
+    "<base target='_blank'>"+
     "<title>BFC · Sesión "+(sesData.sesionNum||"")+" · "+fecha+"</title>"+
     "<style>"+
     "*{box-sizing:border-box;margin:0;padding:0;}"+
@@ -20659,7 +20802,7 @@ function sesVerPreview(){
     "</div>"+
     "<div style='padding:6px 16px;font-size:12px;background:#fff;flex:1;'>"+
     (sesData.videoLink
-      ? "<a href='"+escHtml(sesData.videoLink)+"' style='color:#2563eb;font-weight:700;word-break:break-all;'>"+escHtml(sesData.videoLink)+"</a>"
+      ? "<a href='"+escHtml(sesData.videoLink)+"' target='_blank' rel='noopener noreferrer' style='color:#2563eb;font-weight:700;word-break:break-all;'>"+escHtml(sesData.videoLink)+"</a>"
       : "<span style='color:#9ca3af;font-style:italic;font-weight:400;'>Sin link registrado</span>")+
     "</div></div>"+
 
@@ -25191,6 +25334,10 @@ function dispSelEstado(key){
 function dispAbrirModal(jid, fecha){
   var plantel = (safeArr(JDB).length>0) ? safeArr(JDB) : safeArr(PL);
   var j = plantel.find(function(x){ return x.id===jid; });
+  // Si no está en el plantel fijo, buscar en invitados (jugadoresExtra de sesData)
+  if(!j && typeof sesData !== 'undefined' && sesData){
+    j = safeArr(sesData.jugadoresExtra).find(function(x){ return x.id===jid; });
+  }
   var nombre = j ? ((j.nombre||j.name||'')+ ' ' +(j.apellido||j.lastname||'')).trim() : jid;
   var pgDisp = document.getElementById('page-disponibilidad');
   if(pgDisp && pgDisp.classList.contains('on')){
