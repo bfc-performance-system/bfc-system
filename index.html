@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118l</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118n</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -794,7 +794,7 @@ function fbEscucharHistorial() {
       });
       return Object.assign({}, sRemota, { tareas: tareasConImg });
     });
-    try { localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); } catch(e) {}
+    _histGuardarLocalSinImgs(); // sin base64 para no saturar localStorage
     // Si el historial está abierto, re-renderizar
     var pgH = document.getElementById('page-historial');
     if (pgH && pgH.classList.contains('on') && typeof renderHistorial === 'function') {
@@ -927,7 +927,7 @@ function fbEscuchar() {
           });
           return Object.assign({}, sR, { tareas: tCI });
         });
-        try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){}
+        _histGuardarLocalSinImgs(); // sin base64 para no saturar localStorage
         rerender = true;
       }
     }
@@ -1369,7 +1369,9 @@ function fbEscucharFotosSesion(){
       return Object.assign({}, ses, { tareas: tareasActualizadas });
     });
     if(_cambio){
-      try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){}
+      // Usar histSave() para separar las imágenes a BFC_HIST_IMGS correctamente
+      if(typeof histSave === 'function') histSave();
+      else try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){}
       console.log('[BFC-FOTO-SES] Historial actualizado con fotos de tareas');
       // Re-renderizar historial si está abierto
       var pgH = document.getElementById('page-historial');
@@ -1500,7 +1502,7 @@ function fbVolcarALocalStorage() {
     localStorage.setItem("bfc_sdb", JSON.stringify(SDB));
     localStorage.setItem("bfc_pruebas", JSON.stringify(PRUEBAS||[]));
     localStorage.setItem("bfc_ci_db", JSON.stringify(CI_DB||[]));
-    localStorage.setItem("BFC_HISTORIAL", JSON.stringify(HISTORIAL_DB||[]));
+    _histGuardarLocalSinImgs(); // sin base64 — evita saturar localStorage (~10MB)
     localStorage.setItem("BFC_EJERCICIOS", JSON.stringify(EJERCICIOS_DB||[]));
     localStorage.setItem("BFC_NOTIF", JSON.stringify(NOTIF_DB||[]));
     if(safeArr(DISP_DB).length>0) localStorage.setItem("BFC_DISP", JSON.stringify(DISP_DB));
@@ -1589,7 +1591,7 @@ function fbForzarSync() {
       if (d.disp_db) DISP_DB = safeArr(d.disp_db);
       if (d.expedientes_db) { EXPEDIENTES_DB = safeArr(d.expedientes_db); try{ localStorage.setItem('BFC_EXPEDIENTES', JSON.stringify(EXPEDIENTES_DB)); }catch(e){} }
       if (d.novedades_db) { NOVEDADES_DB = safeArr(d.novedades_db); try{ localStorage.setItem('BFC_NOV', JSON.stringify(NOVEDADES_DB)); }catch(e){} }
-      if (d.historial) { HISTORIAL_DB = d.historial; try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){} }
+      if (d.historial) { HISTORIAL_DB = d.historial; _histGuardarLocalSinImgs(); }
       if (d.ejercicios) { EJERCICIOS_DB = d.ejercicios; try{ localStorage.setItem('BFC_EJERCICIOS', JSON.stringify(EJERCICIOS_DB)); }catch(e){} }
       if (d.notif) { NOTIF_DB = d.notif; try{ localStorage.setItem('BFC_NOTIF', JSON.stringify(NOTIF_DB)); }catch(e){} notifActualizarBadge(); }
       if (d.ip_db) { IP_DB = safeArr(d.ip_db); try{ localStorage.setItem('BFC_IP_DB', JSON.stringify(IP_DB)); }catch(e){} }
@@ -2201,7 +2203,7 @@ function irA(id) {
           });
           return Object.assign({}, sRemota, { tareas: tareasConImg });
         });
-        try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){}
+        _histGuardarLocalSinImgs(); // sin base64 para no saturar localStorage
       }
       // Siempre re-renderizar al volver de Firebase para mostrar el estado real
       if(typeof renderHistorial==='function') renderHistorial();
@@ -6674,12 +6676,10 @@ function renderJornada(){
   }
   var fechaEfectiva = (sesActiva && sesActiva.fecha) ? sesActiva.fecha : hoy;
 
-  // ── JORNADA CERRADA — mostrar banner de cierre + historial + botón nueva jornada ──
+  // ── JORNADA CERRADA — banner compacto + botón nueva jornada (Paso 1) ──
   var _jcCerrada = false;
   try{ _jcCerrada = localStorage.getItem('BFC_JORNADA_CERRADA_'+fechaEfectiva)==='1'; }catch(e){}
   if(_jcCerrada){
-    // Construir historial de sesiones recientes
-    histLoad();
     var _jcFechaLabel = (function(){
       try{
         var p=fechaEfectiva.split('-');
@@ -6687,48 +6687,17 @@ function renderJornada(){
         return d.toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
       }catch(e){ return fechaEfectiva; }
     })();
-    var _jcHist = safeArr(HISTORIAL_DB).slice(0,8); // últimas 8 sesiones
-    var h2 = "<div style='padding:20px;max-width:1100px;'>";
-
-    // ── Banner jornada cerrada ──
-    h2 += "<div style='display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;padding:16px 20px;border-radius:14px;border:1px solid rgba(74,222,128,.25);background:rgba(74,222,128,.06);'>";
-    h2 += "<div style='display:flex;align-items:center;gap:14px;'>";
-    h2 += "<div style='font-size:32px;'>✅</div>";
-    h2 += "<div><div style='font-size:16px;font-weight:900;color:#4ade80;'>Jornada cerrada</div>";
-    h2 += "<div style='font-size:11px;color:#64748b;margin-top:2px;'>"+_jcFechaLabel+" — datos guardados en historial</div></div>";
-    h2 += "</div>";
-    h2 += "<div style='display:flex;gap:8px;flex-wrap:wrap;'>";
-    h2 += "<button onclick=\"irA('sesion')\" style='padding:10px 18px;border-radius:10px;border:1px solid rgba(99,102,241,.4);background:rgba(99,102,241,.12);color:#818cf8;font-size:12px;font-weight:700;cursor:pointer;'>📋 Nueva sesión mañana</button>";
-    h2 += "<button onclick=\"jornadaReabrir('"+fechaEfectiva+"')\" style='padding:10px 18px;border-radius:10px;border:1px solid rgba(100,116,139,.3);background:rgba(100,116,139,.08);color:#64748b;font-size:11px;font-weight:700;cursor:pointer;'>🔓 Reabrir esta jornada</button>";
-    h2 += "</div></div>";
-
-    // ── Historial de sesiones recientes ──
-    h2 += "<div style='margin-bottom:12px;font-size:13px;font-weight:800;color:#cbd5e1;letter-spacing:-.01em;'>📚 Historial de sesiones</div>";
-    if(_jcHist.length===0){
-      h2 += "<div style='color:#475569;font-size:12px;padding:20px;text-align:center;'>No hay sesiones registradas aún.</div>";
-    } else {
-      h2 += "<div style='display:flex;flex-direction:column;gap:8px;'>";
-      _jcHist.forEach(function(s){
-        var fLabel=''; try{ var p2=( s.fecha||s.fechaSes||'').split('-'); var d2=new Date(parseInt(p2[0]),parseInt(p2[1])-1,parseInt(p2[2])); fLabel=d2.toLocaleDateString('es-CO',{weekday:'short',day:'numeric',month:'short',year:'numeric'}); }catch(e){ fLabel=s.fecha||s.fechaSes||'—'; }
-        var nTareas = safeArr(s.tareas).length;
-        var nJug = safeArr(s.jugadores).length || s.numJugadores || '—';
-        var esCerrada = s.fecha===fechaEfectiva || s.fechaSes===fechaEfectiva;
-        h2 += "<div style='display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-radius:12px;border:1px solid "+(esCerrada?'rgba(74,222,128,.25)':'rgba(255,255,255,.07)')+";background:"+(esCerrada?'rgba(74,222,128,.04)':'rgba(255,255,255,.02)')+";gap:12px;flex-wrap:wrap;'>";
-        h2 += "<div style='display:flex;align-items:center;gap:12px;'>";
-        h2 += "<div style='font-size:9px;font-weight:900;padding:3px 8px;border-radius:6px;background:rgba(99,102,241,.15);color:#818cf8;text-transform:uppercase;'>S."+(s.sesionNum||'?')+"</div>";
-        h2 += "<div><div style='font-size:12px;font-weight:700;color:#e2e8f0;'>"+fLabel+(esCerrada?" <span style='color:#4ade80;font-size:10px;'>✅ Hoy</span>":"")+"</div>";
-        h2 += "<div style='font-size:10px;color:#64748b;margin-top:1px;'>MC "+escHtml(s.morfociclo||'—')+" &nbsp;·&nbsp; "+nTareas+" tareas &nbsp;·&nbsp; "+nJug+" jug.</div></div>";
-        h2 += "</div>";
-        h2 += "<div style='display:flex;gap:6px;'>";
-        h2 += "<button onclick=\"dashVerSesionHoy('"+(s.fecha||s.fechaSes||'')+"')\" style='padding:6px 12px;border-radius:8px;border:1px solid rgba(99,102,241,.3);background:rgba(99,102,241,.08);color:#818cf8;font-size:10px;font-weight:700;cursor:pointer;'>👁 Ver</button>";
-        h2 += "<button onclick=\"sesEditarDesdeHistorial('"+(s.id||'')+"')\" style='padding:6px 12px;border-radius:8px;border:1px solid rgba(100,116,139,.25);background:rgba(100,116,139,.06);color:#94a3b8;font-size:10px;font-weight:700;cursor:pointer;'>✏️ Editar</button>";
-        h2 += "<button onclick=\"sesCargarDesdeSesion("+HISTORIAL_DB.indexOf(s)+")\" style='padding:6px 12px;border-radius:8px;border:1px solid rgba(234,179,8,.25);background:rgba(234,179,8,.06);color:#fbbf24;font-size:10px;font-weight:700;cursor:pointer;'>📋 Usar como base</button>";
-        h2 += "</div></div>";
-      });
-      h2 += "</div>";
-    }
-    h2 += "</div>";
-    el.innerHTML = h2;
+    var _jcHtml = "<div style='padding:40px 20px;max-width:600px;margin:0 auto;text-align:center;'>";
+    _jcHtml += "<div style='font-size:56px;margin-bottom:20px;'>✅</div>";
+    _jcHtml += "<div style='font-size:22px;font-weight:900;color:#4ade80;margin-bottom:8px;'>Jornada cerrada</div>";
+    _jcHtml += "<div style='font-size:13px;color:#64748b;margin-bottom:8px;'>"+_jcFechaLabel+"</div>";
+    _jcHtml += "<div style='font-size:12px;color:#475569;margin-bottom:32px;line-height:1.6;'>Los datos están protegidos y guardados en el historial.</div>";
+    // Botón principal: crear nueva jornada (resetea estado y vuelve al Paso 1)
+    _jcHtml += "<button onclick=\"jornadaNuevaDesdecierre()\" style='display:inline-flex;align-items:center;gap:10px;padding:14px 28px;border-radius:14px;border:none;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 4px 20px rgba(99,102,241,.35);margin-bottom:16px;width:100%;justify-content:center;'>📲 Iniciar jornada de mañana</button>";
+    _jcHtml += "<br>";
+    _jcHtml += "<button onclick=\"jornadaReabrir('"+fechaEfectiva+"')\" style='display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:10px;border:1px solid rgba(100,116,139,.3);background:rgba(100,116,139,.08);color:#64748b;font-size:11px;font-weight:700;cursor:pointer;'>🔓 Reabrir jornada de hoy</button>";
+    _jcHtml += "</div>";
+    el.innerHTML = _jcHtml;
     return;
   }
 
@@ -7249,6 +7218,73 @@ function jornadaReabrir(fecha){
   window._jornadaPaso = 'sesion';
   fbAuditLog('jornada','Jornada reabierta: '+fecha);
   toast('🔓 Jornada reabierta');
+  renderJornada();
+}
+
+// Crear nueva jornada desde pantalla de jornada cerrada
+// Calcula la siguiente fecha hábil, crea sesión en BIEN_SESIONES y arranca el flujo normal (Paso 1)
+function jornadaNuevaDesdecierre(){
+  // Calcular "mañana" a partir de TODAY (nunca de la fecha de la jornada cerrada)
+  var hoy = TODAY; // "YYYY-MM-DD"
+  var dHoy = new Date(hoy+'T12:00:00');
+  var dManana = new Date(dHoy.getTime() + 86400000);
+  var fechaMañana = dManana.toISOString().slice(0,10);
+
+  // Verificar que no exista ya una sesión para esa fecha
+  var existente = safeArr(BIEN_SESIONES).find(function(s){ return s.fecha===fechaMañana; });
+  if(existente){
+    // Ya existe sesión para esa fecha — activarla directamente y arrancar flujo
+    window._jornadaSesionActiva = existente;
+    window._jornadaPaso = 'sesion';
+    toast('📲 Jornada del '+fechaMañana+' cargada');
+    renderJornada();
+    return;
+  }
+
+  // Calcular número de sesión: buscar el máximo sesionNum en BIEN_SESIONES (sin importar orden del array)
+  var sesiones = safeArr(BIEN_SESIONES);
+  var maxNum = 0;
+  sesiones.forEach(function(s){ var n=parseInt(s.sesionNum||'0')||0; if(n>maxNum) maxNum=n; });
+  var nuevoNum = maxNum + 1;
+
+  // La sesión más reciente (para heredar morfociclo/microciclo)
+  var sesRef = sesiones.length > 0
+    ? sesiones.slice().sort(function(a,b){ return (b.fecha||'').localeCompare(a.fecha||''); })[0]
+    : null;
+
+  // Generar nombre automático con fecha
+  var _fPartes = fechaMañana.split('-');
+  var _dLabel = '';
+  try{ var _d2=new Date(parseInt(_fPartes[0]),parseInt(_fPartes[1])-1,parseInt(_fPartes[2])); _dLabel=_d2.toLocaleDateString('es-CO',{weekday:'short',day:'numeric',month:'short'}); }catch(e){ _dLabel=fechaMañana; }
+  var nombreAuto = 'Jornada S.'+nuevoNum+' — '+_dLabel;
+
+  var nuevaSes = {
+    id: 'ses_'+Date.now(),
+    nombre: nombreAuto,
+    fecha: fechaMañana,
+    sesionNum: String(nuevoNum),
+    morfociclo: sesRef ? (sesRef.morfociclo||'') : '',
+    microciclo: sesRef ? (sesRef.microciclo||'') : '',
+    objetivo: '',
+    tareas: [],
+    jugadores: [],
+    estado: 'activa',
+    creadaEn: new Date().toISOString()
+  };
+
+  BIEN_SESIONES.push(nuevaSes);
+  BIEN_SESIONES.sort(function(a,b){ return (b.fecha||'').localeCompare(a.fecha||''); }); // más reciente primero
+  // Guardar en localStorage con la clave correcta (minúsculas — igual que el resto del sistema)
+  try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){}
+  // Sincronizar con Firebase
+  if(window.fbDB){
+    window.fbDB.ref('bfc/bien_sesiones/'+nuevaSes.id).set(nuevaSes).catch(function(){});
+  }
+
+  window._jornadaSesionActiva = nuevaSes;
+  window._jornadaPaso = 'sesion';
+  fbAuditLog('jornada','Nueva jornada creada desde cierre: '+nuevaSes.nombre+' ('+fechaMañana+')');
+  toast('📲 Nueva jornada "'+nuevaSes.nombre+'" creada');
   renderJornada();
 }
 
@@ -21608,6 +21644,25 @@ function ejUsarEnSesionTarea(ejId, tareaIdx){
 // HISTORIAL DE SESIONES
 // ════════════════════════════════════════════════════════════════
 
+// Guardar HISTORIAL_DB en localStorage sin imágenes base64 (para escrituras rápidas/no oficiales).
+// Usar histSave() para el guardado completo (que también escribe BFC_HIST_IMGS y Firebase).
+function _histGuardarLocalSinImgs(){
+  try{
+    var _hsi = HISTORIAL_DB.map(function(ses){
+      var sc = Object.assign({}, ses);
+      if(sc.tareas && Array.isArray(sc.tareas)){
+        sc.tareas = sc.tareas.map(function(t){
+          var tc = Object.assign({}, t);
+          if(tc.img && typeof tc.img==='string' && tc.img.indexOf('data:')===0) delete tc.img;
+          return tc;
+        });
+      }
+      return sc;
+    });
+    localStorage.setItem('BFC_HISTORIAL', JSON.stringify(_hsi));
+  }catch(e){ console.warn('[BFC] _histGuardarLocalSinImgs error:', e.message); }
+}
+
 function histSave(){
   // Guardar en localStorage sin imágenes base64 para no saturar la cuota (~10MB)
   // Las imágenes se guardan por separado en BFC_HIST_IMGS indexadas por sesId+tareaIdx
@@ -22027,7 +22082,7 @@ function histVerPDF(id){
           snap = Object.assign({}, snap, { tareas: tareasNew });
           // Actualizar en HISTORIAL_DB para futuras aperturas
           HISTORIAL_DB = HISTORIAL_DB.map(function(s){ return s.id===id ? snap : s; });
-          try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){}
+          _histGuardarLocalSinImgs(); // sin base64 para no saturar localStorage
         }
       }
       _abrirSnap(snap);
