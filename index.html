@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118a</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118c</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -458,6 +458,7 @@ function fbInit() {
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     fbDB = firebase.database();
     fbEscuchar();
+    fbEscucharSubnodos();    // 🔄 Listeners dedicados por sub-nodo — sync garantizado aunque nodo raíz sea grande
     fbEscucharFotos();       // 📸 Listener dedicado bfc/fotos — sync fotos en tiempo real
     fbEscucharFotosSesion(); // 📸 Listener bfc/fotos_sesion — sync fotos de tareas historial
     fbMonitorConexion();     // 🔌 Monitor de conexión en tiempo real
@@ -1115,6 +1116,126 @@ function fbGuardarFotosSesion(sesId, tareas){
   });
 }
 
+// ── Listeners dedicados por sub-nodo — garantizan sync aunque el nodo raíz bfc sea muy grande ──
+// Cada sub-nodo crítico tiene su propio canal, independiente del listener raíz.
+function fbEscucharSubnodos(){
+  if(!window.fbDB) return;
+
+  // bfc/pl — jugadores / plantilla
+  window.fbDB.ref('bfc/pl').on('value', function(snap){
+    var v = snap.val();
+    if(!v || JSON.stringify(v)===JSON.stringify(PL)) return;
+    PL = v;
+    try{ localStorage.setItem('bfc_pl', JSON.stringify(PL)); }catch(e){}
+    console.log('[BFC-SYNC] pl actualizado desde Firebase');
+    if(typeof renderApp==='function') renderApp();
+  }, function(e){ console.warn('[BFC-SYNC] pl err:', e.message); });
+
+  // bfc/bien_sesiones — sesiones de jornada
+  window.fbDB.ref('bfc/bien_sesiones').on('value', function(snap){
+    var v = snap.val();
+    if(!v) return;
+    var arr = Array.isArray(v) ? v : Object.values(v);
+    if(JSON.stringify(arr)===JSON.stringify(BIEN_SESIONES)) return;
+    BIEN_SESIONES = arr;
+    try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){}
+    console.log('[BFC-SYNC] bien_sesiones actualizado:', BIEN_SESIONES.length);
+    var pgJ = document.getElementById('page-jornada');
+    if(pgJ && pgJ.classList.contains('on') && typeof renderJornada==='function') renderJornada();
+    var pgI = document.getElementById('page-inicio');
+    if(pgI && pgI.classList.contains('on') && typeof renderInicio==='function') renderInicio();
+  }, function(e){ console.warn('[BFC-SYNC] bien_sesiones err:', e.message); });
+
+  // bfc/sesion_activa — sesión en curso (editable desde cualquier dispositivo)
+  window.fbDB.ref('bfc/sesion_activa').on('value', function(snap){
+    var v = snap.val();
+    if(!v) return;
+    // Solo aplicar si la sesión remota tiene ts más reciente que la local
+    var tsLocal = _sesLocalTs || 0;
+    var tsRemota = v.ts || v.savedAt || 0;
+    if(tsRemota <= tsLocal) return;
+    // No sobreescribir si el usuario está editando activamente (sesión tocada en los últimos 10s)
+    if(_sesLocalTs > 0 && (Date.now() - _sesLocalTs) < 10000) return;
+    if(v && typeof v === 'object' && v.tareas){
+      sesData = v;
+      _sesLocalTs = tsRemota;
+      try{ localStorage.setItem('BFC_SES', JSON.stringify(sesData)); localStorage.setItem('BFC_SES_TS', String(_sesLocalTs)); }catch(e){}
+      console.log('[BFC-SYNC] sesion_activa actualizada desde Firebase');
+      var pgS = document.getElementById('page-sesion');
+      if(pgS && pgS.classList.contains('on') && typeof renderSesion==='function') renderSesion();
+    }
+  }, function(e){ console.warn('[BFC-SYNC] sesion_activa err:', e.message); });
+
+  // bfc/evs — eventos / calendario
+  window.fbDB.ref('bfc/evs').on('value', function(snap){
+    var v = snap.val();
+    if(!v) return;
+    var arr = Array.isArray(v) ? v : safeArr(v);
+    // Filtrar eventos fantasma
+    arr = arr.filter(function(ev){
+      if(ev.tipo!=='partido') return true;
+      var t=(ev.titulo||'').trim().toLowerCase();
+      if(t==='bfc vs rival'||t.endsWith(' vs rival')) return false;
+      if((ev.rival||'').trim().toLowerCase()==='rival') return false;
+      return true;
+    });
+    if(JSON.stringify(arr)===JSON.stringify(EVS)) return;
+    EVS = arr;
+    try{ localStorage.setItem('bfc_evs', JSON.stringify(EVS)); }catch(e){}
+    console.log('[BFC-SYNC] evs actualizado:', EVS.length);
+    if(typeof renderApp==='function') renderApp();
+  }, function(e){ console.warn('[BFC-SYNC] evs err:', e.message); });
+
+  // bfc/expedientes_db — expedientes médicos
+  window.fbDB.ref('bfc/expedientes_db').on('value', function(snap){
+    var v = snap.val();
+    if(!v) return;
+    var arr = Array.isArray(v) ? v : safeArr(v);
+    if(JSON.stringify(arr)===JSON.stringify(EXPEDIENTES_DB)) return;
+    EXPEDIENTES_DB = arr;
+    try{ localStorage.setItem('BFC_EXPEDIENTES', JSON.stringify(EXPEDIENTES_DB)); }catch(e){}
+    console.log('[BFC-SYNC] expedientes_db actualizado');
+    if(typeof renderApp==='function') renderApp();
+  }, function(e){ console.warn('[BFC-SYNC] expedientes_db err:', e.message); });
+
+  // bfc/novedades_db — novedades
+  window.fbDB.ref('bfc/novedades_db').on('value', function(snap){
+    var v = snap.val();
+    if(!v) return;
+    var arr = Array.isArray(v) ? v : safeArr(v);
+    if(JSON.stringify(arr)===JSON.stringify(NOVEDADES_DB)) return;
+    NOVEDADES_DB = arr;
+    try{ localStorage.setItem('BFC_NOV', JSON.stringify(NOVEDADES_DB)); }catch(e){}
+    console.log('[BFC-SYNC] novedades_db actualizado');
+    if(typeof renderApp==='function') renderApp();
+  }, function(e){ console.warn('[BFC-SYNC] novedades_db err:', e.message); });
+
+  // bfc/ci_db — carga interna
+  window.fbDB.ref('bfc/ci_db').on('value', function(snap){
+    var v = snap.val();
+    if(!v) return;
+    var arr = Array.isArray(v) ? v : safeArr(v);
+    if(JSON.stringify(arr)===JSON.stringify(CI_DB)) return;
+    CI_DB = arr;
+    try{ localStorage.setItem('BFC_CI', JSON.stringify(CI_DB)); }catch(e){}
+    console.log('[BFC-SYNC] ci_db actualizado');
+    if(typeof renderApp==='function') renderApp();
+  }, function(e){ console.warn('[BFC-SYNC] ci_db err:', e.message); });
+
+  // bfc/disp_db — disponibilidad médica
+  window.fbDB.ref('bfc/disp_db').on('value', function(snap){
+    var v = snap.val();
+    if(!v) return;
+    var arr = Array.isArray(v) ? v : safeArr(v);
+    if(JSON.stringify(arr)===JSON.stringify(DISP_DB)) return;
+    var tsRemoto = snap.child ? 0 : 0; // sin timestamp aquí, aplicar siempre
+    DISP_DB = arr;
+    try{ localStorage.setItem('BFC_DISP', JSON.stringify(DISP_DB)); }catch(e){}
+    console.log('[BFC-SYNC] disp_db actualizado');
+    if(typeof renderApp==='function') renderApp();
+  }, function(e){ console.warn('[BFC-SYNC] disp_db err:', e.message); });
+}
+
 // ── Listener bfc/fotos_sesion — inyecta fotos en HISTORIAL_DB cuando llegan de otro dispositivo ──
 function fbEscucharFotosSesion(){
   if(!window.fbDB) return;
@@ -1216,6 +1337,26 @@ function fbGuardar() {
     };
     // Estimar tamaño antes de enviar
     _fbEstimarTamanoPayload(payload);
+    // ── Escrituras directas a sub-nodos críticos (bypass del payload raíz si es muy grande) ──
+    // Cada sub-nodo se escribe individualmente: aunque fbDB.ref('bfc').update() falle por tamaño,
+    // estos datos llegan al iPad por sus propios canales (fbEscucharSubnodos).
+    var _snSnap = {
+      pl: PL,
+      bien_sesiones: BIEN_SESIONES||[],
+      evs: payload.evs,
+      ci_db: CI_DB||[],
+      expedientes_db: safeArr(EXPEDIENTES_DB),
+      novedades_db: safeArr(NOVEDADES_DB)
+    };
+    Object.keys(_snSnap).forEach(function(k){
+      var val = _snSnap[k];
+      if(val && (Array.isArray(val) ? val.length > 0 : true)){
+        fbDB.ref('bfc/'+k).set(val).catch(function(e){
+          console.warn('[BFC-SYNC] Error escritura sub-nodo bfc/'+k+':', e.message);
+        });
+      }
+    });
+    // Payload principal (puede fallar si supera 10MB, pero los sub-nodos ya fueron)
     fbDB.ref('bfc').update(payload)
       .then(function() {
         var badge = document.getElementById('fb-sync-badge');
@@ -19935,68 +20076,82 @@ function sesVerPreview(){
   sortByPos2(grpNoDisp2);
   var extras2 = sesData.jugadoresExtra||[];
 
-  // — Disponibles —
-  var totalEnCampo = grpDisp2.length + extras2.length;
-  listaHTML += "<tr><td colspan='3' style='padding:5px 8px;background:#16a34a;border-bottom:2px solid #15803d;'><span style='font-size:9px;font-weight:900;color:#fff;letter-spacing:.1em;text-transform:uppercase;'>✅ EN SEDE · "+totalEnCampo+"</span></td></tr>";
+  // ── Badges de estado médico (igual que vista edición) ──
+  var SES_MED_BADGE2 = {
+    rehabilitacion: "<span style='display:inline-block;font-size:7px;font-weight:900;padding:1px 5px;border-radius:4px;background:rgba(124,58,237,.18);color:#7c3aed;border:1px solid rgba(124,58,237,.4);margin-left:5px;vertical-align:middle;'>REHAB</span>",
+    baja:           "<span style='display:inline-block;font-size:7px;font-weight:900;padding:1px 5px;border-radius:4px;background:rgba(239,68,68,.15);color:#dc2626;border:1px solid rgba(239,68,68,.35);margin-left:5px;vertical-align:middle;'>BAJA</span>",
+    readaptacion:   "<span style='display:inline-block;font-size:7px;font-weight:900;padding:1px 5px;border-radius:4px;background:rgba(96,165,250,.18);color:#2563eb;border:1px solid rgba(96,165,250,.4);margin-left:5px;vertical-align:middle;'>READAP</span>",
+    recuperacion:   "<span style='display:inline-block;font-size:7px;font-weight:900;padding:1px 5px;border-radius:4px;background:rgba(251,146,60,.15);color:#ea580c;border:1px solid rgba(251,146,60,.35);margin-left:5px;vertical-align:middle;'>RECUP</span>",
+    restriccion:    "<span style='display:inline-block;font-size:7px;font-weight:900;padding:1px 5px;border-radius:4px;background:rgba(245,158,11,.15);color:#d97706;border:1px solid rgba(245,158,11,.35);margin-left:5px;vertical-align:middle;'>REST</span>"
+  };
+
+  // — ✅ EN SEDE HOY (disponibles) —
+  var totalEnSede = grpDisp2.length + grpEsp2.length + extras2.length;
+  listaHTML += "<tr><td colspan='3' style='padding:4px 8px;background:rgba(34,197,94,.12);border-bottom:1px solid rgba(34,197,94,.25);'>";
+  listaHTML += "<span style='font-size:9px;font-weight:900;color:#16a34a;letter-spacing:.1em;text-transform:uppercase;'>✅ EN SEDE HOY ("+totalEnSede+")</span></td></tr>";
+
   grpDisp2.forEach(function(p,pi){
     jugadorNum++;
     var nm = (p.apellido||p.nombre||"").toUpperCase().split(" ")[0];
     var nota = p.notaSesion||"";
-    var bg = pi%2===0?"#ffffff":"#f0fdf4";
-    listaHTML += "<tr style='background:"+bg+";border-bottom:1px solid #dcfce7;'>";
-    listaHTML += "<td style='padding:5px 6px;font-size:11px;font-weight:900;color:#15803d;width:22px;text-align:center;border-right:2px solid #dcfce7;'>"+jugadorNum+"</td>";
-    listaHTML += "<td style='padding:5px 7px;font-size:12px;font-weight:700;color:#111827;letter-spacing:.01em;'>"+nm+"</td>";
-    listaHTML += "<td style='padding:4px 5px;width:52px;border-left:2px solid #dcfce7;font-size:10px;color:#374151;text-align:center;vertical-align:middle;'>"+
-      (nota ? "<span style='font-weight:700;color:#374151;'>"+nota+"</span>" : "<div style='width:100%;border-bottom:1px solid #d1d5db;height:1px;margin-top:8px;'></div>")+
+    var bg = pi%2===0?"#ffffff":"#f9fafb";
+    listaHTML += "<tr style='background:"+bg+";border-bottom:1px solid #f0f0f0;'>";
+    listaHTML += "<td style='padding:4px 5px;font-size:10px;font-weight:900;color:#374151;text-align:center;width:20px;min-width:20px;'>"+jugadorNum+"</td>";
+    listaHTML += "<td style='padding:4px 6px;font-size:11px;font-weight:700;color:#111;'>"+nm+"</td>";
+    listaHTML += "<td style='padding:3px 5px;border-left:1px solid #e5e7eb;font-size:10px;color:#374151;text-align:center;vertical-align:middle;min-width:48px;'>"+
+      (nota ? "<span style='font-weight:700;color:#374151;'>"+nota+"</span>" : "<div style='border-bottom:1px solid #d1d5db;height:1px;margin:7px 4px;'></div>")+
       "</td>";
     listaHTML += "</tr>";
   });
 
-  // — Rehab / Readap —
+  // — ⚕ REHAB / READAP / DUDA —
   if(grpEsp2.length){
-    listaHTML += "<tr><td colspan='3' style='padding:5px 8px;background:#6366f1;border-top:3px solid #4f46e5;border-bottom:2px solid #4f46e5;'><span style='font-size:9px;font-weight:900;color:#fff;letter-spacing:.1em;text-transform:uppercase;'>⚕ REHAB/READAP · "+grpEsp2.length+"</span></td></tr>";
+    listaHTML += "<tr><td colspan='3' style='padding:3px 8px;background:rgba(165,180,252,.18);border-top:2px solid rgba(99,102,241,.3);border-bottom:1px solid rgba(99,102,241,.2);'>";
+    listaHTML += "<span style='font-size:8px;font-weight:900;color:#4f46e5;letter-spacing:.12em;text-transform:uppercase;'>⚕ Rehab / Readap / Duda ("+grpEsp2.length+")</span></td></tr>";
     grpEsp2.forEach(function(item,pi){
       var p = item.p;
       jugadorNum++;
       var nm = (p.apellido||p.nombre||"").toUpperCase().split(" ")[0];
       var nota = p.notaSesion||"";
-      var bg = pi%2===0?"#f5f3ff":"#ede9fe";
-      var badgeTxt = {rehabilitacion:"REHAB",readaptacion:"READAP",recuperacion:"RECUP",restriccion:"REST",baja:"BAJA"}[item.estMed]||item.estMed;
-      listaHTML += "<tr style='background:"+bg+";border-bottom:1px solid #ddd6fe;'>";
-      listaHTML += "<td style='padding:5px 6px;font-size:11px;font-weight:900;color:#6366f1;width:22px;text-align:center;border-right:2px solid #ddd6fe;'>"+jugadorNum+"</td>";
-      listaHTML += "<td style='padding:5px 7px;font-size:12px;font-weight:700;color:#111827;'>"+nm+"<br><span style='font-size:9px;font-weight:900;padding:1px 5px;border-radius:3px;background:#6366f1;color:#fff;'>"+badgeTxt+"</span></td>";
-      listaHTML += "<td style='padding:4px 5px;width:52px;border-left:2px solid #ddd6fe;font-size:10px;color:#374151;text-align:center;vertical-align:middle;'>"+
-        (nota ? "<span style='font-weight:700;'>"+nota+"</span>" : "<div style='width:100%;border-bottom:1px solid #d1d5db;height:1px;margin-top:8px;'></div>")+
+      var bg = pi%2===0?"#f8f8ff":"#f3f4ff";
+      var badgeHtml = SES_MED_BADGE2[item.estMed]||"";
+      listaHTML += "<tr style='background:"+bg+";border-bottom:1px solid rgba(99,102,241,.1);'>";
+      listaHTML += "<td style='padding:4px 5px;font-size:10px;font-weight:900;color:#374151;text-align:center;width:20px;min-width:20px;'>"+jugadorNum+"</td>";
+      listaHTML += "<td style='padding:4px 6px;font-size:11px;font-weight:700;color:#111;'>"+nm+badgeHtml+"</td>";
+      listaHTML += "<td style='padding:3px 5px;border-left:1px solid #e5e7eb;font-size:10px;color:#374151;text-align:center;vertical-align:middle;min-width:48px;'>"+
+        (nota ? "<span style='font-weight:700;'>"+nota+"</span>" : "<div style='border-bottom:1px solid #d1d5db;height:1px;margin:7px 4px;'></div>")+
         "</td>";
       listaHTML += "</tr>";
     });
   }
 
-  // — Extras (prueba) —
+  // — ★ Prueba / Menores —
   if(extras2.length){
-    listaHTML += "<tr><td colspan='3' style='padding:5px 8px;background:#7c3aed;border-top:3px solid #6d28d9;border-bottom:2px solid #6d28d9;'><span style='font-size:9px;font-weight:900;color:#fff;letter-spacing:.1em;text-transform:uppercase;'>★ PRUEBA · "+extras2.length+"</span></td></tr>";
+    listaHTML += "<tr><td colspan='3' style='padding:3px 8px;background:rgba(124,58,237,.1);border-top:2px solid rgba(124,58,237,.25);border-bottom:1px solid rgba(124,58,237,.18);'>";
+    listaHTML += "<span style='font-size:8px;font-weight:900;color:#7c3aed;letter-spacing:.12em;text-transform:uppercase;'>Prueba / Menores ("+extras2.length+")</span></td></tr>";
     extras2.forEach(function(p,pi){
       var nm = (p.apellido||p.nombre||"").toUpperCase().split(" ")[0];
       var nota = p.notaSesion||"";
-      listaHTML += "<tr style='background:#faf5ff;border-bottom:1px solid #e9d5ff;'>";
-      listaHTML += "<td style='padding:5px 6px;font-size:11px;font-weight:900;color:#7c3aed;width:22px;text-align:center;border-right:2px solid #e9d5ff;'>+</td>";
-      listaHTML += "<td style='padding:5px 7px;font-size:12px;font-weight:700;color:#7c3aed;'>"+nm+"</td>";
-      listaHTML += "<td style='padding:4px 5px;width:52px;border-left:2px solid #e9d5ff;font-size:10px;color:#374151;text-align:center;vertical-align:middle;'>"+
-        (nota ? "<span style='font-weight:700;'>"+nota+"</span>" : "<div style='width:100%;border-bottom:1px solid #d1d5db;height:1px;margin-top:8px;'></div>")+
+      listaHTML += "<tr style='background:#faf8ff;border-bottom:1px solid rgba(124,58,237,.1);'>";
+      listaHTML += "<td style='padding:4px 5px;font-size:10px;font-weight:900;color:#7c3aed;text-align:center;width:20px;min-width:20px;'>+</td>";
+      listaHTML += "<td style='padding:4px 6px;font-size:11px;font-weight:700;color:#7c3aed;'>"+nm+"<span style='font-size:9px;color:#9ca3af;font-style:italic;'> prueba</span></td>";
+      listaHTML += "<td style='padding:3px 5px;border-left:1px solid #e5e7eb;font-size:10px;color:#374151;text-align:center;vertical-align:middle;min-width:48px;'>"+
+        (nota ? "<span style='font-weight:700;'>"+nota+"</span>" : "<div style='border-bottom:1px solid #d1d5db;height:1px;margin:7px 4px;'></div>")+
         "</td>";
       listaHTML += "</tr>";
     });
   }
 
-  // — No vienen —
+  // — 🚫 No vienen hoy (no_disponible táctico) —
   if(grpNoDisp2.length){
-    listaHTML += "<tr><td colspan='3' style='padding:5px 8px;background:#dc2626;border-top:3px solid #b91c1c;border-bottom:2px solid #b91c1c;'><span style='font-size:9px;font-weight:900;color:#fff;letter-spacing:.1em;text-transform:uppercase;'>🚫 NO VIENEN · "+grpNoDisp2.length+"</span></td></tr>";
+    listaHTML += "<tr><td colspan='3' style='padding:4px 8px;background:rgba(239,68,68,.1);border-top:2px solid rgba(239,68,68,.25);border-bottom:1px solid rgba(239,68,68,.2);'>";
+    listaHTML += "<span style='font-size:9px;font-weight:900;color:#dc2626;letter-spacing:.08em;text-transform:uppercase;'>🚫 No vienen hoy ("+grpNoDisp2.length+")</span></td></tr>";
     grpNoDisp2.forEach(function(p,pi){
       var nm = (p.apellido||p.nombre||"").toUpperCase().split(" ")[0];
       var bg = pi%2===0?"#fff7f7":"#fef2f2";
       listaHTML += "<tr style='background:"+bg+";border-bottom:1px solid #fecaca;'>";
-      listaHTML += "<td style='padding:5px 6px;font-size:11px;font-weight:900;color:#dc2626;width:22px;text-align:center;border-right:2px solid #fecaca;'>—</td>";
-      listaHTML += "<td colspan='2' style='padding:5px 7px;font-size:12px;font-weight:700;color:#dc2626;text-decoration:line-through;opacity:.7;'>"+nm+"</td>";
+      listaHTML += "<td style='padding:4px 5px;font-size:10px;font-weight:900;color:#dc2626;text-align:center;width:20px;min-width:20px;'>—</td>";
+      listaHTML += "<td colspan='2' style='padding:4px 6px;font-size:11px;font-weight:700;color:#dc2626;text-decoration:line-through;opacity:.75;'>"+nm+"</td>";
       listaHTML += "</tr>";
     });
   }
@@ -20203,8 +20358,7 @@ function sesVerPreview(){
     "<div style='background:"+accentColor+";padding:7px 10px;'>"+
     "<div style='font-size:11px;font-weight:900;color:#fff;letter-spacing:.12em;text-transform:uppercase;text-align:center;'>👥 PLANTEL</div>"+
     "<div style='display:flex;justify-content:center;gap:8px;margin-top:4px;'>"+
-    "<span style='font-size:9px;font-weight:900;background:#ffffff22;border:1px solid #ffffff44;color:#fff;border-radius:4px;padding:2px 7px;'>EN CAMPO: "+(grpDisp2.length+extras2.length)+"</span>"+
-    (grpEsp2.length?"<span style='font-size:9px;font-weight:900;background:#ffffff11;border:1px solid #ffffff33;color:#ffffffcc;border-radius:4px;padding:2px 7px;'>⚕ "+grpEsp2.length+"</span>":"")+
+    "<span style='font-size:9px;font-weight:900;background:#ffffff22;border:1px solid #ffffff44;color:#fff;border-radius:4px;padding:2px 7px;'>EN SEDE: "+(grpDisp2.length+grpEsp2.length+extras2.length)+"</span>"+
     (grpNoDisp2.length?"<span style='font-size:9px;font-weight:900;background:#ffffff11;border:1px solid #ffffff33;color:#ffffffcc;border-radius:4px;padding:2px 7px;'>🚫 "+grpNoDisp2.length+"</span>":"")+
     "</div>"+
     "</div>"+
