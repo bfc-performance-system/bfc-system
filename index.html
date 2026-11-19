@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118d</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118f</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -770,7 +770,11 @@ function fbEscucharHistorial() {
       if(!sLocal || !sLocal.tareas) return sRemota;
       var tareasConImg = (sRemota.tareas||[]).map(function(tR, i){
         var tL = sLocal.tareas && sLocal.tareas[i];
-        if(tL && tL.img && !tR.img) return Object.assign({}, tR, { img: tL.img });
+        // Si el remoto no tiene img, preservar la local (img base64 no se sube a Firebase)
+        if(tL && tL.img && !tR.img){
+          return Object.assign({}, tR, { img: tL.img, _imgReal: tL._imgReal || false });
+        }
+        // Si el remoto SÍ tiene img (vino del nodo fotos_sesion vía merge previo), preservarla
         return tR;
       });
       return Object.assign({}, sRemota, { tareas: tareasConImg });
@@ -900,7 +904,10 @@ function fbEscuchar() {
           if(!sL || !sL.tareas) return sR;
           var tCI = (sR.tareas||[]).map(function(tR, i){
             var tL = sL.tareas && sL.tareas[i];
-            if(tL && tL.img && !tR.img) return Object.assign({}, tR, { img: tL.img });
+            if(tL && tL.img && !tR.img){
+              // Preservar imagen local si el remoto no tiene (img base64 no se sube a Firebase)
+              return Object.assign({}, tR, { img: tL.img, _imgReal: tL._imgReal||false });
+            }
             return tR;
           });
           return Object.assign({}, sR, { tareas: tCI });
@@ -1104,7 +1111,8 @@ function fbGuardarFotosSesion(sesId, tareas){
     if(t.img && typeof t.img === 'string' && t.img.indexOf('data:') === 0){
       // Guardar solo si no es demasiado grande (límite prudente: 1MB por foto)
       if(t.img.length <= 1400000){
-        fotosMap['t'+i] = t.img;
+        // Guardar objeto {img, real} para que el receptor sepa si es foto real o diagrama
+        fotosMap['t'+i] = { img: t.img, real: t._imgReal === true };
         total++;
       }
     }
@@ -1212,12 +1220,94 @@ function fbEscucharSubnodos(){
     if(!v) return;
     var arr = Array.isArray(v) ? v : safeArr(v);
     if(JSON.stringify(arr)===JSON.stringify(DISP_DB)) return;
-    var tsRemoto = snap.child ? 0 : 0; // sin timestamp aquí, aplicar siempre
     DISP_DB = arr;
     try{ localStorage.setItem('BFC_DISP', JSON.stringify(DISP_DB)); }catch(e){}
     console.log('[BFC-SYNC] disp_db actualizado');
     if(typeof renderApp==='function') renderApp();
   }, function(e){ console.warn('[BFC-SYNC] disp_db err:', e.message); });
+
+  // bfc/bien — registros de bienestar/wellness (panel inicio: semáforo, RPE, alertas ACWR)
+  window.fbDB.ref('bfc/bien').on('value', function(snap){
+    var v = snap.val();
+    if(!v) return;
+    var arr = Array.isArray(v) ? v : safeArr(v);
+    if(JSON.stringify(arr)===JSON.stringify(BIEN)) return;
+    BIEN = arr;
+    try{ localStorage.setItem('bfc_bien', JSON.stringify(BIEN)); }catch(e){}
+    console.log('[BFC-SYNC] bien actualizado:', BIEN.length);
+    if(typeof renderApp==='function') renderApp();
+  }, function(e){ console.warn('[BFC-SYNC] bien err:', e.message); });
+
+  // bfc/carga — carga interna/externa (panel inicio: ACWR equipo, UA equipo sem.)
+  window.fbDB.ref('bfc/carga').on('value', function(snap){
+    var v = snap.val();
+    if(!v) return;
+    var arr = Array.isArray(v) ? v : safeArr(v);
+    if(JSON.stringify(arr)===JSON.stringify(CARGA)) return;
+    CARGA = arr;
+    try{ localStorage.setItem('bfc_carga', JSON.stringify(CARGA)); }catch(e){}
+    console.log('[BFC-SYNC] carga actualizada:', CARGA.length);
+    if(typeof renderApp==='function') renderApp();
+  }, function(e){ console.warn('[BFC-SYNC] carga err:', e.message); });
+
+  // bfc/sdb — sesiones de bienestar (datos de la semana activa)
+  window.fbDB.ref('bfc/sdb').on('value', function(snap){
+    var v = snap.val();
+    if(!v) return;
+    var arr = Array.isArray(v) ? v : safeArr(v);
+    if(JSON.stringify(arr)===JSON.stringify(SDB)) return;
+    SDB = arr;
+    try{ localStorage.setItem('bfc_sdb', JSON.stringify(SDB)); }catch(e){}
+    console.log('[BFC-SYNC] sdb actualizado:', SDB.length);
+    if(typeof renderApp==='function') renderApp();
+  }, function(e){ console.warn('[BFC-SYNC] sdb err:', e.message); });
+
+  // bfc/pruebas — pruebas físicas
+  window.fbDB.ref('bfc/pruebas').on('value', function(snap){
+    var v = snap.val();
+    if(!v) return;
+    if(JSON.stringify(v)===JSON.stringify(PRUEBAS)) return;
+    PRUEBAS = v;
+    try{ localStorage.setItem('bfc_pruebas', JSON.stringify(PRUEBAS)); }catch(e){}
+    console.log('[BFC-SYNC] pruebas actualizadas');
+    if(typeof renderApp==='function') renderApp();
+  }, function(e){ console.warn('[BFC-SYNC] pruebas err:', e.message); });
+
+  // bfc/bien_extra — carga externa / RPE extra
+  window.fbDB.ref('bfc/bien_extra').on('value', function(snap){
+    var v = snap.val();
+    if(!v) return;
+    if(JSON.stringify(v)===JSON.stringify(BIEN_EXTRA)) return;
+    BIEN_EXTRA = v;
+    console.log('[BFC-SYNC] bien_extra actualizado');
+    if(typeof renderApp==='function') renderApp();
+  }, function(e){ console.warn('[BFC-SYNC] bien_extra err:', e.message); });
+
+  // bfc/historial — listener dedicado (complementa fbEscucharHistorial)
+  window.fbDB.ref('bfc/historial').on('value', function(snap){
+    var v = snap.val();
+    if(!v || !Array.isArray(v)) return;
+    if(_histSaveTs > 0 && (Date.now() - _histSaveTs) < 5000) return;
+    var localMap = {};
+    safeArr(HISTORIAL_DB).forEach(function(s){ if(s.id) localMap[s.id] = s; });
+    var merged = v.map(function(sR){
+      var sL = localMap[sR.id];
+      if(!sL || !sL.tareas) return sR;
+      var tM = (sR.tareas||[]).map(function(tR, i){
+        var tL = sL.tareas && sL.tareas[i];
+        if(tL && tL.img && !tR.img) return Object.assign({}, tR, { img: tL.img, _imgReal: tL._imgReal||false });
+        return tR;
+      });
+      return Object.assign({}, sR, { tareas: tM });
+    });
+    if(JSON.stringify(merged)===JSON.stringify(HISTORIAL_DB)) return;
+    HISTORIAL_DB = merged;
+    try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){}
+    console.log('[BFC-SYNC] historial actualizado:', HISTORIAL_DB.length, 'sesiones');
+    var pgH = document.getElementById('page-historial');
+    if(pgH && pgH.classList.contains('on') && typeof renderHistorial==='function') renderHistorial();
+    if(typeof renderApp==='function') renderApp();
+  }, function(e){ console.warn('[BFC-SYNC] historial err:', e.message); });
 }
 
 // ── Listener bfc/fotos_sesion — inyecta fotos en HISTORIAL_DB cuando llegan de otro dispositivo ──
@@ -1233,11 +1323,20 @@ function fbEscucharFotosSesion(){
       var fotasTarea = fotosPorSes[sesId];
       var tareasActualizadas = (ses.tareas||[]).map(function(t, i){
         var key = 't'+i;
-        var imgRemota = fotasTarea[key];
-        if(imgRemota && !t.img){
-          console.log('[BFC-FOTO-SES] Foto recibida para sesión', sesId, 'tarea', i);
+        var entrada = fotasTarea[key];
+        if(!entrada) return t;
+        // entrada puede ser string (formato viejo) u objeto {img, real} (formato nuevo)
+        var imgRemota = typeof entrada === 'string' ? entrada : (entrada.img || null);
+        var esReal    = typeof entrada === 'object' ? (entrada.real === true) : false;
+        if(!imgRemota) return t;
+        // Aplicar si:
+        // 1) La tarea local no tiene imagen, O
+        // 2) La foto remota es una foto REAL (subida por el usuario) y la local no lo es
+        var localEsReal = t._imgReal === true;
+        if(!t.img || (esReal && !localEsReal)){
+          console.log('[BFC-FOTO-SES] Foto recibida para sesión', sesId, 'tarea', i, esReal ? '(real)' : '(diagrama)');
           _cambio = true;
-          return Object.assign({}, t, { img: imgRemota });
+          return Object.assign({}, t, { img: imgRemota, _imgReal: esReal });
         }
         return t;
       });
@@ -1246,6 +1345,9 @@ function fbEscucharFotosSesion(){
     if(_cambio){
       try{ localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB)); }catch(e){}
       console.log('[BFC-FOTO-SES] Historial actualizado con fotos de tareas');
+      // Re-renderizar historial si está abierto
+      var pgH = document.getElementById('page-historial');
+      if(pgH && pgH.classList.contains('on') && typeof renderHistorial === 'function') renderHistorial();
     }
   }, function(err){ console.warn('[BFC-FOTO-SES] Error listener fotos_sesion:', err.message); });
 }
@@ -19517,6 +19619,7 @@ function sesSubirImgFb(tareaIdx, dataUrl, fileName){
     if(sesData && sesData.tareas && sesData.tareas[tareaIdx]){
       sesData.tareas[tareaIdx].img = compressed;
       sesData.tareas[tareaIdx]._imgLocal = false;
+      sesData.tareas[tareaIdx]._imgReal = true; // 📷 foto subida por el usuario (no diagrama generado)
       // Actualizar preview
       var prev = document.getElementById("ses-img-prev-"+tareaIdx);
       if(prev) prev.innerHTML = "<img src='"+compressed+"' style='width:100%;border-radius:var(--r-md);max-height:180px;object-fit:cover;'>";
@@ -21560,7 +21663,8 @@ function guardarEnHistorial(){
     jugadoresExtra:   sesData.jugadoresExtra||[],
     tareas: (sesData.tareas||[]).map(function(t){
       return {titulo:t.titulo||'', tiempo:t.tiempo||'', objetivo:t.objetivo||'',
-              descripcion:t.descripcion||'', img:t.img||null, zonaData:t.zonaData||null, videoLink:t.videoLink||''};
+              descripcion:t.descripcion||'', img:t.img||null, _imgReal: t._imgReal||false,
+              zonaData:t.zonaData||null, videoLink:t.videoLink||''};
     }),
     materialItems: sesData.materialItems||[],
     objtacof: sesData.objtacof||sesData["ses-tac"]||'', objtacdef: sesData.objtacdef||'',
