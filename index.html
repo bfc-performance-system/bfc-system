@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118h</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118j</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -634,13 +634,25 @@ function fbBackupAutoInit() {
 
 function _fbHacerBackup(origen) {
   try {
+    // Historial sin imágenes base64 para no saturar localStorage (~10MB límite)
+    var _histSinImgs = safeArr(HISTORIAL_DB).map(function(ses){
+      var sc = Object.assign({}, ses);
+      if(sc.tareas && Array.isArray(sc.tareas)){
+        sc.tareas = sc.tareas.map(function(t){
+          var tc = Object.assign({}, t);
+          if(tc.img && typeof tc.img==='string' && tc.img.indexOf('data:')===0) delete tc.img;
+          return tc;
+        });
+      }
+      return sc;
+    });
     var snapshot = {
       ts: Date.now(),
       fecha: new Date().toLocaleString('es-CO', {timeZone:'America/Bogota'}),
       origen: origen || 'manual',
       pl: PL, carga: CARGA, bien: BIEN, neuro: NEURO,
       pruebas: PRUEBAS, evs: EVS, jdb: JDB, sdb: SDB,
-      ci_db: CI_DB, historial: HISTORIAL_DB,
+      ci_db: CI_DB, historial: _histSinImgs,
       ejercicios: EJERCICIOS_DB, notif: NOTIF_DB,
       disp_db: DISP_DB, expedientes_db: EXPEDIENTES_DB,
       novedades_db: NOVEDADES_DB, pp_db: PP_DB,
@@ -21567,7 +21579,32 @@ function ejUsarEnSesionTarea(ejId, tareaIdx){
 // ════════════════════════════════════════════════════════════════
 
 function histSave(){
-  localStorage.setItem('BFC_HISTORIAL', JSON.stringify(HISTORIAL_DB));
+  // Guardar en localStorage sin imágenes base64 para no saturar la cuota (~10MB)
+  // Las imágenes se guardan por separado en BFC_HIST_IMGS indexadas por sesId+tareaIdx
+  try{
+    var _histImgs = {};
+    var _histSinImgs = HISTORIAL_DB.map(function(ses){
+      var sc = Object.assign({}, ses);
+      if(sc.tareas && Array.isArray(sc.tareas)){
+        sc.tareas = sc.tareas.map(function(t, ti){
+          var tc = Object.assign({}, t);
+          if(tc.img && typeof tc.img==='string' && tc.img.indexOf('data:')===0){
+            var imgKey = (sc.id||sc.fecha||'x')+'_'+ti;
+            _histImgs[imgKey] = { img: tc.img, _imgReal: tc._imgReal||false };
+            delete tc.img;
+          }
+          return tc;
+        });
+      }
+      return sc;
+    });
+    localStorage.setItem('BFC_HISTORIAL', JSON.stringify(_histSinImgs));
+    if(Object.keys(_histImgs).length > 0){
+      try{ localStorage.setItem('BFC_HIST_IMGS', JSON.stringify(_histImgs)); }catch(e2){}
+    }
+  }catch(e){
+    console.warn('[BFC] histSave localStorage error:', e.message);
+  }
   // Marcar timestamp ANTES del debounce para que el listener de Firebase
   // no sobreescriba nuestro historial recién guardado con la versión anterior
   _histSaveTs = Date.now();
@@ -21611,6 +21648,29 @@ function histSave(){
 }
 function histLoad(){
   try{ var d = localStorage.getItem('BFC_HISTORIAL'); if(d) HISTORIAL_DB = JSON.parse(d)||[]; }catch(e){}
+  // Reintegrar imágenes base64 guardadas por separado en BFC_HIST_IMGS
+  try{
+    var _imgs = JSON.parse(localStorage.getItem('BFC_HIST_IMGS')||'{}');
+    if(_imgs && Object.keys(_imgs).length>0){
+      HISTORIAL_DB = HISTORIAL_DB.map(function(ses){
+        var sc = Object.assign({}, ses);
+        if(sc.tareas && Array.isArray(sc.tareas)){
+          sc.tareas = sc.tareas.map(function(t, ti){
+            var tc = Object.assign({}, t);
+            if(!tc.img){
+              var imgKey = (sc.id||sc.fecha||'x')+'_'+ti;
+              if(_imgs[imgKey]){
+                tc.img = _imgs[imgKey].img;
+                tc._imgReal = _imgs[imgKey]._imgReal||false;
+              }
+            }
+            return tc;
+          });
+        }
+        return sc;
+      });
+    }
+  }catch(e){}
 }
 function sesGuardarManual(){
   if(!sesData){ toast('No hay sesión activa para guardar', false); return; }
@@ -23084,6 +23144,19 @@ function notifLoad(){
     var d = localStorage.getItem('BFC_NOTIF');
     if(d) NOTIF_DB=safeArr(JSON.parse(d));
   }catch(e){}
+  // Limpiar automáticas antiguas (>30 días) para no acumular indefinidamente
+  try{
+    var hace30 = new Date(); hace30.setDate(hace30.getDate()-30);
+    var corte30 = hace30.toISOString().slice(0,10);
+    var antes = NOTIF_DB.length;
+    NOTIF_DB = NOTIF_DB.filter(function(n){
+      if(n.esManual) return true; // nunca borrar manuales automáticamente
+      var id = n.id||''; var ts = parseInt(id.replace('n_',''))||0;
+      if(!ts) return true;
+      return new Date(ts).toISOString().slice(0,10) >= corte30;
+    });
+    if(NOTIF_DB.length !== antes) try{ localStorage.setItem('BFC_NOTIF', JSON.stringify(NOTIF_DB)); }catch(e2){}
+  }catch(e){}
 }
 function notifActualizarBadge(){
   var badge = document.getElementById('sb-notif-badge');
@@ -23100,6 +23173,13 @@ function notifAuto(tipo, texto, jugadorId, jugadorNombre){
     alerta:  '🚨', info: 'ℹ️', carga: '📊',
     bienestar: '💛', lesion: '🩹', sesion: '📋', video: '🎬'
   };
+  // Deduplicar: si ya existe una notificación del mismo tipo y mismo texto hoy, no agregar otra
+  var hoyStr = new Date().toLocaleDateString('es-CO');
+  var textoCorto = texto.slice(0,80);
+  var duplicada = safeArr(NOTIF_DB).some(function(n){
+    return n.tipo===tipo && n.fecha===hoyStr && (n.texto||'').slice(0,80)===textoCorto;
+  });
+  if(duplicada) return;
   NOTIF_DB.unshift({
     id: 'n_'+Date.now(),
     tipo: tipo,
@@ -23110,11 +23190,15 @@ function notifAuto(tipo, texto, jugadorId, jugadorNombre){
     autor: 'sistema',
     autorNombre: 'Sistema BFC',
     autorColor: '#6b7280',
-    fecha: new Date().toLocaleDateString('es-CO'),
+    fecha: hoyStr,
     hora: new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}),
     leida: false,
     esManual: false
   });
+  // Límite de 50 notificaciones automáticas — eliminar las más antiguas
+  var manuales = NOTIF_DB.filter(function(n){ return n.esManual; });
+  var auto = NOTIF_DB.filter(function(n){ return !n.esManual; }).slice(0,50);
+  NOTIF_DB = auto.concat(manuales).sort(function(a,b){ return (b.id||'').localeCompare(a.id||''); });
   notifSave();
 }
 
