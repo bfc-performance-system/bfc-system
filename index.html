@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1119u</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1119w</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -962,6 +962,12 @@ function fbEscuchar() {
       var _bsArr = Array.isArray(_bsRaw) ? _bsRaw : ((_bsRaw && typeof _bsRaw==='object') ? Object.values(_bsRaw) : []);
       _bsArr = _bsArr.filter(function(s){ return s && s.id && s.fecha; });
       _bsArr.sort(function(a,b){ return (b.fecha||'').localeCompare(a.fecha||''); });
+      // Merge: preservar sesión activa local que Firebase aún no conoce (evita race condition)
+      var _bsActiva = window._jornadaSesionActiva;
+      if(_bsActiva && _bsActiva.id && !_bsArr.some(function(s){ return s.id===_bsActiva.id; })){
+        _bsArr.push(_bsActiva);
+        _bsArr.sort(function(a,b){ var df=(b.fecha||'').localeCompare(a.fecha||''); if(df!==0)return df; return (b.creadaEn||'').localeCompare(a.creadaEn||''); });
+      }
       if(JSON.stringify(_bsArr) !== JSON.stringify(BIEN_SESIONES)){ BIEN_SESIONES = _bsArr; try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){} rerender = true; }
     }
     if (d.pruebas && JSON.stringify(d.pruebas) !== JSON.stringify(PRUEBAS))     { PRUEBAS   = d.pruebas;   rerender = true; }
@@ -11338,7 +11344,51 @@ function gpsCargoFiltrado(pidsRestr){
   var plantel = JDB.length>0 ? JDB : PL;
   var jugsF = window._gpsFilJugs && window._gpsFilJugs.length ? window._gpsFilJugs : null;
   var pF = window._gpsFilPos || '';
-  return safeArr(CARGA).filter(function(c){
+
+  // ── Unificar CARGA + BFC_GPS_CAT (Catapult CSV y manual GPS) ──
+  // CARGA contiene datos de carga interna (RPE UA, etc.)
+  // BFC_GPS_CAT contiene datos GPS externos (Catapult CSV o entrada manual)
+  // Para las vistas de análisis GPS usamos ambas fuentes, priorizando BFC_GPS_CAT por jugador+fecha
+  var gpsCat = [];
+  try{ var _gd=localStorage.getItem('BFC_GPS_CAT'); if(_gd) gpsCat=JSON.parse(_gd)||[]; }catch(e){}
+
+  // Mapa de claves pid+fecha de BFC_GPS_CAT para detectar duplicados
+  var _gpsCatKeys = {};
+  gpsCat.forEach(function(r){ if(r.pid && r.fecha) _gpsCatKeys[r.pid+'_'+r.fecha] = true; });
+
+  // CARGA: solo incluir registros que NO tienen entrada GPS en BFC_GPS_CAT para ese pid+fecha
+  var cargaBase = safeArr(CARGA).filter(function(c){
+    if(_gpsCatKeys[c.pid+'_'+c.fecha]) return false; // ya cubierto por GPS externo
+    return true;
+  });
+
+  // Normalizar campos de BFC_GPS_CAT al formato de CARGA para las vistas de análisis
+  var gpsCatNorm = gpsCat.map(function(r){
+    return {
+      pid:         r.pid,
+      fecha:       r.fecha,
+      distancia:   r.distancia || 0,
+      hsr:         r.hsr || 0,
+      sprints:     r.sprints || 0,
+      nSprints:    r.nSprints || 0,
+      duracion:    r.duracion || 0,
+      velMax:      r.velMax || 0,
+      velMaxPct:   r.velMaxPct || 0,
+      aceleraciones:    r.aceleraciones || 0,
+      desaceleraciones: r.desaceleraciones || 0,
+      playerLoad:  r.playerLoad || 0,
+      metrajeMin:  r.metrajeMin || 0,
+      fuente:      r.fuente || 'catapult_csv',
+      ts:          r.ts || 0,
+      // Compatibilidad con campos de CARGA
+      tipoEvt:     r.tipoEvt || 'entrenamiento',
+      mdRef:       r.mdRef || ''
+    };
+  });
+
+  var combined = cargaBase.concat(gpsCatNorm);
+
+  return combined.filter(function(c){
     if(jugsF && !jugsF.includes(c.pid)) return false;
     if(pF){
       var jug = plantel.find(function(p){ return p.id===c.pid; });
@@ -11386,9 +11436,11 @@ function renderGPSTab(tab){
 
 // ── INFORME 1: ACTIVIDAD ──────────────────────────────────────────
 function renderGPSActividad(){
-  if(!CARGA || !CARGA.length) return renderGPSVacio();
+  var _gpsCatChkA=[]; try{ var _gckA=localStorage.getItem('BFC_GPS_CAT'); if(_gckA) _gpsCatChkA=JSON.parse(_gckA)||[]; }catch(e){}
+  if((!CARGA || !CARGA.length) && !_gpsCatChkA.length) return renderGPSVacio();
 
-  var fechas = [...new Set(safeArr(CARGA).map(function(c){ return c.fecha; }))].sort().reverse();
+  var cargaFil0 = gpsCargoFiltrado();
+  var fechas = [...new Set(cargaFil0.map(function(c){ return c.fecha; }))].sort().reverse();
   var fechaSel = fechas[0];
   var posFil = window._gpsFilPos || '';
   var estadoFil = '';
@@ -11402,7 +11454,7 @@ function renderGPSActividad(){
     if(document.getElementById('gps-estado-fil'))estadoFil= document.getElementById('gps-estado-fil').value || '';
   }catch(e){}
 
-  var sesion = safeArr(CARGA).filter(function(c){ return c.fecha===fechaSel; });
+  var sesion = gpsCargoFiltrado().filter(function(c){ return c.fecha===fechaSel; });
   var plantel = JDB.length>0 ? JDB : PL;
 
   var sesionFiltrada = sesion.filter(function(c){
@@ -11704,7 +11756,8 @@ function cambiarVarGraficaAct(varKey){
 
 // ── INFORME 2: SEMANAL ────────────────────────────────────────────
 function renderGPSSemanal(){
-  if(!CARGA || !CARGA.length) return renderGPSVacio();
+  var _gpsCatChkS=[]; try{ var _gckS=localStorage.getItem('BFC_GPS_CAT'); if(_gckS) _gpsCatChkS=JSON.parse(_gckS)||[]; }catch(e){}
+  if((!CARGA || !CARGA.length) && !_gpsCatChkS.length) return renderGPSVacio();
 
   // Usar datos filtrados por globals
   var cargaFil = gpsCargoFiltrado();
@@ -11920,12 +11973,14 @@ function renderGPSSemanal(){
 // ── INFORME 3: LONGITUDINAL ───────────────────────────────────────
 window._gpsLongVar = window._gpsLongVar || 'playerLoad';
 function renderGPSLongitudinal(){
-  if(!CARGA || !CARGA.length) return renderGPSVacio();
+  var _gpsCatChkL=[]; try{ var _gckL=localStorage.getItem('BFC_GPS_CAT'); if(_gckL) _gpsCatChkL=JSON.parse(_gckL)||[]; }catch(e){}
+  if((!CARGA || !CARGA.length) && !_gpsCatChkL.length) return renderGPSVacio();
   return renderGPSLongitudinalVar(window._gpsLongVar || 'playerLoad');
 }
 function renderGPSLongitudinalVar(varKey){
   window._gpsLongVar = varKey || 'playerLoad';
-  if(!CARGA || !CARGA.length) return renderGPSVacio();
+  var _gpsCatChkLV=[]; try{ var _gckLV=localStorage.getItem('BFC_GPS_CAT'); if(_gckLV) _gpsCatChkLV=JSON.parse(_gckLV)||[]; }catch(e){}
+  if((!CARGA || !CARGA.length) && !_gpsCatChkLV.length) return renderGPSVacio();
 
   var cargaFil = gpsCargoFiltrado();
   if(!cargaFil.length) return "<div style='text-align:center;padding:40px;color:#9ca3af;'>No hay datos para el filtro seleccionado.</div>";
@@ -12140,7 +12195,9 @@ function renderGPSLongitudinalVar(varKey){
 
 // ── INFORME 4: COMPARATIVA ────────────────────────────────────────
 function renderGPSComparativa(){
-  if(!CARGA || !CARGA.length) return renderGPSVacio();
+  // Verificar si hay datos en cualquiera de las dos fuentes GPS
+  var _gpsCatChk=[]; try{ var _gck=localStorage.getItem('BFC_GPS_CAT'); if(_gck) _gpsCatChk=JSON.parse(_gck)||[]; }catch(e){}
+  if((!CARGA || !CARGA.length) && !_gpsCatChk.length) return renderGPSVacio();
 
   var cargaFil = gpsCargoFiltrado();
   if(!cargaFil.length) return "<div style='text-align:center;padding:40px;color:#9ca3af;'>No hay datos para el filtro seleccionado.</div>";
@@ -13621,7 +13678,9 @@ function kioskoSeleccion(plantel){
     }
 
     var origBorder = ya ? '#22c55e' : 'rgba(255,255,255,.1)';
-    h += "<div onclick='kioskoSelJugador(\""+jidSafe+"\")' data-origborder='"+origBorder+"' style='cursor:pointer;text-align:center;padding:16px 12px;background:rgba(255,255,255,.04);border:2px solid "+(ya?'#22c55e':'rgba(255,255,255,.1)')+";border-radius:16px;transition:all .15s;position:relative;' onmouseover='this.style.background=\"rgba(99,102,241,.15)\";this.style.borderColor=\"#6366f1\"' onmouseout='this.style.background=\"rgba(255,255,255,.04)\";this.style.borderColor=this.dataset.origborder'>";
+    var cardBg = ya ? 'rgba(34,197,94,.06)' : 'rgba(255,255,255,.04)';
+    // Todos los jugadores son siempre clickeables — los que ya registraron pueden volver a editar
+    h += "<div onclick='kioskoSelJugador(\""+jidSafe+"\")' data-origborder='"+origBorder+"' style='cursor:pointer;text-align:center;padding:16px 12px;background:"+cardBg+";border:2px solid "+(ya?'#22c55e':'rgba(255,255,255,.1)')+";border-radius:16px;transition:all .15s;position:relative;' onmouseover='this.style.background=\"rgba(99,102,241,.15)\";this.style.borderColor=\"#6366f1\"' onmouseout='this.style.background=\""+cardBg+"\";this.style.borderColor=this.dataset.origborder'>";
 
     if(ya) h += "<div style='position:absolute;top:8px;right:8px;background:#22c55e;border-radius:99px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:10px;'>✓</div>";
 
