@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118j</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118l</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -6674,35 +6674,61 @@ function renderJornada(){
   }
   var fechaEfectiva = (sesActiva && sesActiva.fecha) ? sesActiva.fecha : hoy;
 
-  // ── JORNADA CERRADA — mostrar pantalla de cierre y no el módulo activo ──
+  // ── JORNADA CERRADA — mostrar banner de cierre + historial + botón nueva jornada ──
   var _jcCerrada = false;
   try{ _jcCerrada = localStorage.getItem('BFC_JORNADA_CERRADA_'+fechaEfectiva)==='1'; }catch(e){}
   if(_jcCerrada){
-    // Buscar la sesión en historial para poder abrirla
-    var _jcSesHist = null;
-    safeArr(SES_DB_RAW).forEach(function(s){
-      var sf = s.fecha||s.fechaSes;
-      if(sf===fechaEfectiva) _jcSesHist = s;
-    });
+    // Construir historial de sesiones recientes
+    histLoad();
     var _jcFechaLabel = (function(){
       try{
-        var p=fechaEfectiva.split('-'); // YYYY-MM-DD
+        var p=fechaEfectiva.split('-');
         var d=new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2]));
         return d.toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
       }catch(e){ return fechaEfectiva; }
     })();
-    var _jcHtml = "<div style='padding:28px 20px;max-width:600px;margin:0 auto;text-align:center;'>";
-    _jcHtml += "<div style='font-size:52px;margin-bottom:16px;'>✅</div>";
-    _jcHtml += "<div style='font-size:20px;font-weight:900;color:#4ade80;margin-bottom:8px;'>Jornada cerrada</div>";
-    _jcHtml += "<div style='font-size:13px;color:#64748b;margin-bottom:24px;'>"+_jcFechaLabel+"</div>";
-    _jcHtml += "<div style='font-size:12px;color:#475569;margin-bottom:28px;line-height:1.6;max-width:340px;margin-left:auto;margin-right:auto;'>Esta jornada ya fue finalizada. Los datos están protegidos y guardados en el historial.</div>";
-    if(_jcSesHist){
-      var _jcSesId = _jcSesHist.id||_jcSesHist.sesId||'';
-      _jcHtml += "<button onclick=\"dashVerSesionHoy('"+fechaEfectiva+"')\" style='display:inline-flex;align-items:center;gap:8px;padding:12px 24px;border-radius:12px;border:1px solid rgba(99,102,241,.4);background:rgba(99,102,241,.12);color:#818cf8;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px;'>👁 Ver sesión registrada</button><br>";
+    var _jcHist = safeArr(HISTORIAL_DB).slice(0,8); // últimas 8 sesiones
+    var h2 = "<div style='padding:20px;max-width:1100px;'>";
+
+    // ── Banner jornada cerrada ──
+    h2 += "<div style='display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;padding:16px 20px;border-radius:14px;border:1px solid rgba(74,222,128,.25);background:rgba(74,222,128,.06);'>";
+    h2 += "<div style='display:flex;align-items:center;gap:14px;'>";
+    h2 += "<div style='font-size:32px;'>✅</div>";
+    h2 += "<div><div style='font-size:16px;font-weight:900;color:#4ade80;'>Jornada cerrada</div>";
+    h2 += "<div style='font-size:11px;color:#64748b;margin-top:2px;'>"+_jcFechaLabel+" — datos guardados en historial</div></div>";
+    h2 += "</div>";
+    h2 += "<div style='display:flex;gap:8px;flex-wrap:wrap;'>";
+    h2 += "<button onclick=\"irA('sesion')\" style='padding:10px 18px;border-radius:10px;border:1px solid rgba(99,102,241,.4);background:rgba(99,102,241,.12);color:#818cf8;font-size:12px;font-weight:700;cursor:pointer;'>📋 Nueva sesión mañana</button>";
+    h2 += "<button onclick=\"jornadaReabrir('"+fechaEfectiva+"')\" style='padding:10px 18px;border-radius:10px;border:1px solid rgba(100,116,139,.3);background:rgba(100,116,139,.08);color:#64748b;font-size:11px;font-weight:700;cursor:pointer;'>🔓 Reabrir esta jornada</button>";
+    h2 += "</div></div>";
+
+    // ── Historial de sesiones recientes ──
+    h2 += "<div style='margin-bottom:12px;font-size:13px;font-weight:800;color:#cbd5e1;letter-spacing:-.01em;'>📚 Historial de sesiones</div>";
+    if(_jcHist.length===0){
+      h2 += "<div style='color:#475569;font-size:12px;padding:20px;text-align:center;'>No hay sesiones registradas aún.</div>";
+    } else {
+      h2 += "<div style='display:flex;flex-direction:column;gap:8px;'>";
+      _jcHist.forEach(function(s){
+        var fLabel=''; try{ var p2=( s.fecha||s.fechaSes||'').split('-'); var d2=new Date(parseInt(p2[0]),parseInt(p2[1])-1,parseInt(p2[2])); fLabel=d2.toLocaleDateString('es-CO',{weekday:'short',day:'numeric',month:'short',year:'numeric'}); }catch(e){ fLabel=s.fecha||s.fechaSes||'—'; }
+        var nTareas = safeArr(s.tareas).length;
+        var nJug = safeArr(s.jugadores).length || s.numJugadores || '—';
+        var esCerrada = s.fecha===fechaEfectiva || s.fechaSes===fechaEfectiva;
+        h2 += "<div style='display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-radius:12px;border:1px solid "+(esCerrada?'rgba(74,222,128,.25)':'rgba(255,255,255,.07)')+";background:"+(esCerrada?'rgba(74,222,128,.04)':'rgba(255,255,255,.02)')+";gap:12px;flex-wrap:wrap;'>";
+        h2 += "<div style='display:flex;align-items:center;gap:12px;'>";
+        h2 += "<div style='font-size:9px;font-weight:900;padding:3px 8px;border-radius:6px;background:rgba(99,102,241,.15);color:#818cf8;text-transform:uppercase;'>S."+(s.sesionNum||'?')+"</div>";
+        h2 += "<div><div style='font-size:12px;font-weight:700;color:#e2e8f0;'>"+fLabel+(esCerrada?" <span style='color:#4ade80;font-size:10px;'>✅ Hoy</span>":"")+"</div>";
+        h2 += "<div style='font-size:10px;color:#64748b;margin-top:1px;'>MC "+escHtml(s.morfociclo||'—')+" &nbsp;·&nbsp; "+nTareas+" tareas &nbsp;·&nbsp; "+nJug+" jug.</div></div>";
+        h2 += "</div>";
+        h2 += "<div style='display:flex;gap:6px;'>";
+        h2 += "<button onclick=\"dashVerSesionHoy('"+(s.fecha||s.fechaSes||'')+"')\" style='padding:6px 12px;border-radius:8px;border:1px solid rgba(99,102,241,.3);background:rgba(99,102,241,.08);color:#818cf8;font-size:10px;font-weight:700;cursor:pointer;'>👁 Ver</button>";
+        h2 += "<button onclick=\"sesEditarDesdeHistorial('"+(s.id||'')+"')\" style='padding:6px 12px;border-radius:8px;border:1px solid rgba(100,116,139,.25);background:rgba(100,116,139,.06);color:#94a3b8;font-size:10px;font-weight:700;cursor:pointer;'>✏️ Editar</button>";
+        h2 += "<button onclick=\"sesCargarDesdeSesion("+HISTORIAL_DB.indexOf(s)+")\" style='padding:6px 12px;border-radius:8px;border:1px solid rgba(234,179,8,.25);background:rgba(234,179,8,.06);color:#fbbf24;font-size:10px;font-weight:700;cursor:pointer;'>📋 Usar como base</button>";
+        h2 += "</div></div>";
+      });
+      h2 += "</div>";
     }
-    _jcHtml += "<button onclick=\"jornadaReabrir('"+fechaEfectiva+"')\" style='display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:10px;border:1px solid rgba(100,116,139,.3);background:rgba(100,116,139,.08);color:#64748b;font-size:11px;font-weight:700;cursor:pointer;margin-top:4px;'>🔓 Reabrir jornada</button>";
-    _jcHtml += "</div>";
-    el.innerHTML = _jcHtml;
+    h2 += "</div>";
+    el.innerHTML = h2;
     return;
   }
 
@@ -19550,6 +19576,8 @@ function sesCargarDesdeSesion(idx){
   sesData.fecha = TODAY;
   // limpiar número de sesión para que sea uno nuevo
   sesData.sesionNum = '';
+  // IMPORTANTE: limpiar flag de edición histórica — esta es una sesión nueva
+  sesData._editandoHistId = null;
 
   renderSesion();
   toast('✅ Sesión cargada — modificá lo que necesites y guardá como nueva');
@@ -19584,6 +19612,8 @@ function sesUsarComoPlantilla(idx){
   // Fecha = hoy, número vacío (nuevo)
   sesData.fecha     = TODAY;
   sesData.sesionNum = '';
+  // IMPORTANTE: limpiar flag de edición histórica — esta es una sesión nueva
+  sesData._editandoHistId = null;
   // Reiniciar jugadores con el plantel actual (no copiar de la sesión anterior)
   var plantelBase = JDB.length>0 ? JDB : PL;
   sesData.jugadoresActivos = plantelBase.map(function(p){return p.id;});
@@ -21717,14 +21747,28 @@ function guardarEnHistorial(){
   // Fecha en formato ISO yyyy-mm-dd (compatible con calendario de Programación)
   var fechaISO = sesData.fecha || TODAY;
   // Si venimos de _histEditarOk, buscar por ID para actualizar la sesión original
+  // Validar que el ID encontrado corresponde a la misma fecha — evitar sobreescribir
+  // un registro de otra fecha cuando _editandoHistId quedó de una sesión anterior
   var existe = -1;
   if(sesData._editandoHistId){
-    existe = HISTORIAL_DB.findIndex(function(s){ return s.id===sesData._editandoHistId; });
+    var _idxById = HISTORIAL_DB.findIndex(function(s){ return s.id===sesData._editandoHistId; });
+    if(_idxById >= 0){
+      var _fechaDelId = HISTORIAL_DB[_idxById].fecha || HISTORIAL_DB[_idxById].fechaSes || '';
+      if(_fechaDelId === fechaISO){
+        existe = _idxById; // Solo usar si la fecha coincide
+      } else {
+        console.warn('[BFC] guardarEnHistorial: _editandoHistId apunta a fecha distinta ('+_fechaDelId+' vs '+fechaISO+'), ignorando ID');
+        sesData._editandoHistId = null; // limpiar flag inconsistente
+      }
+    }
   }
   if(existe < 0){
-    existe = HISTORIAL_DB.findIndex(function(s){
-      return (s.fecha || s.fechaSes || '') === fechaISO && s.sesionNum === sesData.sesionNum;
-    });
+    // Buscar por fecha+sesionNum — solo si sesionNum no está vacío para evitar falsos positivos
+    if(sesData.sesionNum){
+      existe = HISTORIAL_DB.findIndex(function(s){
+        return (s.fecha || s.fechaSes || '') === fechaISO && s.sesionNum === sesData.sesionNum;
+      });
+    }
   }
   var _snapPrev = existe>=0 ? HISTORIAL_DB[existe] : {};
   var snapshot = {
