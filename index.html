@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1119s</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1119u</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -1263,6 +1263,22 @@ function fbEscucharSubnodos(){
       if(df!==0) return df;
       return (b.creadaEn||'').localeCompare(a.creadaEn||'');
     });
+    // Merge: preservar sesión activa local que Firebase aún no conoce
+    // Evita que una actualización de Firebase pise una sesión recién creada pero no sincronizada
+    var _sesActivaLocal = window._jornadaSesionActiva;
+    if(_sesActivaLocal && _sesActivaLocal.id){
+      var _yaEnFb = arr.some(function(s){ return s.id === _sesActivaLocal.id; });
+      if(!_yaEnFb){
+        // La sesión activa local no llegó aún a Firebase — preservarla en el merge
+        arr.push(_sesActivaLocal);
+        arr.sort(function(a,b){
+          var df = (b.fecha||'').localeCompare(a.fecha||'');
+          if(df!==0) return df;
+          return (b.creadaEn||'').localeCompare(a.creadaEn||'');
+        });
+        console.log('[BFC-SYNC] bien_sesiones: sesión activa local preservada en merge:', _sesActivaLocal.nombre);
+      }
+    }
     if(JSON.stringify(arr)===JSON.stringify(BIEN_SESIONES)) return;
     BIEN_SESIONES = arr;
     try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){}
@@ -6797,7 +6813,10 @@ function renderJornada(){
   var gpsDB=[]; try{ var gd=localStorage.getItem('BFC_GPS_CAT'); if(gd) gpsDB=JSON.parse(gd)||[]; }catch(e){}
   var gpsHoy = gpsDB.filter(function(r){
     if(r.fecha!==fechaEfectiva) return false;
-    if(_sesIdHdr) return r.sesId===_sesIdHdr;
+    if(_sesIdHdr){
+      // Incluir: registros de esta sesión, o registros catapult_csv sin sesId (compatibilidad)
+      return r.sesId===_sesIdHdr || (!r.sesId && r.fuente==='catapult_csv');
+    }
     return !r.sesId;
   });
   var totalJug = plantelAll.length;
@@ -7360,13 +7379,19 @@ function jornadaCerrarConfirmado(){
             cdefSel: sesActiva.cdefSel || '',
             guardadoEn: new Date().toLocaleString('es-CO')
           });
-          localStorage.setItem('bfc_ses_hist', JSON.stringify(_shArr));
-          // Sincronizar a Firebase
-          if(window.fbDB){
-            var _shMap = {};
-            _shArr.filter(function(s){ return s.id; }).forEach(function(s){ _shMap[s.id] = s; });
-            window.fbDB.ref('bfc/ses_hist').update(_shMap).catch(function(){});
-          }
+        } else {
+          // Ya existe entrada para esta fecha (doble jornada) → actualizar nombre y timestamp
+          // Preservar el id original para no romper referencias de Firebase
+          _shArr[_shIdx].nombre = sesActiva.nombre || _shArr[_shIdx].nombre;
+          _shArr[_shIdx].sesionNum = sesActiva.sesionNum || _shArr[_shIdx].sesionNum;
+          _shArr[_shIdx].guardadoEn = new Date().toLocaleString('es-CO');
+        }
+        localStorage.setItem('bfc_ses_hist', JSON.stringify(_shArr));
+        // Sincronizar a Firebase
+        if(window.fbDB){
+          var _shMap = {};
+          _shArr.filter(function(s){ return s.id; }).forEach(function(s){ _shMap[s.id] = s; });
+          window.fbDB.ref('bfc/ses_hist').update(_shMap).catch(function(){});
         }
       }catch(e){ console.warn('[BFC] jornadaCerrar: error guardando bfc_ses_hist:', e); }
     }
@@ -24872,7 +24897,9 @@ function catapultProcesarCSV(){
         return parseFloat(val)||0;
       }
 
-      gpsDB.push({
+      // Adjuntar sesId de la jornada activa para que el filtro por sesión funcione
+      var _csvSesId = (window._jornadaSesionActiva && window._jornadaSesionActiva.id) ? window._jornadaSesionActiva.id : null;
+      var _gpsEntry = {
         pid:              matched.id,
         nombre:           ((matched.nombre||matched.name||'')+' '+(matched.apellido||matched.lastname||'')).trim(),
         fecha:            fecha,
@@ -24889,7 +24916,9 @@ function catapultProcesarCSV(){
         metrajeMin:       parseNum(colMpm),
         fuente:           'catapult_csv',
         ts:               Date.now()
-      });
+      };
+      if(_csvSesId) _gpsEntry.sesId = _csvSesId;
+      gpsDB.push(_gpsEntry);
       importados++;
     }
 
