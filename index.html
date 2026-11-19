@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1119w</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1119x</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -11362,27 +11362,44 @@ function gpsCargoFiltrado(pidsRestr){
     return true;
   });
 
-  // Normalizar campos de BFC_GPS_CAT al formato de CARGA para las vistas de análisis
+  // Normalizar campos de BFC_GPS_CAT al formato unificado (GPS_VARS + CARGA)
+  // GPS_VARS espera: vmax, acc, dcc, distB4, mpm
+  // catapultProcesarCSV guarda: velMax, aceleraciones, desaceleraciones, metrajeMin
+  // → exponemos AMBOS nombres para compatibilidad total
   var gpsCatNorm = gpsCat.map(function(r){
+    var _velMax = r.velMax || r.vmax || 0;
+    var _acc    = r.aceleraciones || r.acc || 0;
+    var _dcc    = r.desaceleraciones || r.dcc || 0;
+    var _mpm    = r.metrajeMin || r.mpm || 0;
+    var _distB4 = r.distB4 || r.distMedia || 0;
+    var _dur    = r.duracion || r.dur || 0;
     return {
-      pid:         r.pid,
-      fecha:       r.fecha,
-      distancia:   r.distancia || 0,
-      hsr:         r.hsr || 0,
-      sprints:     r.sprints || 0,
-      nSprints:    r.nSprints || 0,
-      duracion:    r.duracion || 0,
-      velMax:      r.velMax || 0,
-      velMaxPct:   r.velMaxPct || 0,
-      aceleraciones:    r.aceleraciones || 0,
-      desaceleraciones: r.desaceleraciones || 0,
-      playerLoad:  r.playerLoad || 0,
-      metrajeMin:  r.metrajeMin || 0,
-      fuente:      r.fuente || 'catapult_csv',
-      ts:          r.ts || 0,
+      pid:              r.pid,
+      fecha:            r.fecha,
+      distancia:        r.distancia || 0,
+      hsr:              r.hsr || 0,
+      sprints:          r.sprints || 0,
+      nSprints:         r.nSprints || 0,
+      duracion:         _dur,
+      // nombres usados por GPS_VARS (vistas de análisis)
+      vmax:             _velMax,
+      acc:              _acc,
+      dcc:              _dcc,
+      mpm:              _mpm,
+      distB4:           _distB4,
+      // nombres originales (compatibilidad con importación y entrada manual)
+      velMax:           _velMax,
+      velMaxPct:        r.velMaxPct || 0,
+      aceleraciones:    _acc,
+      desaceleraciones: _dcc,
+      metrajeMin:       _mpm,
+      playerLoad:       r.playerLoad || 0,
+      fuente:           r.fuente || 'catapult_csv',
+      ts:               r.ts || 0,
+      estado:           r.estado || 'completo',
       // Compatibilidad con campos de CARGA
-      tipoEvt:     r.tipoEvt || 'entrenamiento',
-      mdRef:       r.mdRef || ''
+      tipoEvt:          r.tipoEvt || 'entrenamiento',
+      mdRef:            r.mdRef || ''
     };
   });
 
@@ -12669,7 +12686,8 @@ function cambiarVarComparativa(varKey, label){
 function formatGPSVal(key, val){
   if(!val || isNaN(val)) return '—';
   // Decimales para velocidades, ratios y PlayerLoad
-  if(['velMax','mpm','pctVmax','playerLoad'].indexOf(key)>=0) return parseFloat(val).toFixed(1);
+  // Acepta tanto nombres GPS_VARS (vmax, mpm) como nombres de campo raw (velMax, metrajeMin)
+  if(['velMax','vmax','mpm','metrajeMin','pctVmax','velMaxPct','playerLoad'].indexOf(key)>=0) return parseFloat(val).toFixed(1);
   return Math.round(val).toString();
 }
 function abrevPos(pos){
