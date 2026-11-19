@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118c</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1118d</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -1146,25 +1146,9 @@ function fbEscucharSubnodos(){
     if(pgI && pgI.classList.contains('on') && typeof renderInicio==='function') renderInicio();
   }, function(e){ console.warn('[BFC-SYNC] bien_sesiones err:', e.message); });
 
-  // bfc/sesion_activa — sesión en curso (editable desde cualquier dispositivo)
-  window.fbDB.ref('bfc/sesion_activa').on('value', function(snap){
-    var v = snap.val();
-    if(!v) return;
-    // Solo aplicar si la sesión remota tiene ts más reciente que la local
-    var tsLocal = _sesLocalTs || 0;
-    var tsRemota = v.ts || v.savedAt || 0;
-    if(tsRemota <= tsLocal) return;
-    // No sobreescribir si el usuario está editando activamente (sesión tocada en los últimos 10s)
-    if(_sesLocalTs > 0 && (Date.now() - _sesLocalTs) < 10000) return;
-    if(v && typeof v === 'object' && v.tareas){
-      sesData = v;
-      _sesLocalTs = tsRemota;
-      try{ localStorage.setItem('BFC_SES', JSON.stringify(sesData)); localStorage.setItem('BFC_SES_TS', String(_sesLocalTs)); }catch(e){}
-      console.log('[BFC-SYNC] sesion_activa actualizada desde Firebase');
-      var pgS = document.getElementById('page-sesion');
-      if(pgS && pgS.classList.contains('on') && typeof renderSesion==='function') renderSesion();
-    }
-  }, function(e){ console.warn('[BFC-SYNC] sesion_activa err:', e.message); });
+  // bfc/sesion_activa — manejado por sesEscucharFb() con merge inteligente de fotos.
+  // No duplicar listener aquí para evitar conflictos de timestamps.
+  // (sesEscucharFb se llama desde sesInit y ya gestiona fotos, merge de campos, etc.)
 
   // bfc/evs — eventos / calendario
   window.fbDB.ref('bfc/evs').on('value', function(snap){
@@ -18749,6 +18733,7 @@ function sesSyncFb(){
     });
     var payload = Object.assign({}, sesData, {
       _ts: _syncTs,
+      ts: _syncTs,    // campo canónico leído por todos los listeners
       _fecha: sesData.fecha || TODAY,
       tareas: tareasParaFb
     });
@@ -18779,9 +18764,34 @@ function sesEscucharFb(){
   window.fbDB.ref('bfc/sesion_activa').on('value', function(snap){
     var d = snap.val();
     if(!d) return;
-    var tsRemoto = d._ts || 0;
+    var tsRemoto = d._ts || d.ts || d.savedAt || 0;
     // Ignorar eco propio (mismo timestamp exacto)
     if(tsRemoto > 0 && tsRemoto === _sesLastSyncTs) return;
+
+    // ── MERGE DE FOTOS (prioritario, antes de los guards de timestamp) ──
+    // Si el remoto tiene imágenes en tareas que localmente no tenemos, aplicarlas siempre.
+    // Esto garantiza que fotos subidas desde iPad lleguen al computador aunque
+    // el ts del iPad sea <= al _sesLastRemoteTs del computador.
+    var hayFotosNuevas = false;
+    if(sesData && sesData.tareas && d.tareas && Array.isArray(d.tareas)){
+      d.tareas.forEach(function(tRemota, idx){
+        var tLocal = sesData.tareas[idx];
+        if(tRemota && tRemota.img && tLocal && !tLocal.img){
+          tLocal.img = tRemota.img;
+          hayFotosNuevas = true;
+        }
+      });
+    }
+    if(hayFotosNuevas){
+      try{ localStorage.setItem('BFC_SES', JSON.stringify(sesData)); }catch(e){}
+      console.log('[BFC-SYNC] sesEscucharFb — fotos nuevas mergeadas desde Firebase');
+      var pgFoto = document.getElementById('page-sesion');
+      if(pgFoto && pgFoto.classList.contains('on') && typeof renderSesion==='function'){
+        setTimeout(renderSesion, 80);
+      }
+    }
+    // ──────────────────────────────────────────────────────────────────
+
     // Solo aplicar datos más nuevos que los que ya aplicamos
     if(tsRemoto <= _sesLastRemoteTs) return;
 
@@ -18850,7 +18860,7 @@ function sesEscucharFb(){
         sesData[k] = d[k];
       }
     });
-    _sesLastRemoteTs = d._ts || Date.now();
+    _sesLastRemoteTs = d._ts || d.ts || Date.now();
     // Re-renderizar solo si la sesión está activa y el usuario NO está en un input importante
     var pg = document.getElementById('page-sesion');
     var focEl = document.activeElement;
@@ -19523,7 +19533,9 @@ function sesSubirImgFb(tareaIdx, dataUrl, fileName){
 // Sync inmediato a Firebase (para fotos — sin debounce de 3s)
 function _sesSyncFbInmediato(){
   if(!window.fbDB || !sesData) return;
-  var _syncTs = _sesLocalTs || Date.now();
+  // SIEMPRE usar Date.now() para garantizar que este ts sea >= cualquier ts local en otro dispositivo
+  var _syncTs = Date.now();
+  _sesLocalTs = _syncTs; // actualizar nuestro propio ts local también
   var tareasParaFb = (sesData.tareas||[]).map(function(t){
     var tc = Object.assign({}, t);
     // Incluir img comprimida (ya es pequeña), solo excluir si aún es muy grande
@@ -19535,6 +19547,7 @@ function _sesSyncFbInmediato(){
   });
   var payload = Object.assign({}, sesData, {
     _ts: _syncTs,
+    ts: _syncTs,      // campo que lee el listener (v.ts)
     _fecha: sesData.fecha || TODAY,
     tareas: tareasParaFb
   });
