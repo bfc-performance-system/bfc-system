@@ -3485,8 +3485,20 @@ function plantillaMostrarJugador(jid){
   var lineaLabel = _LINEA_LABELS[linea]||(j.posicion||j.pos||'Sin posición');
   var hoy = TODAY;
   var bHoy = safeArr(BIEN).filter(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===hoy; });
-  var sc = bHoy.length ? bienScore6(bHoy[bHoy.length-1]) : null;
-  var rpe = bHoy.length ? (bHoy[bHoy.length-1].rpe_post||0) : 0;
+  // Wellness: usar el último registro disponible (hoy si existe, sino el más reciente)
+  var bWellAll = safeArr(BIEN).filter(function(b){ return (b.pid===j.id||b.jugadorId===j.id); })
+    .sort(function(a,b){ return (a.fecha||'').localeCompare(b.fecha||''); });
+  var bWellLast = bWellAll.length ? bWellAll[bWellAll.length-1] : null;
+  var bWellHoy = bHoy.length ? bHoy[bHoy.length-1] : null;
+  var bWellRef = bWellHoy || bWellLast; // preferir hoy, fallback al último
+  var sc = bWellRef ? bienScore6(bWellRef) : null;
+  var scFecha = bWellRef ? (bWellRef.fecha||'') : '';
+  var scEsHoy = scFecha === hoy;
+  // RPE: buscar el más reciente con rpe_post > 0
+  var bRpeAll = safeArr(BIEN).filter(function(b){ return (b.pid===j.id||b.jugadorId===j.id) && b.rpe_post>0; })
+    .sort(function(a,b){ return (a.fecha||'').localeCompare(b.fecha||''); });
+  var bRpeLast = bRpeAll.length ? bRpeAll[bRpeAll.length-1] : null;
+  var rpe = bRpeLast ? (bRpeLast.rpe_post||0) : 0;
   var acwrObj = calcACWR(j.id);
   var acwr = acwrObj ? acwrObj.acwr : null;
   var est = plantillaEstado(j);
@@ -3535,14 +3547,24 @@ function plantillaMostrarJugador(jid){
 
   // ── Stats del día ──
   html += "<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;'>";
-  [[sc!==null?sc:'—','Wellness',sc>=7?'#22c55e':sc>=5?'#f59e0b':sc!==null?'#ef4444':'#475569'],
-   [rpe||'—','RPE post',rpe>=8?'#ef4444':rpe>=6?'#f97316':rpe>=4?'#f59e0b':rpe?'#22c55e':'#475569'],
-   [acwr?acwr.toFixed(2):'—','ACWR',acwrCol]
-  ].forEach(function(s){
-    html += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px;text-align:center;'>";
-    html += "<div style='font-size:22px;font-weight:900;color:"+s[2]+";'>"+s[0]+"</div>";
-    html += "<div style='font-size:10px;color:#64748b;margin-top:3px;font-weight:700;'>"+s[1]+"</div></div>";
-  });
+  var wellColor = sc>=7?'#22c55e':sc>=5?'#f59e0b':sc!==null?'#ef4444':'#475569';
+  var rpeColor = rpe>=8?'#ef4444':rpe>=6?'#f97316':rpe>=4?'#f59e0b':rpe?'#22c55e':'#475569';
+  html += "<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;'>";
+  // Card Wellness
+  html += "<div style='background:rgba(255,255,255,.04);border:1px solid "+(sc!==null?wellColor+'44':'rgba(255,255,255,.08)')+";border-radius:12px;padding:12px;text-align:center;'>";
+  html += "<div style='font-size:22px;font-weight:900;color:"+wellColor+";'>"+(sc!==null?sc:'—')+"</div>";
+  html += "<div style='font-size:10px;color:#64748b;margin-top:3px;font-weight:700;'>Wellness</div>";
+  if(sc!==null && !scEsHoy) html += "<div style='font-size:8px;color:#475569;margin-top:2px;'>"+scFecha.slice(5)+"</div>";
+  if(sc===null) html += "<div style='font-size:8px;color:#475569;margin-top:2px;'>sin registro</div>";
+  html += "</div>";
+  // Card RPE
+  html += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px;text-align:center;'>";
+  html += "<div style='font-size:22px;font-weight:900;color:"+rpeColor+";'>"+(rpe||'—')+"</div>";
+  html += "<div style='font-size:10px;color:#64748b;margin-top:3px;font-weight:700;'>RPE post</div></div>";
+  // Card ACWR
+  html += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px;text-align:center;'>";
+  html += "<div style='font-size:22px;font-weight:900;color:"+acwrCol+";'>"+(acwr?acwr.toFixed(2):'—')+"</div>";
+  html += "<div style='font-size:10px;color:#64748b;margin-top:3px;font-weight:700;'>ACWR</div></div>";
   html += "</div>";
 
   // ── SECCIÓN 1: Datos Personales (desplegable) ──
@@ -11479,6 +11501,73 @@ function renderGPSTab(tab){
   return '';
 }
 
+// ══════════════════════════════════════════════════════════════════
+// GPS PERFORMANCE SYSTEM — WORLD-CLASS REDESIGN v2
+// Design language: Elite dark, signal-first, Catapult-inspired
+// ══════════════════════════════════════════════════════════════════
+
+// ── Shared design tokens ──────────────────────────────────────────
+var GPS_DS = {
+  bg0:    '#0a0e1a',
+  bg1:    '#0f1420',
+  bg2:    '#141926',
+  card:   '#1a2035',
+  cardHi: '#1f2742',
+  border: 'rgba(255,255,255,.07)',
+  borderB:'rgba(255,255,255,.12)',
+  text1:  '#f1f5f9',
+  text2:  '#94a3b8',
+  text3:  '#475569',
+  gold:   '#f5c800',
+  red:    '#ef4444',
+  green:  '#10b981',
+  blue:   '#3b82f6',
+  orange: '#f97316',
+  accent: '#6366f1',
+  // Risk thresholds
+  riskHi: '#ef4444',
+  riskMd: '#f59e0b',
+  riskLo: '#10b981',
+  riskOk: '#3b82f6',
+};
+
+// ── Helper: risk color for load values ──────────────────────────
+function gpsRiskColor(pct){
+  if(pct > 0.9) return GPS_DS.riskHi;
+  if(pct > 0.75) return GPS_DS.riskMd;
+  if(pct > 0.5)  return GPS_DS.riskOk;
+  return GPS_DS.riskLo;
+}
+
+// ── Helper: render a "stat pill" ─────────────────────────────────
+function gpsPill(label, value, color, sub){
+  return "<div style='background:"+GPS_DS.card+";border:1px solid "+GPS_DS.border+";border-radius:12px;padding:14px 16px;position:relative;overflow:hidden;'>"
+    + "<div style='position:absolute;top:0;left:0;right:0;height:2px;background:"+color+";'></div>"
+    + "<div style='font-size:9px;font-weight:700;color:"+GPS_DS.text3+";text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;'>"+label+"</div>"
+    + "<div style='font-size:24px;font-weight:900;color:"+color+";line-height:1;letter-spacing:-.02em;'>"+value+"</div>"
+    + (sub?"<div style='font-size:9px;color:"+GPS_DS.text2+";margin-top:4px;'>"+sub+"</div>":"")
+    + "</div>";
+}
+
+// ── Helper: section header ────────────────────────────────────────
+function gpsSectionHeader(icon, title, sub){
+  return "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;'>"
+    + "<div style='display:flex;align-items:center;gap:8px;'>"
+    + "<span style='font-size:16px;'>"+icon+"</span>"
+    + "<div>"
+    + "<div style='font-size:13px;font-weight:800;color:"+GPS_DS.text1+";letter-spacing:-.01em;'>"+title+"</div>"
+    + (sub?"<div style='font-size:10px;color:"+GPS_DS.text3+";margin-top:1px;'>"+sub+"</div>":"")
+    + "</div></div></div>";
+}
+
+// ── Helper: delta badge ───────────────────────────────────────────
+function gpsDelta(diff, digits){
+  digits = digits||1;
+  var col = diff > 5 ? GPS_DS.green : diff < -5 ? GPS_DS.red : GPS_DS.text3;
+  var arrow = diff > 5 ? '▲' : diff < -5 ? '▼' : '—';
+  return "<span style='font-size:9px;font-weight:700;color:"+col+";'>"+arrow+" "+(diff>0?'+':'')+diff.toFixed(digits)+"%</span>";
+}
+
 // ── INFORME 1: ACTIVIDAD ──────────────────────────────────────────
 function renderGPSActividad(){
   var _gpsCatChkA=[]; try{ var _gckA=localStorage.getItem('BFC_GPS_CAT'); if(_gckA) _gpsCatChkA=JSON.parse(_gckA)||[]; }catch(e){}
@@ -11489,10 +11578,8 @@ function renderGPSActividad(){
   var fechaSel = fechas[0];
   var posFil = window._gpsFilPos || '';
   var estadoFil = '';
-  // Multi-jugador desde barra global
   var jugsFilG = window._gpsFilJugs && window._gpsFilJugs.length ? window._gpsFilJugs : null;
 
-  // Leer estado de filtros del DOM si ya existe (overrides globals para Actividad)
   try{
     if(document.getElementById('gps-fecha-sel')) fechaSel = document.getElementById('gps-fecha-sel').value || fechaSel;
     if(document.getElementById('gps-pos-fil'))   posFil   = document.getElementById('gps-pos-fil').value || posFil;
@@ -11511,16 +11598,20 @@ function renderGPSActividad(){
     return true;
   });
 
+  // Detectar tipo de sesión para badge
+  var regSel = safeArr(CARGA).find(function(c){ return c.fecha===fechaSel; });
+  var tipoSes = regSel ? (regSel.tipoEvt||regSel.tipo||'').toLowerCase() : '';
+  var mdRef = regSel ? (regSel.mdRef||'') : '';
+
+  var DS = GPS_DS;
   var h = '';
 
-  // ── FILTROS ──────────────────────────────────────────────────
-  h += "<div style='display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:flex-end;'>";
-
-  h += "<div style='flex:2;min-width:180px;'><label style='font-size:9px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:3px;'>SESIÓN</label>";
+  // ── FILTROS ──────────────────────────────────────────────────────
+  h += "<div style='display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:flex-end;'>";
+  h += "<div style='flex:2;min-width:180px;'><label style='font-size:9px;font-weight:700;color:"+DS.text3+";letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:4px;'>SESIÓN</label>";
   h += "<div style='display:flex;gap:6px;align-items:center;'>";
-  h += "<select id='gps-fecha-sel' onchange='renderTabActividad()' style='flex:1;padding:8px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);font-size:12px;'>";
+  h += "<select id='gps-fecha-sel' onchange='renderTabActividad()' style='flex:1;padding:8px 12px;border:1px solid "+DS.borderB+";border-radius:8px;font-size:12px;background:"+DS.card+";color:"+DS.text1+";'>";
   fechas.forEach(function(f){
-    // Mostrar tipo y mdRef junto a la fecha si existe
     var regF = safeArr(CARGA).find(function(c){ return c.fecha===f; });
     var mdLab = regF&&regF.mdRef ? ' ['+regF.mdRef+']' : '';
     var tipoLab = '';
@@ -11528,89 +11619,188 @@ function renderGPSActividad(){
     h += "<option value='"+f+"'"+(f===fechaSel?' selected':'')+">"+f+mdLab+tipoLab+"</option>";
   });
   h += "</select>";
-  h += "<button onclick='gpsEliminarSesion()' title='Eliminar esta sesión GPS' style='padding:7px 10px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#ef4444;border-radius:var(--r-sm);font-size:13px;cursor:pointer;white-space:nowrap;flex-shrink:0;'>🗑</button>";
+  h += "<button onclick='gpsEliminarSesion()' title='Eliminar sesión' style='padding:8px 11px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#ef4444;border-radius:8px;font-size:13px;cursor:pointer;flex-shrink:0;'>🗑</button>";
   h += "</div></div>";
-
-  h += "<div style='flex:1;min-width:140px;'><label style='font-size:9px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:3px;'>POSICIÓN</label>";
-  h += "<select id='gps-pos-fil' onchange='window._gpsFilPos=this.value;renderTabActividad()' style='width:100%;padding:8px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);font-size:12px;'>";
+  h += "<div style='flex:1;min-width:130px;'><label style='font-size:9px;font-weight:700;color:"+DS.text3+";letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:4px;'>POSICIÓN</label>";
+  h += "<select id='gps-pos-fil' onchange='window._gpsFilPos=this.value;renderTabActividad()' style='width:100%;padding:8px 12px;border:1px solid "+DS.borderB+";border-radius:8px;font-size:12px;background:"+DS.card+";color:"+DS.text1+";'>";
   h += "<option value=''>Todas</option>";
   POSICIONES_GPS.forEach(function(p){ h += "<option value='"+p+"'"+(p===posFil?' selected':'')+">"+p+"</option>"; });
   h += "</select></div>";
-
-  h += "<div style='min-width:130px;'><label style='font-size:9px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:3px;'>ESTADO</label>";
-  h += "<select id='gps-estado-fil' onchange='renderTabActividad()' style='width:100%;padding:8px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);font-size:12px;'>";
-  h += "<option value=''>Todos</option><option value='completo'"+(estadoFil==='completo'?' selected':'')+">✅ Completó</option>";
+  h += "<div style='min-width:130px;'><label style='font-size:9px;font-weight:700;color:"+DS.text3+";letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:4px;'>ESTADO</label>";
+  h += "<select id='gps-estado-fil' onchange='renderTabActividad()' style='width:100%;padding:8px 12px;border:1px solid "+DS.borderB+";border-radius:8px;font-size:12px;background:"+DS.card+";color:"+DS.text1+";'>";
+  h += "<option value=''>Todos</option><option value='completo'"+(estadoFil==='completo'?' selected':'')+">✅ Completo</option>";
   h += "<option value='parcial'"+(estadoFil==='parcial'?' selected':'')+">⚠️ Parcial</option>";
   h += "<option value='baja'"+(estadoFil==='baja'?' selected':'')+">🔴 Baja</option>";
   h += "</select></div>";
-  // Nota: filtro por jugador se gestiona desde la barra global multi-jugador
   if(jugsFilG && jugsFilG.length){
-    h += "<div style='display:flex;align-items:center;gap:6px;flex-wrap:wrap;align-self:flex-end;'>";
+    h += "<div style='display:flex;align-items:center;gap:5px;flex-wrap:wrap;align-self:flex-end;'>";
     jugsFilG.forEach(function(jid, idx){
       var jug = plantel.find(function(p){ return p.id===jid; });
       var nom = jug ? (jug.apellido||jug.nombre||jid).split(' ')[0] : jid;
       var color = GPS_CHIP_COLORS[idx%GPS_CHIP_COLORS.length];
-      h += "<span style='background:"+color+";color:#fff;padding:3px 8px;border-radius:99px;font-size:9px;font-weight:700;'>👤 "+nom+"</span>";
+      h += "<span style='background:"+color+";color:#fff;padding:3px 8px;border-radius:99px;font-size:9px;font-weight:700;'>"+nom+"</span>";
     });
-    h += "<button onclick='limpiarFiltrosGPS()' style='padding:4px 10px;border-radius:8px;border:1px solid #ef4444;background:transparent;color:#ef4444;font-size:10px;font-weight:700;cursor:pointer;'>✕ Limpiar</button>";
+    h += "<button onclick='limpiarFiltrosGPS()' style='padding:4px 10px;border-radius:8px;border:1px solid #ef4444;background:transparent;color:#ef4444;font-size:10px;font-weight:700;cursor:pointer;'>✕</button>";
     h += "</div>";
   }
   h += "</div>";
 
   if(!sesionFiltrada.length){
-    h += "<div style='text-align:center;padding:40px;color:#9ca3af;background:var(--bg-card);border-radius:var(--r-md);'>No hay datos para estos filtros</div>";
+    h += "<div style='text-align:center;padding:48px;color:"+DS.text3+";background:"+DS.card+";border-radius:12px;border:1px solid "+DS.border+";'>Sin datos para estos filtros</div>";
     return h;
   }
 
-  // ── KPI CARDS CON MINI-BARRAS ─────────────────────────────────
-  var prom = {};
+  // ── SESSION HEADER BANNER ─────────────────────────────────────
+  var tipoLabel = tipoSes==='partido'||tipoSes==='amistoso' ? '⚽ Partido' : tipoSes==='recuperacion' ? '🔄 Recuperación' : tipoSes==='fuerza' ? '💪 Fuerza' : '🏃 Entrenamiento';
+  var tipoColor = tipoSes==='partido'||tipoSes==='amistoso' ? '#f59e0b' : tipoSes==='recuperacion' ? '#06b6d4' : '#6366f1';
+  h += "<div style='background:linear-gradient(135deg,"+DS.bg1+" 0%,"+DS.card+" 100%);border:1px solid "+DS.borderB+";border-radius:14px;padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;'>";
+  h += "<div style='display:flex;align-items:center;gap:14px;'>";
+  h += "<div style='width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,"+tipoColor+"33,"+tipoColor+"55);border:1.5px solid "+tipoColor+"44;display:flex;align-items:center;justify-content:center;font-size:20px;'>"+tipoLabel.slice(0,2)+"</div>";
+  h += "<div>";
+  h += "<div style='font-size:16px;font-weight:900;color:"+DS.text1+";letter-spacing:-.02em;'>"+fechaSel+"</div>";
+  h += "<div style='display:flex;align-items:center;gap:8px;margin-top:3px;'>";
+  h += "<span style='background:"+tipoColor+"22;border:1px solid "+tipoColor+"44;color:"+tipoColor+";padding:2px 10px;border-radius:99px;font-size:10px;font-weight:700;'>"+tipoLabel+"</span>";
+  if(mdRef) h += "<span style='background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.3);color:#818cf8;padding:2px 10px;border-radius:99px;font-size:10px;font-weight:700;'>"+mdRef+"</span>";
+  h += "<span style='font-size:10px;color:"+DS.text3+";'>"+sesionFiltrada.length+" atletas</span>";
+  h += "</div></div></div>";
+  // Sesión anterior para delta
+  var fechaAnt = fechas.length > 1 ? fechas[fechas.indexOf(fechaSel)+1] : null;
+  if(fechaAnt){
+    var sesAnt = gpsCargoFiltrado().filter(function(c){ return c.fecha===fechaAnt; });
+    var plAct = sesionFiltrada.reduce(function(a,c){ return a+(parseFloat(c.playerLoad)||0); },0)/(sesionFiltrada.length||1);
+    var plAnt = sesAnt.reduce(function(a,c){ return a+(parseFloat(c.playerLoad)||0); },0)/(sesAnt.length||1);
+    var deltaLoad = plAnt>0 ? (plAct-plAnt)/plAnt*100 : 0;
+    var deltaColor = Math.abs(deltaLoad)>20 ? DS.riskHi : Math.abs(deltaLoad)>10 ? DS.riskMd : DS.text2;
+    h += "<div style='text-align:right;'>";
+    h += "<div style='font-size:9px;color:"+DS.text3+";margin-bottom:4px;'>vs sesión anterior</div>";
+    h += "<div style='font-size:20px;font-weight:900;color:"+deltaColor+";'>"+(deltaLoad>0?'+':'')+deltaLoad.toFixed(1)+"%</div>";
+    h += "<div style='font-size:9px;color:"+DS.text3+";'>PlayerLoad</div>";
+    h += "</div>";
+  }
+  h += "</div>";
+
+  // ── KPI GRID — 4 columnas con top performer ───────────────────
+  var prom = {}, maxV = {};
   GPS_VARS.forEach(function(v){
     var vals = sesionFiltrada.map(function(c){ return parseFloat(c[v.k])||0; }).filter(Boolean);
     prom[v.k] = vals.length ? vals.reduce(function(a,b){ return a+b; },0)/vals.length : 0;
-  });
-  var max = {};
-  GPS_VARS.forEach(function(v){
-    var vals = sesionFiltrada.map(function(c){ return parseFloat(c[v.k])||0; });
-    max[v.k] = Math.max.apply(null, vals)||1;
+    maxV[v.k] = vals.length ? Math.max.apply(null,vals) : 1;
   });
 
-  h += "<div style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;'>";
+  // Comparar con sesión anterior para deltas
+  var promAnt = {};
+  if(fechaAnt){
+    var sesAntAll = gpsCargoFiltrado().filter(function(c){ return c.fecha===fechaAnt; });
+    GPS_VARS.forEach(function(v){
+      var vals = sesAntAll.map(function(c){ return parseFloat(c[v.k])||0; }).filter(Boolean);
+      promAnt[v.k] = vals.length ? vals.reduce(function(a,b){ return a+b; },0)/vals.length : 0;
+    });
+  }
+
+  h += "<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:16px;'>";
   GPS_VARS.forEach(function(v){
     var val = prom[v.k];
-    var top = sesionFiltrada.reduce(function(best,c){
-      return (parseFloat(c[v.k])||0) > (parseFloat(best[v.k])||0) ? c : best;
-    }, sesionFiltrada[0]);
+    var top = sesionFiltrada.reduce(function(best,c){ return (parseFloat(c[v.k])||0)>(parseFloat(best[v.k])||0)?c:best; }, sesionFiltrada[0]);
     var topJug = plantel.find(function(p){ return p.id===top.pid; });
-    var topNombre = topJug ? (topJug.apellido||topJug.nombre||'').split(' ')[0] : (top.nombreOrig||'').split(' ')[0];
+    var topNom = topJug ? (topJug.apellido||topJug.nombre||'').split(' ')[0].toUpperCase() : (top.nombreOrig||'').split(' ')[0];
+    if(topNom.length>9) topNom=topNom.slice(0,8)+'.';
+    var dAnt = promAnt[v.k]>0 ? (val-promAnt[v.k])/promAnt[v.k]*100 : null;
+    var dCol = dAnt!==null ? (dAnt>10?DS.riskHi:dAnt<-10?DS.riskMd:DS.text3) : DS.text3;
 
-    h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px;position:relative;overflow:hidden;'>";
-    // Barra de fondo decorativa
-    h += "<div style='position:absolute;bottom:0;left:0;right:0;height:3px;background:"+v.color+";opacity:.7;'></div>";
-    h += "<div style='font-size:9px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;'>"+v.icon+" "+v.label+"</div>";
-    h += "<div style='font-size:22px;font-weight:900;color:"+v.color+";line-height:1;'>"+formatGPSVal(v.k,val)+"</div>";
-    h += "<div style='font-size:8px;color:#9ca3af;margin-top:2px;'>prom. equipo · "+v.unit+"</div>";
-    h += "<div style='margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,.08);font-size:9px;color:#94a3b8;'>🏆 <b style=\"color:#f1f5f9;\">"+topNombre+"</b>: "+formatGPSVal(v.k,parseFloat(top[v.k])||0)+"</div>";
-    h += "</div>";
+    h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:12px;padding:12px 14px;position:relative;overflow:hidden;cursor:pointer;transition:border-color .2s;' "
+       + "onmouseover=\"this.style.borderColor='"+v.color+"55'\" onmouseout=\"this.style.borderColor='"+DS.border+"'\">";
+    h += "<div style='position:absolute;top:0;left:0;right:0;height:2px;background:"+v.color+";opacity:.8;'></div>";
+    h += "<div style='font-size:9px;font-weight:700;color:"+DS.text3+";text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;'>"+v.icon+" "+v.label+"</div>";
+    h += "<div style='font-size:22px;font-weight:900;color:"+v.color+";line-height:1;letter-spacing:-.02em;'>"+formatGPSVal(v.k,val)+"</div>";
+    h += "<div style='font-size:8px;color:"+DS.text3+";margin-top:2px;'>"+v.unit+" · prom.</div>";
+    if(dAnt!==null){
+      h += "<div style='margin-top:5px;font-size:9px;font-weight:700;color:"+dCol+";'>"+(dAnt>0?'▲':'▼')+" "+(dAnt>0?'+':'')+dAnt.toFixed(1)+"% vs ant.</div>";
+    }
+    h += "<div style='margin-top:8px;padding-top:7px;border-top:1px solid "+DS.border+";font-size:9px;color:"+DS.text2+";display:flex;align-items:center;gap:4px;'>";
+    h += "<span style='color:"+DS.gold+";font-size:10px;'>★</span> <b style='color:"+DS.text1+";'>"+topNom+"</b>: "+formatGPSVal(v.k,parseFloat(top[v.k])||0);
+    h += "</div></div>";
   });
   h += "</div>";
 
-  // ── GRÁFICA POR POSICIÓN ──────────────────────────────────────
-  h += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:16px;margin-bottom:16px;'>";
+  // ── RANKING BARRAS: Top variable seleccionada ─────────────────
+  var rankVarKey = window._gpsActRankVar || 'distancia';
+  var rankVarMeta = GPS_VARS.find(function(v){ return v.k===rankVarKey; }) || GPS_VARS[0];
+
+  h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;padding:14px 16px;margin-bottom:14px;'>";
   h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;'>";
-  h += "<div style='font-size:13px;font-weight:800;color:#f1f5f9;'>Atletas — Comparativa por Posición</div>";
-  h += "<div style='display:flex;gap:6px;align-items:center;flex-wrap:wrap;'>";
+  h += gpsSectionHeader('📊','Ranking por Atleta','Sesión '+fechaSel+' · mayor → menor');
+  h += "<div style='display:flex;gap:4px;flex-wrap:wrap;'>";
+  GPS_VARS_GRAFICA.forEach(function(k){
+    var vCfg = GPS_VARS.find(function(v){ return v.k===k; });
+    if(!vCfg) return;
+    var isSel = k===rankVarKey;
+    h += "<button onclick='window._gpsActRankVar=\""+k+"\";renderTabActividad()' "
+       + "style='padding:4px 10px;border-radius:99px;border:1px solid "+(isSel?vCfg.color:DS.border)+";"
+       + "background:"+(isSel?vCfg.color:'transparent')+";color:"+(isSel?'#fff':DS.text2)+";"
+       + "font-size:10px;font-weight:700;cursor:pointer;transition:all .2s;'>"+vCfg.label+"</button>";
+  });
+  h += "</div></div>";
+
+  // Sort descending and render bars
+  var rankData = sesionFiltrada.map(function(c){
+    var jug = plantel.find(function(p){ return p.id===c.pid; });
+    var nom = jug ? (jug.apellido||jug.nombre||'').toUpperCase() : (c.nombreOrig||'').split(' ')[0];
+    var pos = jug ? (jug.pos||jug.posicion||'—') : '—';
+    var estado = c.estado||'completo';
+    return {pid:c.pid, nom:nom, pos:pos, estado:estado, val:parseFloat(c[rankVarKey])||0};
+  }).sort(function(a,b){ return b.val-a.val; });
+
+  var maxBar = rankData.length ? rankData[0].val || 1 : 1;
+  var promBar = rankData.reduce(function(a,r){ return a+r.val; },0)/(rankData.length||1);
+
+  h += "<div style='display:flex;flex-direction:column;gap:4px;'>";
+  rankData.forEach(function(r, ri){
+    var pct = r.val/maxBar*100;
+    var barColor = ri===0 ? DS.gold : ri===1 ? '#94a3b8' : ri===2 ? '#b45309' : rankVarMeta.color;
+    var estadoIcon = r.estado==='parcial' ? '⚠️' : r.estado==='baja' ? '🔴' : '';
+    var vsPromPct = promBar>0 ? (r.val-promBar)/promBar*100 : 0;
+    var vsCol = vsPromPct>10 ? DS.green : vsPromPct<-10 ? DS.riskMd : DS.text3;
+
+    h += "<div style='display:flex;align-items:center;gap:8px;padding:5px 0;'>";
+    h += "<div style='font-size:10px;font-weight:700;color:"+(ri<3?barColor:DS.text3)+";width:16px;text-align:right;'>"+((ri+1)+".")+"</div>";
+    h += "<div style='width:70px;font-size:10px;font-weight:700;color:"+DS.text1+";white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>"+estadoIcon+" "+r.nom.slice(0,8)+"</div>";
+    h += "<span style='font-size:8px;color:"+DS.text3+";width:22px;text-align:center;'>"+abrevPos(r.pos)+"</span>";
+    h += "<div style='flex:1;height:16px;background:"+DS.bg1+";border-radius:4px;overflow:hidden;position:relative;'>";
+    // promedio line
+    h += "<div style='position:absolute;top:0;bottom:0;left:"+(promBar/maxBar*100).toFixed(1)+"%;width:1px;background:"+DS.gold+";opacity:.5;z-index:1;'></div>";
+    h += "<div style='height:100%;width:"+pct.toFixed(1)+"%;background:"+barColor+";border-radius:4px;transition:width .4s;opacity:"+(0.7+0.3*pct/100)+";'></div>";
+    h += "</div>";
+    h += "<div style='width:46px;text-align:right;font-size:11px;font-weight:800;color:"+barColor+";'>"+formatGPSVal(rankVarKey,r.val)+"</div>";
+    h += "<div style='width:36px;text-align:right;font-size:9px;font-weight:700;color:"+vsCol+";'>"+(vsPromPct>0?'+':'')+vsPromPct.toFixed(0)+"%</div>";
+    h += "</div>";
+  });
+  // promedio row
+  h += "<div style='display:flex;align-items:center;gap:8px;padding:7px 0 2px;border-top:1px solid "+DS.border+";margin-top:4px;'>";
+  h += "<div style='width:16px;'></div>";
+  h += "<div style='width:70px;font-size:9px;font-weight:800;color:"+DS.gold+";'>⌀ EQUIPO</div>";
+  h += "<span style='width:22px;'></span>";
+  h += "<div style='flex:1;height:1px;background:"+DS.border+";'></div>";
+  h += "<div style='width:46px;text-align:right;font-size:11px;font-weight:900;color:"+DS.gold+";'>"+formatGPSVal(rankVarKey,promBar)+"</div>";
+  h += "<div style='width:36px;'></div>";
+  h += "</div>";
+  h += "</div></div>";
+
+  // ── GRÁFICA SVG ───────────────────────────────────────────────
+  h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;padding:14px 16px;margin-bottom:14px;'>";
+  h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;'>";
+  h += gpsSectionHeader('🏟️','Atletas por Posición','Comparativa gráfica');
+  h += "<div style='display:flex;gap:4px;flex-wrap:wrap;'>";
   GPS_VARS_GRAFICA.forEach(function(k){
     var vCfg = GPS_VARS.find(function(v){ return v.k===k; });
     if(!vCfg) return;
     var isSel = k==='distancia';
     h += "<button onclick='cambiarVarGraficaAct(\""+k+"\")' id='btn-act-"+k+"'"
-      + " style='padding:4px 10px;border-radius:99px;border:1.5px solid "+(isSel?vCfg.color:'rgba(255,255,255,.18)')+";"
-      + "background:"+(isSel?vCfg.color:'transparent')+";color:"+(isSel?'#fff':'#94a3b8')+";"
+      + " style='padding:4px 10px;border-radius:99px;border:1px solid "+(isSel?vCfg.color:DS.border)+";"
+      + "background:"+(isSel?vCfg.color:'transparent')+";color:"+(isSel?'#fff':DS.text2)+";"
       + "font-size:10px;font-weight:700;cursor:pointer;'>"+vCfg.label+"</button>";
   });
   h += "</div></div>";
 
-  // Agrupar por posición
   var grupos = {};
   POSICIONES_GPS.forEach(function(pos){ grupos[pos] = []; });
   sesionFiltrada.forEach(function(c){
@@ -11620,39 +11810,72 @@ function renderGPSActividad(){
     if(!grupos[pos]) grupos[pos] = [];
     grupos[pos].push(c);
   });
-
   var posConDatos = POSICIONES_GPS.filter(function(pos){ return grupos[pos]&&grupos[pos].length>0; });
-
   var maxGraf = Math.max.apply(null, sesionFiltrada.map(function(c){ return parseFloat(c.distancia)||0; }))||1;
 
   h += "<div id='grafica-actividad' style='overflow-x:auto;'>";
   h += renderGraficaAtletas(sesionFiltrada, 'distancia', plantel, posConDatos, maxGraf);
   h += "</div></div>";
 
-  // ── TABLA DESGLOSE — Training Parameters Table ───────────────
-  h += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:10px;overflow:hidden;'>";
-  h += "<div style='padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;'>";
-  h += "<div style='font-size:13px;font-weight:800;color:#f1f5f9;'>Training Parameters Table</div>";
-  h += "<span style='font-size:11px;color:#64748b;'>"+sesionFiltrada.length+" jugadores</span>";
+  // ── RISK SIGNALS ─────────────────────────────────────────────
+  // Identify athletes with values > 90% of historical max
+  var allHist = gpsCargoFiltrado();
+  var riskAtletes = [];
+  sesionFiltrada.forEach(function(c){
+    var histJug = allHist.filter(function(h){ return h.pid===c.pid; });
+    var jug = plantel.find(function(p){ return p.id===c.pid; });
+    var nom = jug ? (jug.apellido||'').toUpperCase() : (c.nombreOrig||'');
+    var risks = [];
+    GPS_VARS.slice(0,6).forEach(function(v){
+      var histMax = histJug.length ? Math.max.apply(null, histJug.map(function(h){ return parseFloat(h[v.k])||0; })) : 0;
+      var val = parseFloat(c[v.k])||0;
+      if(histMax > 0 && val/histMax > 0.9){
+        risks.push({var:v.label, val:formatGPSVal(v.k,val), pct:(val/histMax*100).toFixed(0)+'%'});
+      }
+    });
+    if(risks.length) riskAtletes.push({nom:nom, pid:c.pid, risks:risks, estado:c.estado||'completo'});
+  });
+
+  if(riskAtletes.length){
+    h += "<div style='background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:14px;padding:14px 16px;margin-bottom:14px;'>";
+    h += "<div style='display:flex;align-items:center;gap:8px;margin-bottom:10px;'>";
+    h += "<div style='width:28px;height:28px;border-radius:8px;background:rgba(239,68,68,.2);display:flex;align-items:center;justify-content:center;font-size:14px;'>⚠️</div>";
+    h += "<div style='font-size:12px;font-weight:800;color:#fca5a5;'>Señales de Riesgo — "+riskAtletes.length+" atleta"+(riskAtletes.length>1?'s':'')+' con carga > 90% de su máximo histórico</div>';
+    h += "</div>";
+    h += "<div style='display:flex;flex-wrap:wrap;gap:8px;'>";
+    riskAtletes.forEach(function(ra){
+      h += "<div style='background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:8px 12px;'>";
+      h += "<div style='font-size:10px;font-weight:800;color:#fca5a5;margin-bottom:4px;'>"+ra.nom+"</div>";
+      ra.risks.forEach(function(r){
+        h += "<div style='font-size:9px;color:#f87171;'>"+r.var+": "+r.val+" ("+r.pct+")</div>";
+      });
+      h += "</div>";
+    });
+    h += "</div></div>";
+  }
+
+  // ── TRAINING PARAMETERS TABLE ─────────────────────────────────
+  h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;overflow:hidden;'>";
+  h += "<div style='padding:12px 16px;border-bottom:1px solid "+DS.border+";display:flex;align-items:center;justify-content:space-between;'>";
+  h += gpsSectionHeader('📋','Training Parameters','Desglose individual · verde = sobre promedio · rojo = bajo promedio');
+  h += "<span style='font-size:10px;color:"+DS.text3+";'>"+sesionFiltrada.length+" atletas</span>";
   h += "</div>";
-  h += "<div style='overflow-x:auto;'>";
-  h += "<table style='width:100%;border-collapse:collapse;min-width:900px;font-size:11px;'>";
-  // Cabecera — fondo muy oscuro, texto visible
-  h += "<thead><tr style='background:#0f172a;border-bottom:2px solid rgba(255,255,255,.12);'>";
-  h += "<th style='padding:10px 12px;text-align:left;font-size:10px;font-weight:700;color:#94a3b8;white-space:nowrap;'>NOMBRE</th>";
-  h += "<th style='padding:10px 8px;text-align:center;font-size:10px;font-weight:700;color:#94a3b8;'>POS.</th>";
-  h += "<th style='padding:10px 8px;text-align:center;font-size:10px;font-weight:700;color:#94a3b8;'>ESTADO</th>";
+  h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;min-width:900px;'>";
+  h += "<thead><tr style='background:"+DS.bg1+";'>";
+  h += "<th style='padding:10px 12px;text-align:left;font-size:9px;font-weight:700;color:"+DS.text3+";letter-spacing:.06em;'>ATLETA</th>";
+  h += "<th style='padding:10px 8px;text-align:center;font-size:9px;font-weight:700;color:"+DS.text3+";'>POS</th>";
+  h += "<th style='padding:10px 8px;text-align:center;font-size:9px;font-weight:700;color:"+DS.text3+";'>ESTADO</th>";
   GPS_VARS.forEach(function(v){
-    h += "<th style='padding:10px 8px;text-align:right;font-size:10px;font-weight:700;color:"+v.color+";white-space:nowrap;'>"+v.icon+" "+v.label+"<br><span style='font-size:8px;font-weight:400;color:#475569;'>"+v.unit+"</span></th>";
+    h += "<th style='padding:10px 8px;text-align:right;font-size:9px;font-weight:700;color:"+v.color+";white-space:nowrap;border-left:1px solid "+DS.border+";'>"
+       + v.icon+" "+v.label
+       + "<div style='font-size:7px;font-weight:400;color:"+DS.text3+";'>"+v.unit+"</div></th>";
   });
   h += "</tr></thead><tbody>";
 
-  // Ordenar por posición
   var sortedJugs = sesionFiltrada.slice().sort(function(a,b){
     var ja = plantel.find(function(p){ return p.id===a.pid; });
     var jb = plantel.find(function(p){ return p.id===b.pid; });
-    var pa = ja?(ja.apellido||ja.nombre||''):'';
-    var pb = jb?(jb.apellido||jb.nombre||''):'';
+    var pa = ja?(ja.apellido||ja.nombre||''):''; var pb = jb?(jb.apellido||jb.nombre||''):'';
     return pa.localeCompare(pb);
   });
 
@@ -11661,33 +11884,33 @@ function renderGPSActividad(){
     var nombre = jug ? ((jug.apellido||'')+(jug.nombre?' '+jug.nombre.slice(0,1)+'.':'')).toUpperCase() : (c.nombreOrig||'—');
     var pos = jug ? (jug.pos||jug.posicion||'—') : '—';
     var estado = c.estado||'completo';
-    var estadoCfg = {completo:{bg:'rgba(5,150,105,.18)',color:'#34d399',txt:'✅ Completo'},
-                     parcial:{bg:'rgba(245,158,11,.15)',color:'#fbbf24',txt:'⚠️ Parcial'},
-                     baja:{bg:'rgba(220,38,38,.15)',color:'#f87171',txt:'🔴 Baja'}};
-    var eCfg = estadoCfg[estado]||estadoCfg.completo;
-    var bg = ri%2===0 ? 'rgba(255,255,255,.03)' : 'rgba(0,0,0,.12)';
+    var eCfg = {completo:{bg:'rgba(16,185,129,.12)',col:'#34d399',txt:'✅'},
+                parcial: {bg:'rgba(245,158,11,.12)',col:'#fbbf24',txt:'⚠️'},
+                baja:    {bg:'rgba(239,68,68,.12)', col:'#f87171',txt:'🔴'}};
+    var ec = eCfg[estado]||eCfg.completo;
+    var bg = ri%2===0 ? DS.card : DS.bg2;
 
-    h += "<tr style='background:"+bg+";border-bottom:1px solid rgba(255,255,255,.05);'>";
-    h += "<td style='padding:8px 12px;font-size:11px;font-weight:700;color:#e2e8f0;white-space:nowrap;'>"+nombre+"</td>";
-    h += "<td style='padding:8px;text-align:center;'><span style='font-size:10px;font-weight:800;color:#f1f5f9;background:rgba(255,255,255,.12);padding:2px 8px;border-radius:99px;'>"+abrevPos(pos)+"</span></td>";
-    h += "<td style='padding:8px;text-align:center;'><span style='font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;background:"+eCfg.bg+";color:"+eCfg.color+";'>"+eCfg.txt+"</span></td>";
+    h += "<tr style='background:"+bg+";border-bottom:1px solid "+DS.border+";'>";
+    h += "<td style='padding:8px 12px;font-size:11px;font-weight:700;color:"+DS.text1+";white-space:nowrap;'>"+nombre+"</td>";
+    h += "<td style='padding:8px;text-align:center;'><span style='font-size:9px;font-weight:800;color:"+DS.text2+";background:rgba(255,255,255,.08);padding:2px 7px;border-radius:99px;'>"+abrevPos(pos)+"</span></td>";
+    h += "<td style='padding:8px;text-align:center;'><span style='font-size:9px;padding:2px 7px;border-radius:99px;background:"+ec.bg+";color:"+ec.col+";'>"+ec.txt+"</span></td>";
     GPS_VARS.forEach(function(v){
       var val = parseFloat(c[v.k])||0;
       var pv = prom[v.k];
-      var diff = pv > 0 ? (val-pv)/pv : 0;
-      var txtColor = diff > 0.15 ? '#34d399' : diff < -0.15 ? '#f87171' : '#cbd5e1';
-      var bold = Math.abs(diff) > 0.15 ? '800' : '500';
-      h += "<td style='padding:8px;text-align:right;font-size:12px;font-weight:"+bold+";color:"+txtColor+";'>"+formatGPSVal(v.k,val)+"</td>";
+      var diff = pv>0 ? (val-pv)/pv : 0;
+      var txtColor = diff > 0.15 ? '#34d399' : diff < -0.15 ? '#f87171' : DS.text2;
+      var fw = Math.abs(diff)>0.15 ? '800' : '500';
+      h += "<td style='padding:8px;text-align:right;font-size:11px;font-weight:"+fw+";color:"+txtColor+";border-left:1px solid "+DS.border+";'>"+formatGPSVal(v.k,val)+"</td>";
     });
     h += "</tr>";
   });
 
-  // Fila de promedios al final (como Catapult)
-  h += "<tr style='background:#0f172a;border-top:2px solid rgba(255,255,255,.12);'>";
-  h += "<td style='padding:10px 12px;font-size:11px;font-weight:800;color:#f1f5f9;'>⌀ PROMEDIO</td>";
+  // Avg row
+  h += "<tr style='background:"+DS.bg1+";border-top:2px solid "+DS.borderB+";'>";
+  h += "<td style='padding:10px 12px;font-size:10px;font-weight:800;color:"+DS.gold+";'>⌀ PROMEDIO EQUIPO</td>";
   h += "<td colspan='2'></td>";
   GPS_VARS.forEach(function(v){
-    h += "<td style='padding:10px 8px;text-align:right;font-size:12px;font-weight:900;color:#f5c800;'>"+formatGPSVal(v.k,prom[v.k])+"</td>";
+    h += "<td style='padding:10px 8px;text-align:right;font-size:12px;font-weight:900;color:"+DS.gold+";border-left:1px solid "+DS.border+";'>"+formatGPSVal(v.k,prom[v.k])+"</td>";
   });
   h += "</tr>";
   h += "</tbody></table></div></div>";
@@ -11696,39 +11919,37 @@ function renderGPSActividad(){
 }
 
 function renderGraficaAtletas(datos, varKey, plantel, posiciones, maxVal){
-  // Gráfica de barras agrupadas por posición (estilo Catapult)
   var varCfg = GPS_VARS.find(function(v){ return v.k===varKey; }) || {label:varKey,unit:'',icon:'',color:'#10b981'};
   var color = varCfg.color || '#10b981';
+  var DS = GPS_DS;
 
-  var BAR_W = 36, GAP_JUG = 6, GAP_POS = 24, HEIGHT = 200, PAD_L = 52, PAD_B = 64;
-
+  var BAR_W = 36, GAP_JUG = 8, GAP_POS = 28, HEIGHT = 200, PAD_L = 52, PAD_B = 70;
   var totalJugs = datos.length;
   var numPos = posiciones.length;
-  var totalW = PAD_L + totalJugs*BAR_W + totalJugs*GAP_JUG + numPos*GAP_POS + 20;
-  var svgW = Math.max(totalW, 600);
-  var svgH = HEIGHT + PAD_B + 20;
+  var totalW = PAD_L + totalJugs*(BAR_W+GAP_JUG) + numPos*GAP_POS + 20;
+  var svgW = Math.max(totalW, 500);
+  var svgH = HEIGHT + PAD_B + 24;
 
-  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+svgW+'" height="'+svgH+'" style="font-family:Arial,sans-serif;">';
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+svgW+'" height="'+svgH+'" style="font-family:\'SF Pro Display\',Arial,sans-serif;">';
+  svg += '<rect width="100%" height="100%" fill="none"/>';
 
-  // Fondo transparente oscuro (compatible con tema dark)
-  svg += '<rect width="100%" height="100%" fill="rgba(0,0,0,0)" rx="6"/>';
-
-  // Líneas de referencia (tema oscuro)
   var promVal = datos.reduce(function(a,c){ return a+(parseFloat(c[varKey])||0); },0)/(datos.length||1);
+
+  // Grid lines
   [0.25,0.5,0.75,1].forEach(function(pct){
-    var y = HEIGHT - Math.round(pct*HEIGHT) + 20;
-    var val = pct===1 ? maxVal : Math.round(maxVal*pct);
+    var y = HEIGHT - Math.round(pct*HEIGHT) + 24;
+    var val = Math.round(maxVal*pct);
     var dispVal = val >= 1000 ? (val/1000).toFixed(1)+'k' : val;
-    svg += '<line x1="'+PAD_L+'" y1="'+y+'" x2="'+(svgW-10)+'" y2="'+y+'" stroke="rgba(255,255,255,.08)" stroke-width="1"/>';
-    svg += '<text x="'+(PAD_L-4)+'" y="'+(y+4)+'" text-anchor="end" font-size="9" fill="#64748b">'+dispVal+'</text>';
+    svg += '<line x1="'+PAD_L+'" y1="'+y+'" x2="'+(svgW-8)+'" y2="'+y+'" stroke="rgba(255,255,255,.06)" stroke-width="1"/>';
+    svg += '<text x="'+(PAD_L-5)+'" y="'+(y+4)+'" text-anchor="end" font-size="9" fill="'+DS.text3+'">'+dispVal+'</text>';
   });
 
-  // Línea de promedio del equipo
+  // Team avg line
   if(promVal > 0){
-    var yProm = HEIGHT - Math.round(promVal/maxVal*HEIGHT) + 20;
-    svg += '<line x1="'+PAD_L+'" y1="'+yProm+'" x2="'+(svgW-10)+'" y2="'+yProm+'" stroke="#f5c800" stroke-width="1.5" stroke-dasharray="6,4" opacity=".7"/>';
+    var yProm = HEIGHT - Math.round(promVal/maxVal*HEIGHT) + 24;
+    svg += '<line x1="'+PAD_L+'" y1="'+yProm+'" x2="'+(svgW-8)+'" y2="'+yProm+'" stroke="'+DS.gold+'" stroke-width="1.5" stroke-dasharray="6,4" opacity=".75"/>';
     var promDisp = varCfg.dec > 0 ? promVal.toFixed(varCfg.dec) : Math.round(promVal);
-    svg += '<text x="'+(svgW-8)+'" y="'+(yProm-3)+'" font-size="9" fill="#f5c800" font-weight="700" text-anchor="end">⌀ '+promDisp+'</text>';
+    svg += '<text x="'+(svgW-6)+'" y="'+(yProm-4)+'" font-size="9" fill="'+DS.gold+'" font-weight="700" text-anchor="end">⌀ '+promDisp+'</text>';
   }
 
   var xCursor = PAD_L + GAP_POS/2;
@@ -11742,58 +11963,53 @@ function renderGraficaAtletas(datos, varKey, plantel, posiciones, maxVal){
 
     var blockW = jugsPos.length*(BAR_W+GAP_JUG) - GAP_JUG;
     var xMid = xCursor + blockW/2;
-    // Etiqueta posición
-    svg += '<text x="'+xMid+'" y="14" text-anchor="middle" font-size="10" font-weight="800" fill="#94a3b8">'+abrevPos(pos)+'</text>';
-    svg += '<line x1="'+xCursor+'" y1="19" x2="'+(xCursor+blockW)+'" y2="19" stroke="rgba(255,255,255,.12)" stroke-width="1"/>';
+    // pos label
+    svg += '<text x="'+xMid+'" y="16" text-anchor="middle" font-size="10" font-weight="800" fill="'+DS.text2+'">'+abrevPos(pos)+'</text>';
+    svg += '<line x1="'+(xCursor-4)+'" y1="21" x2="'+(xCursor+blockW+4)+'" y2="21" stroke="rgba(255,255,255,.1)" stroke-width="1"/>';
 
     jugsPos.forEach(function(c){
       var val = parseFloat(c[varKey])||0;
-      var barH = maxVal > 0 ? Math.max(Math.round(val/maxVal*HEIGHT), val>0?2:0) : 0;
-      var y = HEIGHT - barH + 20;
+      var pct = maxVal > 0 ? val/maxVal : 0;
+      var barH = Math.max(Math.round(pct*HEIGHT), val>0?3:0);
+      var y = HEIGHT - barH + 24;
       var jug = plantel.find(function(p){ return p.id===c.pid; });
       var nombre = jug ? (jug.apellido||jug.nombre||'').split(' ')[0].toUpperCase() : (c.nombre||c.nombreOrig||'').split(' ')[0].toUpperCase();
       if(nombre.length>8) nombre=nombre.slice(0,7)+'.';
+      var barColor = pct > 0.9 ? DS.riskHi : pct > 0.75 ? DS.riskMd : color;
 
-      // Barra con gradiente implícito (opacidad)
-      var alpha = val/maxVal;
-      var barColor = color;
-      svg += '<rect x="'+xCursor+'" y="'+y+'" width="'+BAR_W+'" height="'+barH+'" fill="'+barColor+'" rx="3" opacity="'+(0.6+alpha*0.4).toFixed(2)+'"/>';
+      // Bar gradient via two rects
+      svg += '<rect x="'+xCursor+'" y="'+y+'" width="'+BAR_W+'" height="'+barH+'" fill="'+barColor+'" rx="4" opacity="'+(0.55+pct*0.45).toFixed(2)+'"/>';
+      // Top highlight
+      if(barH > 6) svg += '<rect x="'+xCursor+'" y="'+y+'" width="'+BAR_W+'" height="4" fill="'+barColor+'" rx="4" opacity=".9"/>';
 
-      // Valor encima
       if(val>0){
         var dispVal = varCfg.dec > 0 ? parseFloat(val).toFixed(varCfg.dec) : Math.round(val);
-        svg += '<text x="'+(xCursor+BAR_W/2)+'" y="'+(y-5)+'" text-anchor="middle" font-size="9" font-weight="700" fill="#f1f5f9">'+dispVal+'</text>';
+        svg += '<text x="'+(xCursor+BAR_W/2)+'" y="'+(y-5)+'" text-anchor="middle" font-size="9" font-weight="700" fill="'+DS.text1+'">'+dispVal+'</text>';
       }
-      // Nombre rotado abajo
-      svg += '<text transform="rotate(-50,'+(xCursor+BAR_W/2)+','+(HEIGHT+PAD_B/2-6)+')" x="'+(xCursor+BAR_W/2)+'" y="'+(HEIGHT+PAD_B/2-6)+'" text-anchor="end" font-size="9" fill="#94a3b8">'+nombre+'</text>';
-
+      svg += '<text transform="rotate(-50,'+(xCursor+BAR_W/2)+','+(HEIGHT+PAD_B/2+8)+')" x="'+(xCursor+BAR_W/2)+'" y="'+(HEIGHT+PAD_B/2+8)+'" text-anchor="end" font-size="9" fill="'+DS.text2+'">'+nombre+'</text>';
       xCursor += BAR_W + GAP_JUG;
     });
     xCursor += GAP_POS;
   });
 
-  // Sin datos
   if(!datos.length){
-    svg += '<text x="'+svgW/2+'" y="'+svgH/2+'" text-anchor="middle" font-size="13" fill="#475569">Sin datos para esta sesión</text>';
+    svg += '<text x="'+svgW/2+'" y="'+svgH/2+'" text-anchor="middle" font-size="13" fill="'+DS.text3+'">Sin datos</text>';
   }
-
-  // Eje Y label
-  svg += '<text transform="rotate(-90,13,'+(HEIGHT/2+20)+')" x="13" y="'+(HEIGHT/2+20)+'" text-anchor="middle" font-size="10" fill="#475569">'+varCfg.icon+' '+varCfg.label+'</text>';
+  svg += '<text transform="rotate(-90,13,'+(HEIGHT/2+24)+')" x="13" y="'+(HEIGHT/2+24)+'" text-anchor="middle" font-size="9" fill="'+DS.text3+'">'+varCfg.label+'</text>';
   svg += '</svg>';
   return svg;
 }
 
 function cambiarVarGraficaAct(varKey){
-  // Actualizar botones visualmente
+  var DS = GPS_DS;
   GPS_VARS_GRAFICA.forEach(function(k){
     var btn = document.getElementById('btn-act-'+k);
     if(!btn) return;
     var vCfg = GPS_VARS.find(function(v){ return v.k===k; });
     var c = vCfg ? vCfg.color : '#1a1a1a';
     if(k===varKey){ btn.style.background=c; btn.style.color='#fff'; btn.style.borderColor=c; }
-    else{ btn.style.background='transparent'; btn.style.color='#9ca3af'; btn.style.borderColor='rgba(255,255,255,.15)'; }
+    else{ btn.style.background='transparent'; btn.style.color=DS.text2; btn.style.borderColor=DS.border; }
   });
-  // Re-render gráfica usando gpsCargoFiltrado (incluye Catapult CSV)
   var plantel = JDB.length>0 ? JDB : PL;
   var fechaSel = (document.getElementById('gps-fecha-sel')||{value:''}).value || '';
   if(!fechaSel) return;
@@ -11816,52 +12032,52 @@ function renderGPSSemanal(){
   var _gpsCatChkS=[]; try{ var _gckS=localStorage.getItem('BFC_GPS_CAT'); if(_gckS) _gpsCatChkS=JSON.parse(_gckS)||[]; }catch(e){}
   if((!CARGA || !CARGA.length) && !_gpsCatChkS.length) return renderGPSVacio();
 
-  // Usar datos filtrados por globals
   var cargaFil = gpsCargoFiltrado();
   var jugsF = window._gpsFilJugs && window._gpsFilJugs.length ? window._gpsFilJugs : null;
   var pF = window._gpsFilPos || '';
   var plantelSem = JDB.length>0 ? JDB : PL;
+  var DS = GPS_DS;
 
-  // Agrupar sesiones por semana (sobre datos filtrados)
   var todasFechas = [...new Set(cargaFil.map(function(c){ return c.fecha; }))].sort();
-  if(!todasFechas.length) return "<div style='text-align:center;padding:40px;color:#9ca3af;'>No hay datos para el filtro seleccionado.</div>";
+  if(!todasFechas.length) return "<div style='text-align:center;padding:40px;color:"+DS.text3+";'>Sin datos para el filtro seleccionado.</div>";
 
-  // Construir lista de semanas (grupos de 7 fechas) para selector
   var semanas = [];
   for(var si=0; si<todasFechas.length; si+=7){
     var bloque = todasFechas.slice(si, si+7);
-    semanas.push({inicio: bloque[0], fin: bloque[bloque.length-1], fechas: bloque});
+    semanas.push({inicio:bloque[0], fin:bloque[bloque.length-1], fechas:bloque});
   }
-  // Permitir selección; por defecto la última semana
   if(window._gpsSemIdx === undefined || window._gpsSemIdx >= semanas.length) window._gpsSemIdx = semanas.length-1;
   var semIdx = window._gpsSemIdx;
   var semanaActual = semanas[semIdx].fechas;
   var semanaAnterior = semIdx > 0 ? semanas[semIdx-1].fechas : [];
 
   var filLabel = gpsFiltroLabel();
-  var h = "<div style='margin-bottom:12px;'>";
+  var h = "<div>";
 
-  // ── Selector de semana ─────────────────────────────────────────
-  h += "<div style='display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;'>";
-  h += "<div style='font-size:9px;font-weight:800;color:#888;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;'>SEMANA:</div>";
-  h += "<div style='display:flex;align-items:center;gap:4px;'>";
+  // ── WEEK NAVIGATOR ──────────────────────────────────────────────
+  h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;'>";
+  h += "<div style='display:flex;align-items:center;gap:8px;'>";
   h += "<button onclick='if(window._gpsSemIdx>0){window._gpsSemIdx--;var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSSemanal();}' "
-     + "style='padding:5px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);background:var(--bg-card);color:var(--text-1);font-size:13px;cursor:pointer;line-height:1;'>◀</button>";
-  h += "<div style='padding:6px 14px;border:1px solid var(--border-b);border-radius:var(--r-sm);background:var(--bg-card);font-size:12px;font-weight:700;color:var(--text-1);white-space:nowrap;'>"
-     + semanas[semIdx].inicio+" → "+semanas[semIdx].fin+"</div>";
+     + "style='width:32px;height:32px;border:1px solid "+DS.border+";border-radius:8px;background:"+DS.bg1+";color:"+DS.text1+";font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;'>◀</button>";
+  h += "<div>";
+  h += "<div style='font-size:14px;font-weight:900;color:"+DS.text1+";'>Semana "+semanas[semIdx].inicio+" → "+semanas[semIdx].fin+"</div>";
+  h += "<div style='font-size:10px;color:"+DS.text3+";margin-top:2px;'>"+(semIdx+1)+" de "+semanas.length+" semanas · "+semanaActual.length+" sesiones"+filLabel+"</div>";
+  h += "</div>";
   h += "<button onclick='if(window._gpsSemIdx<"+(semanas.length-1)+"){window._gpsSemIdx++;var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSSemanal();}' "
-     + "style='padding:5px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);background:var(--bg-card);color:var(--text-1);font-size:13px;cursor:pointer;line-height:1;'"+( semIdx>=semanas.length-1?" disabled style='opacity:.4;cursor:default;padding:5px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);background:var(--bg-card);color:var(--text-1);font-size:13px;'":"")+">▶</button>";
-  if(semIdx < semanas.length-1) h += "<button onclick='window._gpsSemIdx="+(semanas.length-1)+";var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSSemanal();' style='padding:5px 12px;border:1px solid var(--border-b);border-radius:var(--r-sm);background:transparent;color:#888;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;'>Semana actual</button>";
+     + "style='width:32px;height:32px;border:1px solid "+DS.border+";border-radius:8px;background:"+DS.bg1+";color:"+DS.text1+";font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;"+(semIdx>=semanas.length-1?"opacity:.4;cursor:default;":"")+"'>▶</button>";
   h += "</div>";
-  h += "<div style='font-size:9px;color:#64748b;'>"+semIdx+" / "+(semanas.length-1)+" semanas · "+(semanaActual.length)+" sesiones</div>";
+  if(semIdx < semanas.length-1){
+    h += "<button onclick='window._gpsSemIdx="+(semanas.length-1)+";var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSSemanal();' "
+       + "style='padding:6px 14px;border:1px solid "+DS.borderB+";border-radius:8px;background:transparent;color:"+DS.text2+";font-size:10px;font-weight:700;cursor:pointer;'>Semana actual →</button>";
+  }
   h += "</div>";
 
-  h += "<div style='font-size:11px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;'>CARGA SEMANAL — MICROCICLO "+semanas[semIdx].inicio+" → "+semanas[semIdx].fin+filLabel+"</div>";
-
-  // Gráfica de barras por día
-  h += "<div class='card' style='padding:14px;margin-bottom:14px;'>";
-  var tituloGrafica = jugsF && jugsF.length===1 ? "📊 PlayerLoad Diario — "+((plantelSem.find(function(p){return p.id===jugsF[0];})||{}).apellido||'Jugador') : jugsF && jugsF.length>1 ? "📊 PlayerLoad Diario — Comparativa Jugadores" : "📊 PlayerLoad Diario — Promedio Equipo";
-  h += "<div style='font-size:11px;font-weight:700;color:#e2e8f0;margin-bottom:12px;'>"+tituloGrafica+"</div>";
+  // ── CARGA DIARIA: VISUALIZACIÓN ─────────────────────────────────
+  h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;padding:14px 16px;margin-bottom:14px;'>";
+  var tituloGrafica = jugsF && jugsF.length===1
+    ? "⚡ PlayerLoad Diario — "+((plantelSem.find(function(p){return p.id===jugsF[0];})||{}).apellido||'Jugador')
+    : jugsF && jugsF.length>1 ? "⚡ PlayerLoad Diario — Comparativa" : "⚡ Carga Diaria — Promedio Equipo";
+  h += gpsSectionHeader('📆', tituloGrafica, 'Rojo = alta carga  ·  línea punteada = media semanal');
 
   var maxLoad = 0;
   var dayData = semanaActual.map(function(fecha){
@@ -11870,65 +12086,73 @@ function renderGPSSemanal(){
     if(avg > maxLoad) maxLoad = avg;
     return {fecha:fecha, avg:avg, n:ses.length};
   });
+  var avgSem = dayData.reduce(function(a,d){ return a+d.avg; },0)/(dayData.filter(function(d){return d.avg>0;}).length||1);
 
-  h += "<div style='display:flex;align-items:flex-end;gap:6px;height:120px;padding-bottom:20px;position:relative;'>";
-  // Líneas de referencia
-  h += "<div style='position:absolute;top:0;left:0;right:0;bottom:20px;pointer-events:none;'>";
-  [0.25,0.5,0.75,1].forEach(function(pct){
-    h += "<div style='position:absolute;left:0;right:0;bottom:"+(pct*100)+"%;"
-       + "border-top:1px solid rgba(0,0,0,.06);'></div>";
-  });
-  h += "</div>";
+  h += "<div style='display:flex;align-items:flex-end;gap:8px;height:140px;padding-bottom:28px;position:relative;margin-top:8px;'>";
+  // avg line
+  if(maxLoad > 0){
+    var avgPct = avgSem/maxLoad*100;
+    h += "<div style='position:absolute;left:0;right:0;bottom:calc("+avgPct+"% + 28px);border-top:1px dashed "+DS.gold+";opacity:.5;pointer-events:none;z-index:1;'></div>";
+  }
   dayData.forEach(function(d){
     var pct = maxLoad > 0 ? d.avg/maxLoad : 0;
     var barH = Math.round(pct*100);
-    var color = pct>0.85 ? '#8B0000' : pct>0.65 ? '#b45309' : pct>0.45 ? '#1d4ed8' : '#065f46';
-    h += "<div style='flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;'>";
-    h += "<div style='font-size:9px;font-weight:700;color:"+color+";margin-bottom:3px;'>"+(d.avg?d.avg.toFixed(1):'—')+"</div>";
-    h += "<div style='width:100%;background:"+color+";border-radius:4px 4px 0 0;height:"+barH+"%;min-height:"+(d.avg?4:0)+"px;transition:height .3s;'></div>";
-    h += "<div style='font-size:8px;color:#9ca3af;margin-top:4px;text-align:center;'>"+(d.fecha.slice(5))+"<br>"+(d.n?"("+d.n+")":'')+"</div>";
-    h += "</div>";
+    var barColor = pct>0.85 ? DS.riskHi : pct>0.65 ? DS.riskMd : pct>0.4 ? DS.riskOk : DS.riskLo;
+    var dayOfWeek = '';
+    try{ var dow=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb']; var dd=new Date(d.fecha); dayOfWeek=dow[dd.getUTCDay()]; }catch(e){}
+    h += "<div style='flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;position:relative;'>";
+    h += "<div style='font-size:10px;font-weight:800;color:"+barColor+";margin-bottom:4px;'>"+(d.avg?d.avg.toFixed(1):'—')+"</div>";
+    h += "<div style='width:100%;background:"+barColor+";border-radius:6px 6px 0 0;height:"+barH+"%;min-height:"+(d.avg?4:0)+"px;transition:height .4s;opacity:"+(d.avg?1:.2)+";'></div>";
+    h += "<div style='margin-top:5px;text-align:center;'>";
+    h += "<div style='font-size:9px;font-weight:700;color:"+DS.text2+";'>"+dayOfWeek+"</div>";
+    h += "<div style='font-size:8px;color:"+DS.text3+";'>"+d.fecha.slice(5)+"</div>";
+    h += "<div style='font-size:8px;color:"+DS.text3+";'>"+(d.n?"("+d.n+")":'')+"</div>";
+    h += "</div></div>";
   });
   h += "</div></div>";
 
-  // Tabla resumen semanal por variable (filtrada)
-  h += "<div class='card' style='padding:0;overflow:hidden;margin-bottom:14px;'>";
-  h += "<div style='background:#1a1a1a;padding:9px 14px;'><span style='color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;'>RESUMEN VARIABLES — SEMANA ACTUAL</span></div>";
-  h += "<div style='display:grid;grid-template-columns:repeat(4,1fr);'>";
+  // ── KPI GRID: Variables de la semana + delta vs semana anterior ─
+  h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;padding:14px 16px;margin-bottom:14px;'>";
+  h += gpsSectionHeader('📊','Resumen de Variables','Promedio por sesión · vs semana anterior');
+  h += "<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-top:4px;'>";
   GPS_VARS.forEach(function(v){
     var vals = semanaActual.reduce(function(acc, fecha){
-      var ses = cargaFil.filter(function(c){ return c.fecha===fecha; });
-      ses.forEach(function(c){ var n=parseFloat(c[v.k]); if(n) acc.push(n); });
+      cargaFil.filter(function(c){ return c.fecha===fecha; }).forEach(function(c){ var n=parseFloat(c[v.k]); if(n) acc.push(n); });
       return acc;
     },[]);
-    var total = vals.reduce(function(a,b){ return a+b; },0);
-    var avg = vals.length ? total/vals.length : 0;
+    var avg = vals.length ? vals.reduce(function(a,b){return a+b;},0)/vals.length : 0;
     var sem_ant_vals = semanaAnterior.reduce(function(acc, fecha){
-      var ses = cargaFil.filter(function(c){ return c.fecha===fecha; });
-      ses.forEach(function(c){ var n=parseFloat(c[v.k]); if(n) acc.push(n); });
+      cargaFil.filter(function(c){ return c.fecha===fecha; }).forEach(function(c){ var n=parseFloat(c[v.k]); if(n) acc.push(n); });
       return acc;
     },[]);
-    var avgAnt = sem_ant_vals.length ? sem_ant_vals.reduce(function(a,b){ return a+b; },0)/sem_ant_vals.length : 0;
-    var diff = avgAnt>0 ? (avg-avgAnt)/avgAnt*100 : 0;
-    var diffCol = diff>5 ? '#065f46' : diff<-5 ? '#dc2626' : '#9ca3af';
-    h += "<div style='padding:12px;border-right:1px solid #f3f4f6;border-bottom:1px solid #f3f4f6;'>";
-    h += "<div style='font-size:9px;color:#888;margin-bottom:4px;'>"+v.icon+" "+v.label+"</div>";
-    h += "<div style='font-size:16px;font-weight:900;color:"+v.color+";'>"+formatGPSVal(v.k,avg)+"</div>";
-    if(avgAnt>0) h += "<div style='font-size:9px;font-weight:700;color:"+diffCol+";'>"+(diff>0?'▲':'▼')+" "+(diff>0?'+':'')+diff.toFixed(1)+"% vs sem.ant.</div>";
-    else h += "<div style='font-size:9px;color:#9ca3af;'>prom/sesión</div>";
+    var avgAnt = sem_ant_vals.length ? sem_ant_vals.reduce(function(a,b){return a+b;},0)/sem_ant_vals.length : 0;
+    var diff = avgAnt>0 ? (avg-avgAnt)/avgAnt*100 : null;
+    var dCol = diff!==null ? (diff>10?DS.green:diff<-10?DS.riskHi:DS.text3) : DS.text3;
+
+    h += "<div style='background:"+DS.bg1+";border:1px solid "+DS.border+";border-radius:10px;padding:11px 13px;'>";
+    h += "<div style='font-size:9px;color:"+DS.text3+";text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px;'>"+v.icon+" "+v.label+"</div>";
+    h += "<div style='font-size:20px;font-weight:900;color:"+v.color+";'>"+formatGPSVal(v.k,avg)+"</div>";
+    h += "<div style='font-size:8px;color:"+DS.text3+";margin-top:1px;'>"+v.unit+"</div>";
+    if(diff!==null){
+      h += "<div style='margin-top:5px;font-size:9px;font-weight:700;color:"+dCol+";'>"+(diff>0?'▲':'▼')+" "+(diff>0?'+':'')+diff.toFixed(1)+"% sem.ant.</div>";
+    } else {
+      h += "<div style='margin-top:5px;font-size:9px;color:"+DS.text3+";'>sin semana ant.</div>";
+    }
     h += "</div>";
   });
   h += "</div></div>";
 
-  // Tabla por posición o por jugadores seleccionados
+  // ── DETALLE POR POSICIÓN / JUGADORES ────────────────────────────
   if(!jugsF){
-    // Sin filtro de jugadores: tabla por posición
-    h += "<div class='card' style='padding:0;overflow:hidden;'>";
-    h += "<div style='background:#1a1a1a;padding:9px 14px;'><span style='color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;'>CARGA POR POSICIÓN — SEMANA</span></div>";
-    h += "<table style='width:100%;border-collapse:collapse;'><thead><tr style='background:var(--bg-elevated);'>";
-    h += "<th style='padding:8px 10px;text-align:left;font-size:9px;font-weight:700;color:#888;letter-spacing:.06em;'>POSICIÓN</th>";
+    h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;overflow:hidden;'>";
+    h += "<div style='padding:12px 16px;border-bottom:1px solid "+DS.border+";'>";
+    h += gpsSectionHeader('🧭','Carga por Posición','Promedio semanal');
+    h += "</div>";
+    h += "<table style='width:100%;border-collapse:collapse;'>";
+    h += "<thead><tr style='background:"+DS.bg1+";'>";
+    h += "<th style='padding:9px 12px;text-align:left;font-size:9px;font-weight:700;color:"+DS.text3+";letter-spacing:.06em;'>POSICIÓN</th>";
     GPS_VARS.slice(0,5).forEach(function(v){
-      h += "<th style='padding:8px 6px;text-align:right;font-size:9px;font-weight:700;color:"+v.color+";'>"+v.label+"</th>";
+      h += "<th style='padding:9px 8px;text-align:right;font-size:9px;font-weight:700;color:"+v.color+";'>"+v.icon+" "+v.label+"</th>";
     });
     h += "</tr></thead><tbody>";
     var posicionesVer = pF ? [pF] : POSICIONES_GPS;
@@ -11937,87 +12161,88 @@ function renderGPSSemanal(){
       var pids = jugPos.map(function(j){ return j.id; });
       var datos = cargaFil.filter(function(c){ return semanaActual.includes(c.fecha) && pids.includes(c.pid); });
       if(!datos.length) return;
-      h += "<tr style='background:"+(pi%2?'#fafafa':'#fff')+";border-bottom:1px solid rgba(255,255,255,.05);'>";
-      h += "<td style='padding:7px 10px;font-size:11px;font-weight:700;color:#e2e8f0;'>"+pos+"<span style='font-size:9px;color:#9ca3af;font-weight:400;margin-left:6px;'>("+datos.length+" sesiones)</span></td>";
+      var bg = pi%2===0 ? DS.card : DS.bg2;
+      h += "<tr style='background:"+bg+";border-bottom:1px solid "+DS.border+";'>";
+      h += "<td style='padding:9px 12px;font-size:11px;font-weight:700;color:"+DS.text1+";'>"+pos+"<span style='font-size:9px;color:"+DS.text3+";font-weight:400;margin-left:6px;'>("+datos.length+" ses)</span></td>";
       GPS_VARS.slice(0,5).forEach(function(v){
         var vals = datos.map(function(c){ return parseFloat(c[v.k])||0; }).filter(Boolean);
-        var avg = vals.length ? vals.reduce(function(a,b){ return a+b; },0)/vals.length : 0;
-        h += "<td style='padding:7px 6px;text-align:right;font-size:11px;font-weight:700;color:var(--text-2);'>"+formatGPSVal(v.k,avg)+"</td>";
+        var avg = vals.length ? vals.reduce(function(a,b){return a+b;},0)/vals.length : 0;
+        h += "<td style='padding:9px 8px;text-align:right;font-size:11px;font-weight:700;color:"+DS.text2+";'>"+formatGPSVal(v.k,avg)+"</td>";
       });
       h += "</tr>";
     });
     h += "</tbody></table></div>";
   } else if(jugsF.length === 1) {
-    // 1 jugador: tabla detallada por sesión
-    h += "<div class='card' style='padding:0;overflow:hidden;'>";
-    h += "<div style='background:#1a1a1a;padding:9px 14px;'><span style='color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;'>DETALLE POR SESIÓN — SEMANA ACTUAL</span></div>";
-    h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;'>";
-    h += "<thead><tr style='background:var(--bg-elevated);'>";
-    h += "<th style='padding:8px 10px;text-align:left;font-size:9px;font-weight:700;color:#888;'>FECHA</th>";
+    var jSelId = jugsF[0];
+    var jSelJug = plantelSem.find(function(p){ return p.id===jSelId; });
+    h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;overflow:hidden;'>";
+    h += "<div style='padding:12px 16px;border-bottom:1px solid "+DS.border+";'>";
+    h += gpsSectionHeader('👤', (jSelJug?(jSelJug.apellido||jSelJug.nombre||'Jugador'):'Jugador').toUpperCase(),'Detalle sesión por sesión');
+    h += "</div><div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;'>";
+    h += "<thead><tr style='background:"+DS.bg1+";'>";
+    h += "<th style='padding:9px 12px;text-align:left;font-size:9px;font-weight:700;color:"+DS.text3+";'>FECHA</th>";
     GPS_VARS.slice(0,6).forEach(function(v){
-      h += "<th style='padding:8px 6px;text-align:right;font-size:9px;font-weight:700;color:"+v.color+";'>"+v.label+"</th>";
+      h += "<th style='padding:9px 8px;text-align:right;font-size:9px;font-weight:700;color:"+v.color+";'>"+v.icon+" "+v.label+"</th>";
     });
-    h += "<th style='padding:8px 6px;text-align:center;font-size:9px;font-weight:700;color:#888;'>ESTADO</th>";
+    h += "<th style='padding:9px 8px;text-align:center;font-size:9px;font-weight:700;color:"+DS.text3+";'>ESTADO</th>";
     h += "</tr></thead><tbody>";
     semanaActual.forEach(function(fecha, ri){
-      var reg = cargaFil.find(function(c){ return c.fecha===fecha; });
-      var bg = ri%2===0?'#fff':'#fafafa';
-      h += "<tr style='background:"+bg+";border-bottom:1px solid rgba(255,255,255,.05);'>";
-      h += "<td style='padding:7px 10px;font-size:11px;font-weight:700;color:#e2e8f0;'>"+fecha+"</td>";
+      var reg = cargaFil.find(function(c){ return c.fecha===fecha && c.pid===jSelId; });
+      var bg = ri%2===0 ? DS.card : DS.bg2;
+      h += "<tr style='background:"+bg+";border-bottom:1px solid "+DS.border+";'>";
+      h += "<td style='padding:9px 12px;font-size:11px;font-weight:700;color:"+DS.text1+";'>"+fecha+"</td>";
       GPS_VARS.slice(0,6).forEach(function(v){
         var val = reg ? parseFloat(reg[v.k])||0 : 0;
-        h += "<td style='padding:7px 6px;text-align:right;font-size:11px;font-weight:700;color:var(--text-2);'>"+(val?formatGPSVal(v.k,val):'—')+"</td>";
+        h += "<td style='padding:9px 8px;text-align:right;font-size:11px;font-weight:700;color:"+(val?DS.text1:DS.text3)+";'>"+(val?formatGPSVal(v.k,val):'—')+"</td>";
       });
       var est = reg ? (reg.estado||'completo') : '—';
-      var estColor = est==='completo' ? '#065f46' : est==='parcial' ? '#d97706' : '#9ca3af';
-      h += "<td style='padding:7px 6px;text-align:center;font-size:9px;font-weight:700;color:"+estColor+";text-transform:uppercase;'>"+est+"</td>";
+      var estCol = est==='completo' ? DS.green : est==='parcial' ? DS.riskMd : DS.text3;
+      h += "<td style='padding:9px 8px;text-align:center;font-size:9px;font-weight:700;color:"+estCol+";text-transform:uppercase;'>"+est+"</td>";
       h += "</tr>";
     });
     h += "</tbody></table></div></div>";
   } else {
-    // MULTI-JUGADOR: tabla comparativa — fila por jugador × columna por variable (promedio semanal)
-    h += "<div class='card' style='padding:0;overflow:hidden;'>";
-    h += "<div style='background:#1a1a1a;padding:9px 14px;display:flex;align-items:center;justify-content:space-between;'>";
-    h += "<span style='color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;'>COMPARATIVA JUGADORES — SEMANA</span>";
-    h += "<span style='color:#9ca3af;font-size:9px;'>"+jugsF.length+" jugadores · prom. semanal</span></div>";
-    h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;min-width:600px;'>";
-    h += "<thead><tr style='background:var(--bg-elevated);border-bottom:2px solid #e5e7eb;'>";
-    h += "<th style='padding:8px 10px;text-align:left;font-size:9px;font-weight:700;color:#888;'>JUGADOR</th>";
-    GPS_VARS.slice(0,5).forEach(function(v){
-      h += "<th style='padding:8px 6px;text-align:right;font-size:9px;font-weight:700;color:"+v.color+";'>"+v.icon+"<br>"+v.label+"</th>";
-    });
-    h += "</tr></thead><tbody>";
-    // Calcular promedio global para comparar
     var avgGlobal = {};
     GPS_VARS.slice(0,5).forEach(function(v){
       var vals = cargaFil.filter(function(c){ return semanaActual.includes(c.fecha); }).map(function(c){ return parseFloat(c[v.k])||0; }).filter(Boolean);
       avgGlobal[v.k] = vals.length ? vals.reduce(function(a,b){return a+b;},0)/vals.length : 0;
     });
+    h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;overflow:hidden;'>";
+    h += "<div style='padding:12px 16px;border-bottom:1px solid "+DS.border+";display:flex;align-items:center;justify-content:space-between;'>";
+    h += gpsSectionHeader('👥','Comparativa Jugadores','Promedio semanal · verde = sobre equipo · rojo = bajo equipo');
+    h += "<span style='font-size:9px;color:"+DS.text3+";'>"+jugsF.length+" atletas</span>";
+    h += "</div>";
+    h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;min-width:600px;'>";
+    h += "<thead><tr style='background:"+DS.bg1+";'>";
+    h += "<th style='padding:9px 12px;text-align:left;font-size:9px;font-weight:700;color:"+DS.text3+";'>ATLETA</th>";
+    GPS_VARS.slice(0,5).forEach(function(v){
+      h += "<th style='padding:9px 8px;text-align:right;font-size:9px;font-weight:700;color:"+v.color+";'>"+v.icon+" "+v.label+"</th>";
+    });
+    h += "</tr></thead><tbody>";
     jugsF.forEach(function(jid, ri){
       var jug = plantelSem.find(function(p){ return p.id===jid; });
       var nombre = jug ? (jug.apellido||jug.nombre||jid) : jid;
       var jugCarga = cargaFil.filter(function(c){ return semanaActual.includes(c.fecha) && c.pid===jid; });
       var color = GPS_CHIP_COLORS[ri%GPS_CHIP_COLORS.length];
-      var bg = ri%2===0?'#fff':'#fafafa';
-      h += "<tr style='background:"+bg+";border-bottom:1px solid rgba(255,255,255,.05);'>";
-      h += "<td style='padding:8px 10px;font-size:11px;font-weight:700;color:#e2e8f0;'>"
-         + "<span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:"+color+";margin-right:6px;'></span>"
+      var bg = ri%2===0 ? DS.card : DS.bg2;
+      h += "<tr style='background:"+bg+";border-bottom:1px solid "+DS.border+";'>";
+      h += "<td style='padding:9px 12px;font-size:11px;font-weight:700;color:"+DS.text1+";'>"
+         + "<span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:"+color+";margin-right:7px;'></span>"
          + nombre.toUpperCase()
-         + "<span style='font-size:9px;color:#9ca3af;font-weight:400;margin-left:6px;'>("+jugCarga.length+" ses)</span></td>";
+         + "<span style='font-size:9px;color:"+DS.text3+";font-weight:400;margin-left:6px;'>"+jugCarga.length+" ses</span></td>";
       GPS_VARS.slice(0,5).forEach(function(v){
         var vals = jugCarga.map(function(c){ return parseFloat(c[v.k])||0; }).filter(Boolean);
         var avg = vals.length ? vals.reduce(function(a,b){return a+b;},0)/vals.length : 0;
         var diff = avgGlobal[v.k]>0 ? (avg-avgGlobal[v.k])/avgGlobal[v.k] : 0;
-        var txtC = diff>0.1 ? '#059669' : diff<-0.1 ? '#dc2626' : '#374151';
-        h += "<td style='padding:8px 6px;text-align:right;font-size:11px;font-weight:700;color:"+txtC+";'>"+(avg?formatGPSVal(v.k,avg):'—')+"</td>";
+        var txtC = diff>0.1 ? DS.green : diff<-0.1 ? DS.riskHi : DS.text2;
+        h += "<td style='padding:9px 8px;text-align:right;font-size:11px;font-weight:700;color:"+txtC+";'>"+(avg?formatGPSVal(v.k,avg):'—')+"</td>";
       });
       h += "</tr>";
     });
-    // Fila promedio grupo
-    h += "<tr style='background:#1a1a1a;border-top:2px solid #333;'>";
-    h += "<td style='padding:9px 10px;font-size:10px;font-weight:800;color:#f5c800;'>PROMEDIO GRUPO</td>";
+    h += "<tr style='background:"+DS.bg1+";border-top:2px solid "+DS.borderB+";'>";
+    h += "<td style='padding:10px 12px;font-size:10px;font-weight:800;color:"+DS.gold+";'>⌀ PROMEDIO GRUPO</td>";
     GPS_VARS.slice(0,5).forEach(function(v){
-      h += "<td style='padding:9px 6px;text-align:right;font-size:11px;font-weight:900;color:#f5c800;'>"+formatGPSVal(v.k,avgGlobal[v.k])+"</td>";
+      h += "<td style='padding:10px 8px;text-align:right;font-size:11px;font-weight:900;color:"+DS.gold+";'>"+formatGPSVal(v.k,avgGlobal[v.k])+"</td>";
     });
     h += "</tr>";
     h += "</tbody></table></div></div>";
@@ -12040,7 +12265,8 @@ function renderGPSLongitudinalVar(varKey){
   if((!CARGA || !CARGA.length) && !_gpsCatChkLV.length) return renderGPSVacio();
 
   var cargaFil = gpsCargoFiltrado();
-  if(!cargaFil.length) return "<div style='text-align:center;padding:40px;color:#9ca3af;'>No hay datos para el filtro seleccionado.</div>";
+  var DS = GPS_DS;
+  if(!cargaFil.length) return "<div style='text-align:center;padding:40px;color:"+DS.text3+";'>Sin datos para el filtro seleccionado.</div>";
 
   var varSel = window._gpsLongVar;
   var varMeta = GPS_VARS.find(function(v){ return v.k===varSel; }) || GPS_VARS[0];
@@ -12051,112 +12277,106 @@ function renderGPSLongitudinalVar(varKey){
   var todasFechasL = [...new Set(cargaFil.map(function(c){ return c.fecha; }))].sort();
   var fechaMinL = window._gpsLongFechaMin || todasFechasL[0];
   var fechaMaxL = window._gpsLongFechaMax || todasFechasL[todasFechasL.length-1];
-  // Asegurar que el rango sea válido
   if(!todasFechasL.includes(fechaMinL)) fechaMinL = todasFechasL[0];
   if(!todasFechasL.includes(fechaMaxL)) fechaMaxL = todasFechasL[todasFechasL.length-1];
   if(fechaMinL > fechaMaxL){ var tmp=fechaMinL; fechaMinL=fechaMaxL; fechaMaxL=tmp; }
-
   var fechas = todasFechasL.filter(function(f){ return f>=fechaMinL && f<=fechaMaxL; });
 
   var h = "<div>";
 
-  // ── Rango de fechas ─────────────────────────────────────────────
-  h += "<div style='display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end;'>";
-  h += "<div><label style='font-size:9px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:3px;'>DESDE</label>";
-  h += "<select id='gps-long-min' onchange='window._gpsLongFechaMin=this.value;var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSLongitudinalVar(window._gpsLongVar)' style='padding:7px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);font-size:12px;background:var(--bg-card);color:var(--text-1);'>";
+  // ── CONTROLS: rango + variable ──────────────────────────────────
+  h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;padding:14px 16px;margin-bottom:14px;'>";
+  h += "<div style='display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;'>";
+
+  // Desde / Hasta selects
+  var selStyle = "padding:7px 10px;border:1px solid "+DS.borderB+";border-radius:8px;font-size:11px;background:"+DS.bg1+";color:"+DS.text1+";";
+  h += "<div><div style='font-size:9px;font-weight:700;color:"+DS.text3+";letter-spacing:.07em;text-transform:uppercase;margin-bottom:4px;'>DESDE</div>";
+  h += "<select id='gps-long-min' onchange='window._gpsLongFechaMin=this.value;var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSLongitudinalVar(window._gpsLongVar)' style='"+selStyle+"'>";
   todasFechasL.forEach(function(f){ h += "<option value='"+f+"'"+(f===fechaMinL?' selected':'')+">"+f+"</option>"; });
   h += "</select></div>";
-  h += "<div><label style='font-size:9px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:3px;'>HASTA</label>";
-  h += "<select id='gps-long-max' onchange='window._gpsLongFechaMax=this.value;var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSLongitudinalVar(window._gpsLongVar)' style='padding:7px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);font-size:12px;background:var(--bg-card);color:var(--text-1);'>";
+  h += "<div><div style='font-size:9px;font-weight:700;color:"+DS.text3+";letter-spacing:.07em;text-transform:uppercase;margin-bottom:4px;'>HASTA</div>";
+  h += "<select id='gps-long-max' onchange='window._gpsLongFechaMax=this.value;var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSLongitudinalVar(window._gpsLongVar)' style='"+selStyle+"'>";
   todasFechasL.forEach(function(f){ h += "<option value='"+f+"'"+(f===fechaMaxL?' selected':'')+">"+f+"</option>"; });
   h += "</select></div>";
-  // Accesos rápidos
-  h += "<div style='display:flex;gap:4px;align-items:flex-end;flex-wrap:wrap;'>";
+
+  // Quick filters
+  h += "<div style='display:flex;gap:4px;align-items:flex-end;'>";
   [{l:'7 ses',n:7},{l:'15 ses',n:15},{l:'30 ses',n:30},{l:'Todo',n:9999}].forEach(function(op){
     var fi = todasFechasL.slice(-Math.min(op.n,todasFechasL.length))[0]||todasFechasL[0];
     var ff = todasFechasL[todasFechasL.length-1];
+    var isActive = fi===fechaMinL && ff===fechaMaxL;
     h += "<button onclick='window._gpsLongFechaMin=\""+fi+"\";window._gpsLongFechaMax=\""+ff+"\";var el=document.getElementById(\"gps-tab-content\");if(el)el.innerHTML=renderGPSLongitudinalVar(window._gpsLongVar)' "
-       + "style='padding:5px 10px;border:1px solid var(--border-b);border-radius:var(--r-sm);background:var(--bg-card);color:#888;font-size:10px;font-weight:700;cursor:pointer;'>"+op.l+"</button>";
+       + "style='padding:6px 11px;border:1px solid "+(isActive?DS.borderB:DS.border)+";border-radius:8px;background:"+(isActive?DS.bg2:DS.bg1)+";color:"+(isActive?DS.text1:DS.text3)+";font-size:10px;font-weight:700;cursor:pointer;'>"+op.l+"</button>";
   });
-  h += "</div>";
-  h += "</div>";
+  h += "</div></div>";
 
-  // Selector de variable
-  h += "<div style='display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap;'>";
-  h += "<div style='font-size:11px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;'>Variable:</div>";
+  // Variable selector
+  h += "<div style='display:flex;gap:6px;flex-wrap:wrap;align-items:center;'>";
+  h += "<span style='font-size:9px;font-weight:700;color:"+DS.text3+";text-transform:uppercase;letter-spacing:.07em;white-space:nowrap;'>Variable:</span>";
   GPS_VARS.forEach(function(v){
     var active = varSel === v.k;
-    h += "<button onclick='(function(){ var el=document.getElementById(\"gps-tab-content\"); if(el) el.innerHTML=renderGPSLongitudinalVar(\""+v.k+"\"); })()' style='padding:5px 12px;border-radius:99px;border:1px solid "+(active?v.color:'#d1d5db')+";background:"+(active?v.color:'transparent')+";color:"+(active?'#fff':v.color)+";font-size:10px;font-weight:700;cursor:pointer;'>"+v.icon+" "+v.label+"</button>";
+    h += "<button onclick='(function(){ var el=document.getElementById(\"gps-tab-content\"); if(el) el.innerHTML=renderGPSLongitudinalVar(\""+v.k+"\"); })()' "
+       + "style='padding:5px 11px;border-radius:99px;border:1px solid "+(active?v.color:DS.border)+";background:"+(active?v.color:'transparent')+";color:"+(active?'#fff':DS.text2)+";font-size:10px;font-weight:700;cursor:pointer;'>"+v.icon+" "+v.label+"</button>";
+  });
+  h += "</div></div>";
+
+  // ── SEASON STATS GRID ──────────────────────────────────────────
+  var allVals = cargaFil.filter(function(c){ return fechas.includes(c.fecha); }).map(function(c){ return parseFloat(c[varSel])||0; }).filter(Boolean);
+  var avgS = allVals.length ? allVals.reduce(function(a,b){return a+b;},0)/allVals.length : 0;
+  var maxS = allVals.length ? Math.max.apply(null,allVals) : 0;
+  var minS = allVals.length ? Math.min.apply(null,allVals) : 0;
+
+  h += "<div style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;'>";
+  [
+    {l:'Sesiones',v:fechas.length,u:'',c:DS.text1},
+    {l:'Promedio',v:formatGPSVal(varSel,avgS),u:varMeta.unit||'',c:varMeta.color},
+    {l:'Máximo',v:formatGPSVal(varSel,maxS),u:varMeta.unit||'',c:DS.riskHi},
+    {l:'Mínimo',v:formatGPSVal(varSel,minS),u:varMeta.unit||'',c:DS.riskLo}
+  ].forEach(function(s){
+    h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:12px;padding:12px 14px;text-align:center;'>";
+    h += "<div style='font-size:22px;font-weight:900;color:"+s.c+";'>"+s.v+"</div>";
+    h += "<div style='font-size:9px;color:"+DS.text3+";margin-top:3px;text-transform:uppercase;letter-spacing:.06em;'>"+s.l+(s.u?' · '+s.u:'')+"</div>";
+    h += "</div>";
   });
   h += "</div>";
 
-  // Gráfico de tendencia (barras horizontales por fecha)
-  h += "<div class='card' style='padding:14px;margin-bottom:14px;'>";
-  var tituloTend = jugsF && jugsF.length===1
-    ? "📈 Tendencia de "+varMeta.label+" — "+((plantelL.find(function(p){return p.id===jugsF[0];})||{}).apellido||'Jugador')
-    : jugsF && jugsF.length>1
-      ? "📈 Tendencia de "+varMeta.label+" — "+jugsF.length+" jugadores (prom. individual)"
-      : "📈 Tendencia de "+varMeta.label+" — Promedio Equipo";
-  h += "<div style='font-size:11px;font-weight:700;color:#e2e8f0;margin-bottom:4px;'>"+tituloTend+filLabel+"</div>";
-  h += "<div style='font-size:9px;color:#9ca3af;margin-bottom:12px;'>Últimas "+Math.min(fechas.length,20)+" sesiones</div>";
-
+  // ── TENDENCIA BAR CHART ─────────────────────────────────────────
   var tendencia = fechas.map(function(fecha){
     var ses = cargaFil.filter(function(c){ return c.fecha===fecha; });
     var avg = ses.length ? ses.reduce(function(a,c){ return a+(parseFloat(c[varSel])||0); },0)/ses.length : 0;
     return {fecha:fecha, avg:avg, n:ses.length};
   });
-  // Media móvil 3 sesiones para línea de tendencia
   var maxT = Math.max.apply(null, tendencia.map(function(d){ return d.avg; })) || 1;
-  var avgTotal = tendencia.reduce(function(a,d){ return a+d.avg; },0) / (tendencia.length||1);
+  var avgTotal = tendencia.filter(function(d){ return d.avg>0; }).reduce(function(a,d){return a+d.avg;},0) / (tendencia.filter(function(d){return d.avg>0;}).length||1);
+  var slicedTend = tendencia.slice(-25);
 
-  h += "<div style='display:flex;flex-direction:column;gap:5px;'>";
-  tendencia.slice(-20).forEach(function(d){
-    var pct = d.avg/maxT*100;
-    var color = pct>85 ? '#8B0000' : pct>65 ? '#b45309' : pct>45 ? '#1d4ed8' : '#065f46';
-    var vsAvg = avgTotal>0 ? (d.avg-avgTotal)/avgTotal*100 : 0;
-    var vsLabel = vsAvg>5 ? '▲' : vsAvg<-5 ? '▼' : '—';
-    var vsColor = vsAvg>5 ? '#065f46' : vsAvg<-5 ? '#dc2626' : '#9ca3af';
-    h += "<div style='display:flex;align-items:center;gap:8px;'>";
-    h += "<div style='font-size:9px;color:var(--text-2);width:70px;flex-shrink:0;'>"+d.fecha.slice(5)+"</div>";
-    h += "<div style='flex:1;height:18px;background:var(--bg-elevated);border-radius:99px;overflow:hidden;position:relative;'>";
-    // Línea de promedio
-    h += "<div style='position:absolute;left:0;top:0;bottom:0;width:"+(avgTotal/maxT*100).toFixed(1)+"%;"
-       + "border-right:1px dashed rgba(0,0,0,.2);z-index:1;'></div>";
-    h += "<div style='height:100%;width:"+pct.toFixed(1)+"%;background:"+color+";border-radius:99px;transition:width .4s;'></div>";
-    h += "</div>";
-    h += "<div style='font-size:10px;font-weight:700;color:"+color+";width:48px;text-align:right;'>"+formatGPSVal(varSel,d.avg)+"</div>";
-    h += "<div style='font-size:9px;font-weight:700;color:"+vsColor+";width:16px;text-align:center;'>"+vsLabel+"</div>";
+  h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;padding:14px 16px;margin-bottom:14px;'>";
+  var tituloTend = jugsF && jugsF.length===1
+    ? "📈 "+varMeta.label+" — "+((plantelL.find(function(p){return p.id===jugsF[0];})||{}).apellido||'Jugador')
+    : jugsF && jugsF.length>1 ? "📈 "+varMeta.label+" — "+jugsF.length+" jugadores" : "📈 Tendencia — "+varMeta.label;
+  h += gpsSectionHeader(varMeta.icon, tituloTend, 'Últimas '+slicedTend.length+' sesiones · línea punteada = media del período'+filLabel);
+
+  // Bars chart
+  h += "<div style='display:flex;align-items:flex-end;gap:4px;height:120px;padding-bottom:24px;position:relative;margin-top:10px;'>";
+  if(maxT > 0){
+    var avgPctT = avgTotal/maxT*100;
+    h += "<div style='position:absolute;left:0;right:0;bottom:calc("+avgPctT+"% + 24px);border-top:1px dashed "+DS.gold+";opacity:.6;pointer-events:none;z-index:1;'></div>";
+  }
+  slicedTend.forEach(function(d){
+    var pct = maxT > 0 ? d.avg/maxT : 0;
+    var barH = Math.round(pct*100);
+    var barColor = gpsRiskColor(pct);
+    h += "<div style='flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;'>";
+    h += "<div style='width:100%;background:"+barColor+";border-radius:4px 4px 0 0;height:"+barH+"%;min-height:"+(d.avg?2:0)+"px;transition:height .3s;opacity:"+(d.avg?1:.15)+";'></div>";
+    h += "<div style='font-size:7px;color:"+DS.text3+";margin-top:3px;text-align:center;'>"+d.fecha.slice(5)+"</div>";
     h += "</div>";
   });
   h += "</div></div>";
 
-  // Estadísticas de temporada
-  var allVals = cargaFil.map(function(c){ return parseFloat(c[varSel])||0; }).filter(Boolean);
-  var avgS = allVals.length ? allVals.reduce(function(a,b){ return a+b; },0)/allVals.length : 0;
-  var maxS = allVals.length ? Math.max.apply(null,allVals) : 0;
-  var minS = allVals.length ? Math.min.apply(null,allVals) : 0;
-  // Desviación estándar
-  var variance = allVals.reduce(function(a,v){ return a+Math.pow(v-avgS,2); },0)/(allVals.length||1);
-  var sd = Math.sqrt(variance);
-
-  h += "<div style='display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;'>";
-  [{l:'Sesiones',v:fechas.length,u:'',c:'#1a1a1a'},
-   {l:'Promedio',v:formatGPSVal(varSel,avgS),u:varMeta.unit||'',c:'#1d4ed8'},
-   {l:'Máximo',v:formatGPSVal(varSel,maxS),u:varMeta.unit||'',c:'#8B0000'},
-   {l:'Mínimo',v:formatGPSVal(varSel,minS),u:varMeta.unit||'',c:'#065f46'}
-  ].forEach(function(s){
-    h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-md);padding:12px;text-align:center;'>";
-    h += "<div style='font-size:22px;font-weight:900;color:"+s.c+";'>"+s.v+"</div>";
-    h += "<div style='font-size:9px;color:#9ca3af;margin-top:2px;'>"+s.l+(s.u?' ('+s.u+')':'')+"</div>";
-    h += "</div>";
-  });
-  h += "</div>";
-
-  // Tabla por jugador
+  // ── RANKING TABLE ───────────────────────────────────────────────
   if(!jugsF){
-    // Sin filtro: ranking top 15 de todo el plantel
     var porJug = {};
-    cargaFil.forEach(function(c){
+    cargaFil.filter(function(c){ return fechas.includes(c.fecha); }).forEach(function(c){
       var v = parseFloat(c[varSel])||0;
       if(!v) return;
       if(!porJug[c.pid]) porJug[c.pid] = [];
@@ -12170,80 +12390,86 @@ function renderGPSLongitudinalVar(varKey){
     }).sort(function(a,b){ return b.prom-a.prom; }).slice(0,15);
 
     if(ranking.length){
-      h += "<div class='card' style='padding:0;overflow:hidden;'>";
-      h += "<div style='background:#1a1a1a;padding:9px 14px;'><span style='color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;'>RANKING — "+varMeta.label.toUpperCase()+" PROMEDIO</span></div>";
+      var rankMax = ranking[0].prom || 1;
+      h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;overflow:hidden;'>";
+      h += "<div style='padding:12px 16px;border-bottom:1px solid "+DS.border+";'>";
+      h += gpsSectionHeader('🏆','Ranking — '+varMeta.label,'Promedio por sesión · top 15');
+      h += "</div>";
       h += "<table style='width:100%;border-collapse:collapse;'>";
-      h += "<thead><tr style='background:var(--bg-elevated);'>";
-      h += "<th style='padding:7px 10px;text-align:left;font-size:9px;font-weight:700;color:#888;'>JUGADOR</th>";
-      h += "<th style='padding:7px 6px;text-align:center;font-size:9px;font-weight:700;color:#888;'>POS.</th>";
-      h += "<th style='padding:7px 6px;text-align:right;font-size:9px;font-weight:700;color:"+varMeta.color+";'>PROM.</th>";
-      h += "<th style='padding:7px 6px;text-align:right;font-size:9px;font-weight:700;color:#888;'>MÁX.</th>";
-      h += "<th style='padding:7px 6px;text-align:center;font-size:9px;font-weight:700;color:#888;'>SES.</th>";
+      h += "<thead><tr style='background:"+DS.bg1+";'>";
+      h += "<th style='padding:9px 12px;text-align:left;font-size:9px;font-weight:700;color:"+DS.text3+";'>#</th>";
+      h += "<th style='padding:9px 10px;text-align:left;font-size:9px;font-weight:700;color:"+DS.text3+";'>ATLETA</th>";
+      h += "<th style='padding:9px 8px;text-align:center;font-size:9px;font-weight:700;color:"+DS.text3+";'>POS.</th>";
+      h += "<th style='padding:9px 10px;text-align:left;font-size:9px;font-weight:700;color:"+varMeta.color+";'>PROM. / BARRA</th>";
+      h += "<th style='padding:9px 8px;text-align:right;font-size:9px;font-weight:700;color:"+DS.text3+";'>MÁX.</th>";
+      h += "<th style='padding:9px 8px;text-align:center;font-size:9px;font-weight:700;color:"+DS.text3+";'>SES.</th>";
       h += "</tr></thead><tbody>";
       ranking.forEach(function(r, ri){
-        var bg = ri%2===0?'#fff':'#fafafa';
-        var medal = ri===0?'🥇':ri===1?'🥈':ri===2?'🥉':'';
-        h += "<tr style='background:"+bg+";border-bottom:1px solid rgba(255,255,255,.05);'>";
-        h += "<td style='padding:7px 10px;font-size:11px;font-weight:700;color:#e2e8f0;'>"+medal+" "+r.nombre+"</td>";
-        h += "<td style='padding:7px 6px;text-align:center;font-size:9px;color:var(--text-2);'>"+abrevPos(r.pos)+"</td>";
-        h += "<td style='padding:7px 6px;text-align:right;font-size:12px;font-weight:900;color:"+varMeta.color+";'>"+formatGPSVal(varSel,r.prom)+"</td>";
-        h += "<td style='padding:7px 6px;text-align:right;font-size:11px;font-weight:700;color:var(--text-2);'>"+formatGPSVal(varSel,r.max)+"</td>";
-        h += "<td style='padding:7px 6px;text-align:center;font-size:10px;color:#9ca3af;'>"+r.sesiones+"</td>";
+        var bg = ri%2===0 ? DS.card : DS.bg2;
+        var medal = ri===0?'🥇':ri===1?'🥈':ri===2?'🥉':(ri+1)+'';
+        var pctBar = r.prom/rankMax*100;
+        h += "<tr style='background:"+bg+";border-bottom:1px solid "+DS.border+";'>";
+        h += "<td style='padding:9px 12px;font-size:10px;font-weight:800;color:"+DS.text3+";'>"+medal+"</td>";
+        h += "<td style='padding:9px 10px;font-size:11px;font-weight:700;color:"+DS.text1+";'>"+r.nombre+"</td>";
+        h += "<td style='padding:9px 8px;text-align:center;font-size:9px;color:"+DS.text2+";'>"+abrevPos(r.pos)+"</td>";
+        h += "<td style='padding:9px 10px;'><div style='display:flex;align-items:center;gap:8px;'>";
+        h += "<div style='width:70px;height:10px;background:"+DS.bg1+";border-radius:99px;overflow:hidden;flex-shrink:0;'>";
+        h += "<div style='height:100%;width:"+pctBar.toFixed(1)+"%;background:"+varMeta.color+";border-radius:99px;'></div></div>";
+        h += "<span style='font-size:12px;font-weight:900;color:"+varMeta.color+";'>"+formatGPSVal(varSel,r.prom)+"</span></div></td>";
+        h += "<td style='padding:9px 8px;text-align:right;font-size:11px;font-weight:700;color:"+DS.text2+";'>"+formatGPSVal(varSel,r.max)+"</td>";
+        h += "<td style='padding:9px 8px;text-align:center;font-size:10px;color:"+DS.text3+";'>"+r.sesiones+"</td>";
         h += "</tr>";
       });
       h += "</tbody></table></div>";
     }
   } else if(jugsF.length > 1){
-    // MULTI-JUGADOR: tabla comparativa por sesión con fila por jugador
-    h += "<div class='card' style='padding:0;overflow:hidden;'>";
-    h += "<div style='background:#1a1a1a;padding:9px 14px;display:flex;align-items:center;justify-content:space-between;'>";
-    h += "<span style='color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;'>COMPARATIVA LONGITUDINAL — "+varMeta.label.toUpperCase()+"</span>";
-    h += "<span style='color:#9ca3af;font-size:9px;'>"+jugsF.length+" jugadores · prom./ses.</span></div>";
-    h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;min-width:500px;'>";
-    h += "<thead><tr style='background:var(--bg-elevated);border-bottom:2px solid #e5e7eb;'>";
-    h += "<th style='padding:8px 10px;text-align:left;font-size:9px;font-weight:700;color:#888;'>JUGADOR</th>";
-    h += "<th style='padding:8px 6px;text-align:center;font-size:9px;font-weight:700;color:"+varMeta.color+";'>PROM.</th>";
-    h += "<th style='padding:8px 6px;text-align:center;font-size:9px;font-weight:700;color:#888;'>MÁX.</th>";
-    h += "<th style='padding:8px 6px;text-align:center;font-size:9px;font-weight:700;color:#888;'>SES.</th>";
-    h += "<th style='padding:8px 6px;text-align:left;font-size:9px;font-weight:700;color:#888;'>TENDENCIA</th>";
-    h += "</tr></thead><tbody>";
-    // Calcular avg global del grupo para comparar
-    var allValsG = cargaFil.map(function(c){ return parseFloat(c[varSel])||0; }).filter(Boolean);
-    var avgGrupo = allValsG.length ? allValsG.reduce(function(a,b){return a+b;},0)/allValsG.length : 0;
-    var maxGrupo = allValsG.length ? Math.max.apply(null,allValsG) : 1;
+    var allValsG2 = cargaFil.filter(function(c){ return fechas.includes(c.fecha); }).map(function(c){ return parseFloat(c[varSel])||0; }).filter(Boolean);
+    var avgGrupo2 = allValsG2.length ? allValsG2.reduce(function(a,b){return a+b;},0)/allValsG2.length : 0;
+    var maxGrupo2 = allValsG2.length ? Math.max.apply(null,allValsG2) : 1;
 
+    h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;overflow:hidden;'>";
+    h += "<div style='padding:12px 16px;border-bottom:1px solid "+DS.border+";'>";
+    h += gpsSectionHeader('👥','Comparativa Longitudinal','vs promedio del grupo · verde = sobre · rojo = bajo');
+    h += "</div>";
+    h += "<table style='width:100%;border-collapse:collapse;'>";
+    h += "<thead><tr style='background:"+DS.bg1+";'>";
+    h += "<th style='padding:9px 12px;text-align:left;font-size:9px;font-weight:700;color:"+DS.text3+";'>ATLETA</th>";
+    h += "<th style='padding:9px 8px;text-align:center;font-size:9px;font-weight:700;color:"+varMeta.color+";'>PROM.</th>";
+    h += "<th style='padding:9px 8px;text-align:center;font-size:9px;font-weight:700;color:"+DS.text3+";'>MÁX.</th>";
+    h += "<th style='padding:9px 8px;text-align:center;font-size:9px;font-weight:700;color:"+DS.text3+";'>SES.</th>";
+    h += "<th style='padding:9px 10px;text-align:left;font-size:9px;font-weight:700;color:"+DS.text3+";'>vs GRUPO</th>";
+    h += "</tr></thead><tbody>";
     jugsF.forEach(function(jid, ri){
       var jug = plantelL.find(function(p){ return p.id===jid; });
       var nombre = jug ? (jug.apellido||jug.nombre||jid).toUpperCase() : jid;
-      var vals = cargaFil.filter(function(c){ return c.pid===jid; }).map(function(c){ return parseFloat(c[varSel])||0; }).filter(Boolean);
-      var avg = vals.length ? vals.reduce(function(a,b){return a+b;},0)/vals.length : 0;
-      var max = vals.length ? Math.max.apply(null,vals) : 0;
-      var color = GPS_CHIP_COLORS[ri%GPS_CHIP_COLORS.length];
-      var diff = avgGrupo>0 ? (avg-avgGrupo)/avgGrupo*100 : 0;
-      var diffC = diff>5 ? '#059669' : diff<-5 ? '#dc2626' : '#6b7280';
-      var pct = maxGrupo>0 ? avg/maxGrupo*100 : 0;
-      var bg = ri%2===0?'#fff':'#fafafa';
-      h += "<tr style='background:"+bg+";border-bottom:1px solid rgba(255,255,255,.05);'>";
-      h += "<td style='padding:8px 10px;font-size:11px;font-weight:700;color:#e2e8f0;'>"
-         + "<span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:"+color+";margin-right:6px;'></span>"
+      var vals2 = cargaFil.filter(function(c){ return fechas.includes(c.fecha) && c.pid===jid; }).map(function(c){ return parseFloat(c[varSel])||0; }).filter(Boolean);
+      var avg2 = vals2.length ? vals2.reduce(function(a,b){return a+b;},0)/vals2.length : 0;
+      var max2 = vals2.length ? Math.max.apply(null,vals2) : 0;
+      var color2 = GPS_CHIP_COLORS[ri%GPS_CHIP_COLORS.length];
+      var diff2 = avgGrupo2>0 ? (avg2-avgGrupo2)/avgGrupo2*100 : 0;
+      var diffC2 = diff2>5 ? DS.green : diff2<-5 ? DS.riskHi : DS.text3;
+      var pct2 = maxGrupo2>0 ? avg2/maxGrupo2*100 : 0;
+      var bg2 = ri%2===0 ? DS.card : DS.bg2;
+      h += "<tr style='background:"+bg2+";border-bottom:1px solid "+DS.border+";'>";
+      h += "<td style='padding:9px 12px;font-size:11px;font-weight:700;color:"+DS.text1+";'>"
+         + "<span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:"+color2+";margin-right:7px;'></span>"
          + nombre+"</td>";
-      h += "<td style='padding:8px 6px;text-align:center;font-size:12px;font-weight:900;color:"+varMeta.color+";'>"+formatGPSVal(varSel,avg)+"</td>";
-      h += "<td style='padding:8px 6px;text-align:center;font-size:11px;font-weight:700;color:var(--text-2);'>"+formatGPSVal(varSel,max)+"</td>";
-      h += "<td style='padding:8px 6px;text-align:center;font-size:10px;color:#9ca3af;'>"+vals.length+"</td>";
-      h += "<td style='padding:8px 10px;'><div style='display:flex;align-items:center;gap:6px;'>"
-         + "<div style='flex:1;height:12px;background:#f3f4f6;border-radius:99px;overflow:hidden;'>"
-         + "<div style='height:100%;width:"+pct.toFixed(1)+"%;background:"+color+";border-radius:99px;'></div></div>"
-         + "<span style='font-size:9px;font-weight:700;color:"+diffC+";'>"+(diff>0?'+':'')+diff.toFixed(1)+"%</span>"
+      h += "<td style='padding:9px 8px;text-align:center;font-size:12px;font-weight:900;color:"+varMeta.color+";'>"+formatGPSVal(varSel,avg2)+"</td>";
+      h += "<td style='padding:9px 8px;text-align:center;font-size:11px;font-weight:700;color:"+DS.text2+";'>"+formatGPSVal(varSel,max2)+"</td>";
+      h += "<td style='padding:9px 8px;text-align:center;font-size:10px;color:"+DS.text3+";'>"+vals2.length+"</td>";
+      h += "<td style='padding:9px 10px;'><div style='display:flex;align-items:center;gap:7px;'>"
+         + "<div style='width:60px;height:10px;background:"+DS.bg1+";border-radius:99px;overflow:hidden;'>"
+         + "<div style='height:100%;width:"+pct2.toFixed(1)+"%;background:"+color2+";border-radius:99px;'></div></div>"
+         + "<span style='font-size:9px;font-weight:700;color:"+diffC2+";'>"+(diff2>0?'+':'')+diff2.toFixed(1)+"%</span>"
          + "</div></td>";
       h += "</tr>";
     });
-    // Fila promedio grupo
-    h += "<tr style='background:#1a1a1a;border-top:2px solid #333;'>";
-    h += "<td style='padding:9px 10px;font-size:10px;font-weight:800;color:#f5c800;'>PROMEDIO GRUPO</td>";
-    h += "<td style='padding:9px 6px;text-align:center;font-size:12px;font-weight:900;color:#f5c800;'>"+formatGPSVal(varSel,avgGrupo)+"</td>";
+    h += "<tr style='background:"+DS.bg1+";border-top:2px solid "+DS.borderB+";'>";
+    h += "<td style='padding:10px 12px;font-size:10px;font-weight:800;color:"+DS.gold+";'>⌀ PROMEDIO GRUPO</td>";
+    h += "<td style='padding:10px 8px;text-align:center;font-size:12px;font-weight:900;color:"+DS.gold+";'>"+formatGPSVal(varSel,avgGrupo2)+"</td>";
     h += "<td colspan='3'></td>";
     h += "</tr>";
-    h += "</tbody></table></div></div>";
+    h += "</tbody></table></div>";
   }
 
   h += "</div>";
@@ -12252,21 +12478,20 @@ function renderGPSLongitudinalVar(varKey){
 
 // ── INFORME 4: COMPARATIVA ────────────────────────────────────────
 function renderGPSComparativa(){
-  // Verificar si hay datos en cualquiera de las dos fuentes GPS
   var _gpsCatChk=[]; try{ var _gck=localStorage.getItem('BFC_GPS_CAT'); if(_gck) _gpsCatChk=JSON.parse(_gck)||[]; }catch(e){}
   if((!CARGA || !CARGA.length) && !_gpsCatChk.length) return renderGPSVacio();
 
   var cargaFil = gpsCargoFiltrado();
-  if(!cargaFil.length) return "<div style='text-align:center;padding:40px;color:#9ca3af;'>No hay datos para el filtro seleccionado.</div>";
+  var DS = GPS_DS;
+  if(!cargaFil.length) return "<div style='text-align:center;padding:40px;color:"+DS.text3+";'>Sin datos para el filtro seleccionado.</div>";
 
   var jugsF = window._gpsFilJugs && window._gpsFilJugs.length ? window._gpsFilJugs : null;
   var filLabel = gpsFiltroLabel();
   var plantelC = JDB.length>0 ? JDB : PL;
 
   var fechas = [...new Set(cargaFil.map(function(c){ return c.fecha; }))].sort().reverse();
-  if(fechas.length < 2) return "<div style='text-align:center;padding:40px;color:#9ca3af;'>Necesitas al menos 2 sesiones para comparar.</div>";
+  if(fechas.length < 2) return "<div style='text-align:center;padding:40px;color:"+DS.text3+";'>Necesitas al menos 2 sesiones para comparar.</div>";
 
-  // Leer selección previa del DOM si existe
   var ses1 = fechas[0], ses2 = fechas[1];
   try{
     var elA = document.getElementById('gps-comp-a');
@@ -12275,103 +12500,128 @@ function renderGPSComparativa(){
     if(elB && fechas.includes(elB.value)) ses2 = elB.value;
   }catch(e){}
 
+  // Compute session metadata for labels
+  var metaA = cargaFil.filter(function(c){ return c.fecha===ses1; });
+  var metaB = cargaFil.filter(function(c){ return c.fecha===ses2; });
+  var tipoA = metaA.length ? (metaA[0].tipo||metaA[0].tipoEvt||'sesión') : 'sesión';
+  var tipoB = metaB.length ? (metaB[0].tipo||metaB[0].tipoEvt||'sesión') : 'sesión';
+
   var h = "<div>";
-  h += "<div style='display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end;'>";
-  h += "<div><label style='font-size:9px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:3px;'>SESIÓN A</label>";
-  h += "<select id='gps-comp-a' onchange='recargarComparativa()' style='padding:8px;border:1px solid var(--border-b);border-radius:var(--r-sm);font-size:12px;'>";
+
+  // ── SESSION SELECTOR ────────────────────────────────────────────
+  var selStyle2 = "padding:8px 12px;border:1px solid "+DS.borderB+";border-radius:10px;font-size:12px;background:"+DS.bg1+";color:"+DS.text1+";font-weight:700;";
+  h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;padding:14px 16px;margin-bottom:14px;'>";
+  h += "<div style='display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;'>";
+  h += "<div><div style='font-size:9px;font-weight:700;color:"+DS.gold+";letter-spacing:.07em;text-transform:uppercase;margin-bottom:5px;'>⬛ SESIÓN A</div>";
+  h += "<select id='gps-comp-a' onchange='recargarComparativa()' style='"+selStyle2+"border-left:3px solid "+DS.gold+";'>";
   fechas.forEach(function(f){ h += "<option value='"+f+"'"+(f===ses1?' selected':'')+">"+f+"</option>"; });
   h += "</select></div>";
-  h += "<div style='display:flex;align-items:flex-end;padding-bottom:8px;font-size:20px;'>⚖️</div>";
-  h += "<div><label style='font-size:9px;font-weight:700;color:#888;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:3px;'>SESIÓN B</label>";
-  h += "<select id='gps-comp-b' onchange='recargarComparativa()' style='padding:8px;border:1px solid var(--border-b);border-radius:var(--r-sm);font-size:12px;'>";
+  h += "<div style='display:flex;align-items:flex-end;padding-bottom:6px;font-size:18px;color:"+DS.text3+";'>⚖️</div>";
+  h += "<div><div style='font-size:9px;font-weight:700;color:"+DS.blue+";letter-spacing:.07em;text-transform:uppercase;margin-bottom:5px;'>⬛ SESIÓN B</div>";
+  h += "<select id='gps-comp-b' onchange='recargarComparativa()' style='"+selStyle2+"border-left:3px solid "+DS.blue+";'>";
   fechas.forEach(function(f){ h += "<option value='"+f+"'"+(f===ses2?' selected':'')+">"+f+"</option>"; });
   h += "</select></div>";
-  if(filLabel) h += "<div style='display:flex;align-items:flex-end;padding-bottom:8px;'>"+filLabel+"</div>";
+  if(filLabel) h += "<div style='display:flex;align-items:flex-end;padding-bottom:6px;font-size:10px;color:"+DS.text3+";'>"+filLabel+"</div>";
   h += "</div>";
+  // Session info row
+  h += "<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;'>";
+  [
+    {ses:ses1, tipo:tipoA, col:DS.gold, data:metaA},
+    {ses:ses2, tipo:tipoB, col:DS.blue, data:metaB}
+  ].forEach(function(s){
+    var plAvg = s.data.length ? s.data.reduce(function(a,c){return a+(parseFloat(c.playerLoad)||0);},0)/s.data.length : 0;
+    h += "<div style='background:"+DS.bg1+";border:1px solid "+DS.border+";border-left:3px solid "+s.col+";border-radius:0 8px 8px 0;padding:8px 12px;'>";
+    h += "<div style='font-size:11px;font-weight:800;color:"+s.col+";'>"+s.ses+"</div>";
+    h += "<div style='font-size:9px;color:"+DS.text3+";margin-top:2px;'>"+s.tipo+" · "+s.data.length+" atletas · PL: "+plAvg.toFixed(1)+"</div>";
+    h += "</div>";
+  });
+  h += "</div></div>";
 
-  // Comparativa por variable (usando datos filtrados)
-  h += "<div class='card' style='padding:0;overflow:hidden;margin-bottom:14px;'>";
-  h += "<div style='background:#1a1a1a;padding:9px 14px;display:grid;grid-template-columns:1fr 120px 1fr;gap:0;'>";
-  h += "<span style='color:#f5c800;font-size:11px;font-weight:800;'>Sesión A — "+ses1+"</span>";
-  h += "<span style='color:rgba(255,255,255,.5);font-size:10px;text-align:center;'>VARIABLE</span>";
-  h += "<span style='color:#60a5fa;font-size:11px;font-weight:800;text-align:right;'>Sesión B — "+ses2+"</span>";
+  // ── VARIABLES FACE-OFF ─────────────────────────────────────────
+  h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;overflow:hidden;margin-bottom:14px;'>";
+  h += "<div style='padding:10px 16px;border-bottom:1px solid "+DS.border+";display:grid;grid-template-columns:1fr 100px 1fr;'>";
+  h += "<span style='font-size:12px;font-weight:800;color:"+DS.gold+";'>A — "+ses1+"</span>";
+  h += "<span style='font-size:9px;color:"+DS.text3+";text-align:center;text-transform:uppercase;letter-spacing:.07em;line-height:1.6;'>VARIABLE<br>Δ B vs A</span>";
+  h += "<span style='font-size:12px;font-weight:800;color:"+DS.blue+";text-align:right;'>B — "+ses2+"</span>";
   h += "</div>";
-
   GPS_VARS.forEach(function(v, vi){
-    var dataA = cargaFil.filter(function(c){ return c.fecha===ses1; });
-    var dataB = cargaFil.filter(function(c){ return c.fecha===ses2; });
-    var avgA = dataA.length ? dataA.reduce(function(a,c){ return a+(parseFloat(c[v.k])||0); },0)/dataA.length : 0;
-    var avgB = dataB.length ? dataB.reduce(function(a,c){ return a+(parseFloat(c[v.k])||0); },0)/dataB.length : 0;
-    var maxAB = Math.max(avgA, avgB) || 1;
-    var pctA = avgA/maxAB*100;
-    var pctB = avgB/maxAB*100;
-    var diff = avgA>0 ? (avgB-avgA)/avgA*100 : 0;
-    var diffColor = diff>5 ? '#065f46' : diff<-5 ? '#991b1b' : '#6b7280';
-
-    h += "<div style='display:grid;grid-template-columns:1fr 120px 1fr;align-items:center;padding:10px 14px;background:"+(vi%2?'#fafafa':'#fff')+";border-bottom:1px solid rgba(255,255,255,.05);'>";
+    var dataA2 = cargaFil.filter(function(c){ return c.fecha===ses1; });
+    var dataB2 = cargaFil.filter(function(c){ return c.fecha===ses2; });
+    var avgA2 = dataA2.length ? dataA2.reduce(function(a,c){ return a+(parseFloat(c[v.k])||0); },0)/dataA2.length : 0;
+    var avgB2 = dataB2.length ? dataB2.reduce(function(a,c){ return a+(parseFloat(c[v.k])||0); },0)/dataB2.length : 0;
+    var maxAB2 = Math.max(avgA2, avgB2) || 1;
+    var pctA2 = avgA2/maxAB2*100;
+    var pctB2 = avgB2/maxAB2*100;
+    var diff3 = avgA2>0 ? (avgB2-avgA2)/avgA2*100 : 0;
+    var diffColor3 = diff3>5 ? DS.green : diff3<-5 ? DS.riskHi : DS.text3;
+    var rowBg = vi%2===0 ? DS.card : DS.bg2;
+    h += "<div style='display:grid;grid-template-columns:1fr 100px 1fr;align-items:center;padding:9px 16px;background:"+rowBg+";border-bottom:1px solid "+DS.border+";'>";
+    // A side
     h += "<div style='display:flex;align-items:center;gap:8px;justify-content:flex-end;'>";
-    h += "<div style='font-size:13px;font-weight:800;color:#b45309;'>"+formatGPSVal(v.k,avgA)+"</div>";
-    h += "<div style='width:80px;height:14px;background:var(--bg-elevated);border-radius:99px;overflow:hidden;'>";
-    h += "<div style='height:100%;width:"+pctA.toFixed(1)+"%;background:#f5c800;border-radius:99px;margin-left:auto;'></div>";
+    h += "<div style='font-size:13px;font-weight:900;color:"+DS.gold+";'>"+formatGPSVal(v.k,avgA2)+"</div>";
+    h += "<div style='width:70px;height:12px;background:"+DS.bg1+";border-radius:99px;overflow:hidden;'>";
+    h += "<div style='height:100%;width:"+pctA2.toFixed(1)+"%;background:"+DS.gold+";border-radius:99px;margin-left:auto;'></div>";
     h += "</div></div>";
+    // Center label
     h += "<div style='text-align:center;'>";
-    h += "<div style='font-size:10px;font-weight:700;color:"+v.color+";'>"+v.icon+" "+v.label+"</div>";
-    h += "<div style='font-size:9px;color:"+diffColor+";font-weight:700;'>"+(diff>0?'+':'')+diff.toFixed(1)+"%</div>";
+    h += "<div style='font-size:9px;font-weight:700;color:"+v.color+";'>"+v.icon+" "+v.label+"</div>";
+    h += "<div style='font-size:9px;font-weight:800;color:"+diffColor3+";margin-top:2px;'>"+(diff3>0?'▲+':'▼')+diff3.toFixed(1)+"%</div>";
     h += "</div>";
+    // B side
     h += "<div style='display:flex;align-items:center;gap:8px;'>";
-    h += "<div style='width:80px;height:14px;background:var(--bg-elevated);border-radius:99px;overflow:hidden;'>";
-    h += "<div style='height:100%;width:"+pctB.toFixed(1)+"%;background:#60a5fa;border-radius:99px;'></div>";
+    h += "<div style='width:70px;height:12px;background:"+DS.bg1+";border-radius:99px;overflow:hidden;'>";
+    h += "<div style='height:100%;width:"+pctB2.toFixed(1)+"%;background:"+DS.blue+";border-radius:99px;'></div>";
     h += "</div>";
-    h += "<div style='font-size:13px;font-weight:800;color:#1d4ed8;'>"+formatGPSVal(v.k,avgB)+"</div>";
+    h += "<div style='font-size:13px;font-weight:900;color:"+DS.blue+";'>"+formatGPSVal(v.k,avgB2)+"</div>";
     h += "</div>";
     h += "</div>";
   });
   h += "</div>";
 
-  // Tabla detalle por jugador
-  var jugA = cargaFil.filter(function(c){ return c.fecha===ses1; });
-  var jugB = cargaFil.filter(function(c){ return c.fecha===ses2; });
-  if(jugA.length && jugB.length){
-    // Jugadores en ambas sesiones
-    var pidsA = jugA.map(function(c){ return c.pid; });
-    var pidsB = jugB.map(function(c){ return c.pid; });
-    var pidsComun = pidsA.filter(function(id){ return pidsB.includes(id); });
-    if(pidsComun.length){
-      h += "<div class='card' style='padding:0;overflow:hidden;'>";
-      h += "<div style='background:#1a1a1a;padding:9px 14px;'>";
-      h += "<span style='color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;'>COMPARATIVA INDIVIDUAL — JUGADORES EN AMBAS SESIONES</span></div>";
+  // ── DETALLE POR JUGADOR ─────────────────────────────────────────
+  var jugAA = cargaFil.filter(function(c){ return c.fecha===ses1; });
+  var jugBB = cargaFil.filter(function(c){ return c.fecha===ses2; });
+  if(jugAA.length && jugBB.length){
+    var pidsA2 = jugAA.map(function(c){ return c.pid; });
+    var pidsB2 = jugBB.map(function(c){ return c.pid; });
+    var pidsComun2 = pidsA2.filter(function(id){ return pidsB2.includes(id); });
+    if(pidsComun2.length){
+      h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;overflow:hidden;'>";
+      h += "<div style='padding:12px 16px;border-bottom:1px solid "+DS.border+";'>";
+      h += gpsSectionHeader('👥','Comparativa Individual','Atletas en ambas sesiones · azul = mejor en B · rojo = peor en B');
+      h += "</div>";
       h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;'>";
-      h += "<thead><tr style='background:var(--bg-elevated);'>";
-      h += "<th style='padding:7px 10px;text-align:left;font-size:9px;font-weight:700;color:#888;'>JUGADOR</th>";
-      h += "<th style='padding:7px 4px;text-align:center;font-size:9px;font-weight:700;color:#888;'>POS.</th>";
+      h += "<thead><tr style='background:"+DS.bg1+";'>";
+      h += "<th style='padding:9px 12px;text-align:left;font-size:9px;font-weight:700;color:"+DS.text3+";'>ATLETA</th>";
+      h += "<th style='padding:9px 6px;text-align:center;font-size:9px;font-weight:700;color:"+DS.text3+";'>POS.</th>";
       GPS_VARS.slice(0,5).forEach(function(v){
-        h += "<th colspan='2' style='padding:7px 4px;text-align:center;font-size:9px;font-weight:700;color:"+v.color+";border-left:1px solid #e5e7eb;'>"+v.label+"</th>";
+        h += "<th colspan='2' style='padding:9px 6px;text-align:center;font-size:9px;font-weight:700;color:"+v.color+";border-left:1px solid "+DS.border+";'>"+v.icon+" "+v.label+"</th>";
       });
       h += "</tr>";
-      h += "<tr style='background:#f8fafc;'>";
+      h += "<tr style='background:"+DS.bg2+";'>";
       h += "<th colspan='2'></th>";
       GPS_VARS.slice(0,5).forEach(function(){
-        h += "<th style='padding:4px 4px;text-align:center;font-size:8px;font-weight:700;color:#f5c800;border-left:1px solid #e5e7eb;'>A</th>";
-        h += "<th style='padding:4px 4px;text-align:center;font-size:8px;font-weight:700;color:#60a5fa;'>B</th>";
+        h += "<th style='padding:5px 6px;text-align:center;font-size:9px;font-weight:800;color:"+DS.gold+";border-left:1px solid "+DS.border+";'>A</th>";
+        h += "<th style='padding:5px 6px;text-align:center;font-size:9px;font-weight:800;color:"+DS.blue+";'>B</th>";
       });
       h += "</tr></thead><tbody>";
-      pidsComun.forEach(function(pid, ri){
-        var regA = jugA.find(function(c){ return c.pid===pid; });
-        var regB = jugB.find(function(c){ return c.pid===pid; });
-        var jug = plantelC.find(function(p){ return p.id===pid; });
-        var nombre = jug ? (jug.apellido||jug.nombre||'—').toUpperCase() : (regA&&regA.nombreOrig||'—');
-        var pos = jug ? abrevPos(jug.pos||jug.posicion||'—') : '—';
-        var bg = ri%2===0?'#fff':'#fafafa';
-        h += "<tr style='background:"+bg+";border-bottom:1px solid rgba(255,255,255,.05);'>";
-        h += "<td style='padding:6px 10px;font-size:11px;font-weight:700;color:#e2e8f0;'>"+nombre+"</td>";
-        h += "<td style='padding:6px 4px;text-align:center;font-size:9px;color:var(--text-2);'>"+pos+"</td>";
+      pidsComun2.forEach(function(pid, ri){
+        var regA3 = jugAA.find(function(c){ return c.pid===pid; });
+        var regB3 = jugBB.find(function(c){ return c.pid===pid; });
+        var jug3 = plantelC.find(function(p){ return p.id===pid; });
+        var nombre3 = jug3 ? (jug3.apellido||jug3.nombre||'—').toUpperCase() : (regA3&&regA3.nombreOrig||'—');
+        var pos3 = jug3 ? abrevPos(jug3.pos||jug3.posicion||'—') : '—';
+        var bg3 = ri%2===0 ? DS.card : DS.bg2;
+        h += "<tr style='background:"+bg3+";border-bottom:1px solid "+DS.border+";'>";
+        h += "<td style='padding:9px 12px;font-size:11px;font-weight:700;color:"+DS.text1+";'>"+nombre3+"</td>";
+        h += "<td style='padding:9px 6px;text-align:center;font-size:9px;color:"+DS.text2+";'>"+pos3+"</td>";
         GPS_VARS.slice(0,5).forEach(function(v){
-          var vA = parseFloat(regA?regA[v.k]:0)||0;
-          var vB = parseFloat(regB?regB[v.k]:0)||0;
-          var diff2 = vA>0 ? (vB-vA)/vA : 0;
-          var col = diff2>0.05 ? '#065f46' : diff2<-0.05 ? '#dc2626' : '#6b7280';
-          h += "<td style='padding:6px 4px;text-align:center;font-size:10px;font-weight:700;color:#b45309;border-left:1px solid #f3f4f6;'>"+formatGPSVal(v.k,vA)+"</td>";
-          h += "<td style='padding:6px 4px;text-align:center;font-size:10px;font-weight:700;color:"+col+";'>"+formatGPSVal(v.k,vB)+"</td>";
+          var vA3 = parseFloat(regA3?regA3[v.k]:0)||0;
+          var vB3 = parseFloat(regB3?regB3[v.k]:0)||0;
+          var diff4 = vA3>0 ? (vB3-vA3)/vA3 : 0;
+          var colB3 = diff4>0.05 ? DS.green : diff4<-0.05 ? DS.riskHi : DS.text2;
+          h += "<td style='padding:9px 6px;text-align:center;font-size:10px;font-weight:700;color:"+DS.gold+";border-left:1px solid "+DS.border+";'>"+formatGPSVal(v.k,vA3)+"</td>";
+          h += "<td style='padding:9px 6px;text-align:center;font-size:10px;font-weight:700;color:"+colB3+";'>"+formatGPSVal(v.k,vB3)+"</td>";
         });
         h += "</tr>";
       });
