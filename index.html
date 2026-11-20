@@ -8364,11 +8364,18 @@ function renderProgramacion() {
     if (sf === todayStr) { sesHoy = SES_DB_RAW[si2]; break; }
   }
 
-  // Sesión registrada mañana (en historial)
+  // Sesión registrada mañana — buscar en bfc_ses_hist Y en HISTORIAL_DB
   var sesManana = null;
   for (var si2b = 0; si2b < SES_DB_RAW.length; si2b++) {
     var sf2 = SES_DB_RAW[si2b].fecha || SES_DB_RAW[si2b].fechaSes;
     if (sf2 === _mananaStr) { sesManana = SES_DB_RAW[si2b]; break; }
+  }
+  // Fallback: buscar en HISTORIAL_DB por si bfc_ses_hist aún no tiene la entrada
+  if (!sesManana && typeof HISTORIAL_DB !== 'undefined') {
+    for (var si2c = 0; si2c < HISTORIAL_DB.length; si2c++) {
+      var sf2c = HISTORIAL_DB[si2c].fecha || HISTORIAL_DB[si2c].fechaSes;
+      if (sf2c === _mananaStr) { sesManana = HISTORIAL_DB[si2c]; break; }
+    }
   }
 
   // Datos del microciclo para mañana
@@ -19421,8 +19428,7 @@ function sesEscucharFb(){
         sesData[k] = d[k];
       }
     });
-    // Corregir fecha futura que Firebase puede empujar (p.ej. sesión guardada con fecha mañana)
-    if(sesData.fecha && sesData.fecha > TODAY){ sesData.fecha = TODAY; }
+    // No corregir fechas futuras — se permiten sesiones planificadas para mañana o próximos días
     _sesLastRemoteTs = d._ts || d.ts || Date.now();
     // Re-renderizar solo si la sesión está activa y el usuario NO está en un input importante
     var pg = document.getElementById('page-sesion');
@@ -19463,8 +19469,7 @@ function sesCargarActivaFb(cb){
   // Si hay sesión en localStorage, usarla como base mientras llega Firebase
   if(localGuardado){
     sesData = localGuardado;
-    // Corregir fecha futura en sesión local (puede quedar de sesión guardada con fecha equivocada)
-    if(sesData.fecha && sesData.fecha > TODAY) { sesData.fecha = TODAY; }
+    // No corregir fechas futuras — se permiten sesiones planificadas para mañana
     _sesLocalTs = localTs;
     delete sesData._fecha;
   }
@@ -19487,9 +19492,7 @@ function sesCargarActivaFb(cb){
         return tR;
       });
       sesData = Object.assign({}, d, { tareas: tareasConImg });
-      // Corregir fecha futura: si la sesión guardada tiene fecha > hoy, forzar a TODAY
-      // (puede ocurrir si se guardó con fecha equivocada o después de las 14:00 con modo mañana)
-      if(sesData.fecha && sesData.fecha > TODAY) { sesData.fecha = TODAY; }
+      // No corregir fechas futuras — se permiten sesiones planificadas para mañana
       _sesLocalTs = tsRemoto; // adoptar ts remoto como nuestro punto de referencia
       _sesLastRemoteTs = tsRemoto; // inicializar para que el listener acepte solo updates MÁS NUEVOS
       try{ localStorage.setItem('BFC_SES_LOCAL', JSON.stringify(sesData)); }catch(e){}
@@ -19499,8 +19502,6 @@ function sesCargarActivaFb(cb){
       if(tsRemoto > 0) _sesLastRemoteTs = tsRemoto;
     }
     // Si local es más reciente, ya tenemos sesData del localStorage arriba
-    // Corregir también si el localStorage tenía fecha futura
-    if(sesData && sesData.fecha && sesData.fecha > TODAY) { sesData.fecha = TODAY; }
     delete sesData._ts; delete sesData._fecha;
     if(cb) cb(true);
   }, function(){ if(cb) cb(!!localGuardado); });
@@ -22105,16 +22106,18 @@ function histSave(){
   fbAuditLog('historial','Guardado historial de sesiones');
 }
 function histLoad(){
-  // Auto-limpiar bfc_ses_hist: eliminar entradas con fecha futura (datos fantasma)
-  // Esto corrige el bug donde entrar a Sesión del día con fecha equivocada dejaba una entrada en el índice
+  // Auto-limpiar bfc_ses_hist: eliminar entradas con fecha muy futura (>7 días) — datos fantasma
+  // Permite sesiones planificadas para mañana o la semana próxima (uso normal del sistema)
   try{
     var _shRaw = localStorage.getItem('bfc_ses_hist');
     if(_shRaw){
       var _shArr = JSON.parse(_shRaw)||[];
-      var _shClean = _shArr.filter(function(s){ return (s.fecha||s.fechaSes||'') <= TODAY; });
+      var _dLimite = new Date(); _dLimite.setDate(_dLimite.getDate()+7);
+      var _limiteStr = _dLimite.getFullYear()+'-'+padZ(_dLimite.getMonth()+1)+'-'+padZ(_dLimite.getDate());
+      var _shClean = _shArr.filter(function(s){ return (s.fecha||s.fechaSes||'') <= _limiteStr; });
       if(_shClean.length < _shArr.length){
         localStorage.setItem('bfc_ses_hist', JSON.stringify(_shClean));
-        console.log('[BFC] histLoad: limpiadas '+ (_shArr.length-_shClean.length) +' entradas futuras de bfc_ses_hist');
+        console.log('[BFC] histLoad: limpiadas '+ (_shArr.length-_shClean.length) +' entradas con fecha >7 días de bfc_ses_hist');
       }
     }
   }catch(e){}
