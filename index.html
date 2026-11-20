@@ -314,7 +314,7 @@ table tbody td{padding:10px 12px;font-size:12px;color:var(--text-1);}
     <span id="top-date" style="font-size:11px;color:var(--text-3);font-weight:500;"></span>
     <span class="nav-badge">Temporada 2025-26</span>
     <div id="bfc-presencia-bar" title="Usuarios conectados ahora" style="display:none;align-items:center;gap:2px;padding:2px 8px;border-radius:99px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);"></div>
-    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1119x</div>
+    <div id="bfc-ver-badge" onclick="fbMostrarConfig()" title="Versión del sistema — toca para diagnóstico" style="font-size:9px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.05);color:#475569;border:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:700;">v1119z</div>
     <div id="fb-sync-badge" onclick="fbMostrarConfig()" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.2);cursor:pointer;font-weight:700;transition:all .3s;">☁️ Firebase</div>
     <div onclick="fbAuditMostrar()" title="Ver historial de cambios del equipo" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(99,102,241,.08);color:#818cf8;border:1px solid rgba(99,102,241,.18);cursor:pointer;font-weight:700;">📋 Cambios</div>
     <div id="_bfc-save-ind" onclick="fbVerBackups()" title="Backups locales — click para ver y restaurar" style="font-size:10px;padding:4px 11px;border-radius:99px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:color .3s;">💾 Backup</div>
@@ -9785,9 +9785,10 @@ function _renderPanelCargaSemanal(plantelAll) {
     return ['D','L','M','X','J','V','S'][d.getDay()];
   }
 
-  // Datos GPS últimos 7 días por jugador
-  var cargaMap = {}; // pid → {fecha: {distTotal, hsr, playerLoad}}
-  safeArr(CARGA).filter(function(c){ return c.fecha >= dMin && c.fecha <= dMax; }).forEach(function(c){
+  // Datos GPS últimos 7 días por jugador (fuente unificada: Catapult CSV + CARGA RPE)
+  var cargaMap = {}; // pid → {fecha: {distancia, hsr, playerLoad, ...}}
+  var _cargaUnif7 = (typeof gpsCargoFiltrado==='function') ? gpsCargoFiltrado() : safeArr(CARGA);
+  _cargaUnif7.filter(function(c){ return c.fecha >= dMin && c.fecha <= dMax; }).forEach(function(c){
     var pid = c.pid||c.jugadorId;
     if(!pid) return;
     if(!cargaMap[pid]) cargaMap[pid] = {};
@@ -10392,16 +10393,18 @@ function _dbTabCarga(plantelAll){
   // ── DISOCIACIÓN RPE vs GPS (Carga Interna vs Externa) ───────────────────
   // Señal clave: RPE↑ + GPS↓ = fatiga oculta / RPE↓ + GPS↑ = subestimación
   var dCARGA = safeArr(CARGA);
+  // Usar gpsCargoFiltrado() para incluir datos Catapult CSV + CARGA RPE
+  var dGPSUnif = (typeof gpsCargoFiltrado==='function') ? gpsCargoFiltrado() : dCARGA;
   var disocData = [];
   datos.forEach(function(d){
     // UA semanal (interna)
     var uaInt = d.uaSem;
-    // Distancia GPS semanal (externa)
+    // Distancia GPS semanal (externa) — usa fuente unificada
     var d7s2 = (function(){ var x=new Date(TODAY+'T00:00:00'); x.setDate(x.getDate()-6); return x.toISOString().slice(0,10); })();
-    var gpsRegs = dCARGA.filter(function(g){ return (g.pid===d.p.id||g.jugadorId===d.p.id) && g.fecha>=d7s2; });
-    var distSem = gpsRegs.reduce(function(a,g){return a+(g.distancia||0);},0);
-    var sprSem  = gpsRegs.reduce(function(a,g){return a+(g.sprints||0);},0);
-    var hsrSem  = gpsRegs.reduce(function(a,g){return a+(g.hsr||0);},0);
+    var gpsRegs = dGPSUnif.filter(function(g){ return g.pid===d.p.id && g.fecha>=d7s2; });
+    var distSem = gpsRegs.reduce(function(a,g){return a+(parseFloat(g.distancia)||0);},0);
+    var sprSem  = gpsRegs.reduce(function(a,g){return a+(parseFloat(g.sprints)||0);},0);
+    var hsrSem  = gpsRegs.reduce(function(a,g){return a+(parseFloat(g.hsr)||0);},0);
     if(uaInt>0 || distSem>0){
       disocData.push({p:d.p, uaInt:uaInt, distSem:distSem, sprSem:sprSem, hsrSem:hsrSem});
     }
@@ -11016,20 +11019,31 @@ function guardarJugador() {
 
 // ════════════════════════════════════════════════════════════════
 // MÓDULO CARGA EXTERNA GPS — Inspirado en Catapult OpenField
-// Variables: distTotal, distAlta, distMedia, velMax, acc, dcc, playerLoad, tiempoEf
+// ── GPS_VARS: alineadas exactamente al informe Catapult Training Parameters ──
+// Campos internos: duracion, mpm, distancia, playerLoad, acc, dcc, distB4,
+//                 sprints, hsr, nSprints, vmax, vmaxPct, effs95, distEffs95
 // Informes: Actividad | Semanal | Longitudinal | Comparativa
 // ════════════════════════════════════════════════════════════════
 
 var GPS_VARS = [
-  {k:'distancia',   label:'Dist. Total', unit:'m',    icon:'📏', color:'#1a1a1a'},
-  {k:'hsr',         label:'Dist. Alta',  unit:'m',    icon:'🔴', color:'#8B0000'},
-  {k:'distB4',      label:'Dist. Media', unit:'m',    icon:'🟠', color:'#c2410c'},
-  {k:'vmax',        label:'Vel. Máx',    unit:'km/h', icon:'⚡', color:'#1d4ed8'},
-  {k:'acc',         label:'Acel.',       unit:'',     icon:'↗',  color:'#065f46'},
-  {k:'dcc',         label:'Desacel.',    unit:'',     icon:'↘',  color:'#7c3aed'},
-  {k:'playerLoad',  label:'PlayerLoad',  unit:'UA',   icon:'💓', color:'#b45309'},
-  {k:'mpm',         label:'T. Efectivo', unit:'min',  icon:'⏱',  color:'#374151'}
+  {k:'duracion',    label:'Duración',       unit:'min',   icon:'⏱',  color:'#374151',  catCol:'Tot Dur',                dec:0},
+  {k:'mpm',         label:'m/min',          unit:'m/min', icon:'🏃',  color:'#0369a1',  catCol:'Meterage Per Minute',    dec:1},
+  {k:'distancia',   label:'Dist. Total',    unit:'m',     icon:'📏',  color:'#1a1a1a',  catCol:'Tot Dist',               dec:0},
+  {k:'playerLoad',  label:'PlayerLoad',     unit:'UA',    icon:'💓',  color:'#b45309',  catCol:'Tot PL',                 dec:1},
+  {k:'acc',         label:'Acel. >3m/s²',  unit:'ef',    icon:'↗',   color:'#065f46',  catCol:'# Acel >3m/s²',         dec:0},
+  {k:'dcc',         label:'Desacel. >3m/s²',unit:'ef',   icon:'↘',   color:'#7c3aed',  catCol:'# D >3m/s²',            dec:0},
+  {k:'distB4',      label:'Vel B4 Dist.',   unit:'m',     icon:'🟠',  color:'#c2410c',  catCol:'Vel B4 Tot Dist',        dec:0},
+  {k:'sprints',     label:'Sprint +25',     unit:'m',     icon:'🔥',  color:'#9333ea',  catCol:'Mts Sprint (+25 km/h)', dec:0},
+  {k:'hsr',         label:'HSR +25',        unit:'m',     icon:'🔴',  color:'#8B0000',  catCol:'High Speed Dist',        dec:0},
+  {k:'nSprints',    label:'Nº Sprints',     unit:'ef',    icon:'💨',  color:'#0f766e',  catCol:'# Sprint +25',           dec:0},
+  {k:'vmax',        label:'Vel. Máx',       unit:'km/h',  icon:'⚡',  color:'#1d4ed8',  catCol:'Max Vel (km/h)',         dec:1},
+  {k:'vmaxPct',     label:'% Vel. Máx',     unit:'%',     icon:'📐',  color:'#4338ca',  catCol:'Max Vel (% Max)',        dec:1},
 ];
+
+// Variables que se muestran por defecto en la tabla de Actividad (las más usadas)
+var GPS_VARS_DEFAULT = ['duracion','distancia','playerLoad','acc','dcc','hsr','vmax'];
+// Variables para gráfica de barras por posición
+var GPS_VARS_GRAFICA = ['distancia','hsr','playerLoad','vmax','acc'];
 
 var POSICIONES_GPS = ['Portero','Defensa Central','Lateral','Volante','Extremo','Delantero'];
 // ════════════════════════════════════════════════════════════════════════════
@@ -11362,44 +11376,51 @@ function gpsCargoFiltrado(pidsRestr){
     return true;
   });
 
-  // Normalizar campos de BFC_GPS_CAT al formato unificado (GPS_VARS + CARGA)
-  // GPS_VARS espera: vmax, acc, dcc, distB4, mpm
-  // catapultProcesarCSV guarda: velMax, aceleraciones, desaceleraciones, metrajeMin
-  // → exponemos AMBOS nombres para compatibilidad total
+  // Normalizar campos de BFC_GPS_CAT al formato unificado
+  // GPS_VARS usa: duracion, mpm, distancia, playerLoad, acc, dcc, distB4,
+  //               sprints, hsr, nSprints, vmax, vmaxPct, effs95, distEffs95
+  // catapultProcesarCSV guarda: velMax, velMaxPct, aceleraciones, desaceleraciones, metrajeMin
+  // → todos los alias quedan en el objeto para compatibilidad total
   var gpsCatNorm = gpsCat.map(function(r){
-    var _velMax = r.velMax || r.vmax || 0;
-    var _acc    = r.aceleraciones || r.acc || 0;
-    var _dcc    = r.desaceleraciones || r.dcc || 0;
-    var _mpm    = r.metrajeMin || r.mpm || 0;
-    var _distB4 = r.distB4 || r.distMedia || 0;
-    var _dur    = r.duracion || r.dur || 0;
+    var _vmax    = r.vmax    || r.velMax        || 0;
+    var _vmaxPct = r.vmaxPct || r.velMaxPct     || 0;
+    var _acc     = r.acc     || r.aceleraciones || 0;
+    var _dcc     = r.dcc     || r.desaceleraciones || 0;
+    var _mpm     = r.mpm     || r.metrajeMin    || 0;
+    var _distB4  = r.distB4  || r.distMedia     || 0;
+    var _dur     = r.duracion || r.dur          || 0;
     return {
       pid:              r.pid,
       fecha:            r.fecha,
-      distancia:        r.distancia || 0,
-      hsr:              r.hsr || 0,
-      sprints:          r.sprints || 0,
-      nSprints:         r.nSprints || 0,
+      nombre:           r.nombre || '',
+      // ── campos alineados a GPS_VARS ──
       duracion:         _dur,
-      // nombres usados por GPS_VARS (vistas de análisis)
-      vmax:             _velMax,
+      mpm:              _mpm,
+      distancia:        r.distancia      || 0,
+      playerLoad:       r.playerLoad     || 0,
       acc:              _acc,
       dcc:              _dcc,
-      mpm:              _mpm,
       distB4:           _distB4,
-      // nombres originales (compatibilidad con importación y entrada manual)
-      velMax:           _velMax,
-      velMaxPct:        r.velMaxPct || 0,
+      sprints:          r.sprints        || 0,
+      hsr:              r.hsr            || 0,
+      nSprints:         r.nSprints       || 0,
+      vmax:             _vmax,
+      vmaxPct:          _vmaxPct,
+      effs95:           r.effs95         || 0,
+      distEffs95:       r.distEffs95     || 0,
+      // ── alias originales (compatibilidad importación/manual) ──
+      velMax:           _vmax,
+      velMaxPct:        _vmaxPct,
       aceleraciones:    _acc,
       desaceleraciones: _dcc,
       metrajeMin:       _mpm,
-      playerLoad:       r.playerLoad || 0,
-      fuente:           r.fuente || 'catapult_csv',
-      ts:               r.ts || 0,
-      estado:           r.estado || 'completo',
-      // Compatibilidad con campos de CARGA
+      // ── metadatos ──
+      fuente:           r.fuente  || 'catapult_csv',
+      estado:           r.estado  || 'completo',
+      ts:               r.ts      || 0,
       tipoEvt:          r.tipoEvt || 'entrenamiento',
-      mdRef:            r.mdRef || ''
+      mdRef:            r.mdRef   || '',
+      sesId:            r.sesId   || null
     };
   });
 
@@ -11561,23 +11582,24 @@ function renderGPSActividad(){
     h += "<div style='font-size:9px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;'>"+v.icon+" "+v.label+"</div>";
     h += "<div style='font-size:22px;font-weight:900;color:"+v.color+";line-height:1;'>"+formatGPSVal(v.k,val)+"</div>";
     h += "<div style='font-size:8px;color:#9ca3af;margin-top:2px;'>prom. equipo · "+v.unit+"</div>";
-    h += "<div style='margin-top:8px;padding-top:6px;border-top:1px solid #f3f4f6;font-size:9px;color:var(--text-2);'>🏆 <b>"+topNombre+"</b>: "+formatGPSVal(v.k,parseFloat(top[v.k])||0)+"</div>";
+    h += "<div style='margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,.08);font-size:9px;color:#94a3b8;'>🏆 <b style=\"color:#f1f5f9;\">"+topNombre+"</b>: "+formatGPSVal(v.k,parseFloat(top[v.k])||0)+"</div>";
     h += "</div>";
   });
   h += "</div>";
 
-  // ── GRÁFICA POR POSICIÓN (estilo Catapult) ────────────────────
-  h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;'>";
+  // ── GRÁFICA POR POSICIÓN ──────────────────────────────────────
+  h += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:16px;margin-bottom:16px;'>";
   h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;'>";
-  h += "<div style='font-size:13px;font-weight:800;color:#1a1a1a;'>Atletas — Comparativa por Posición</div>";
-  h += "<div style='display:flex;gap:10px;align-items:center;'>";
-  h += "<div style='font-size:10px;color:var(--text-2);'>Variable:</div>";
-  var varOpts = [{k:'distancia',l:'Distancia',c:'#10b981'},{k:'hsr',l:'Alta Int.',c:'#8B0000'},{k:'playerLoad',l:'PlayerLoad',c:'#b45309'},{k:'vmax',l:'Vel. Máx',c:'#1d4ed8'},{k:'acc',l:'Acel&Desc',c:'#7c3aed'}];
-  varOpts.forEach(function(vo){
-    h += "<button onclick='cambiarVarGraficaAct(\""+vo.k+"\")'  id='btn-act-"+vo.k+"'"
-      + " style='padding:4px 10px;border-radius:99px;border:1px solid "+(vo.k==='distancia'?'#10b981':'#d1d5db')+";"
-      + "background:"+(vo.k==='distancia'?'#10b981':'transparent')+";color:"+(vo.k==='distancia'?'#fff':'#6b7280')+";"
-      + "font-size:10px;font-weight:700;cursor:pointer;'>"+vo.l+"</button>";
+  h += "<div style='font-size:13px;font-weight:800;color:#f1f5f9;'>Atletas — Comparativa por Posición</div>";
+  h += "<div style='display:flex;gap:6px;align-items:center;flex-wrap:wrap;'>";
+  GPS_VARS_GRAFICA.forEach(function(k){
+    var vCfg = GPS_VARS.find(function(v){ return v.k===k; });
+    if(!vCfg) return;
+    var isSel = k==='distancia';
+    h += "<button onclick='cambiarVarGraficaAct(\""+k+"\")' id='btn-act-"+k+"'"
+      + " style='padding:4px 10px;border-radius:99px;border:1.5px solid "+(isSel?vCfg.color:'rgba(255,255,255,.18)')+";"
+      + "background:"+(isSel?vCfg.color:'transparent')+";color:"+(isSel?'#fff':'#94a3b8')+";"
+      + "font-size:10px;font-weight:700;cursor:pointer;'>"+vCfg.label+"</button>";
   });
   h += "</div></div>";
 
@@ -11593,34 +11615,28 @@ function renderGPSActividad(){
   });
 
   var posConDatos = POSICIONES_GPS.filter(function(pos){ return grupos[pos]&&grupos[pos].length>0; });
-  var varActual = 'distancia';
-  var colActual = '#10b981';
 
-  // Calcular todos los jugadores ordenados
-  var todosJugadores = sesionFiltrada.slice().sort(function(a,b){
-    return (parseFloat(b[varActual])||0) - (parseFloat(a[varActual])||0);
-  });
-  var maxGraf = Math.max.apply(null, todosJugadores.map(function(c){ return parseFloat(c[varActual])||0; }))||1;
+  var maxGraf = Math.max.apply(null, sesionFiltrada.map(function(c){ return parseFloat(c.distancia)||0; }))||1;
 
   h += "<div id='grafica-actividad' style='overflow-x:auto;'>";
   h += renderGraficaAtletas(sesionFiltrada, 'distancia', plantel, posConDatos, maxGraf);
-  h += "</div>";
-  h += "</div>";
+  h += "</div></div>";
 
-  // ── TABLA DESGLOSE (estilo Catapult) ─────────────────────────
-  h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:0;overflow:hidden;'>";
-  h += "<div style='padding:12px 16px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;'>";
-  h += "<div style='font-size:13px;font-weight:800;color:#1a1a1a;'>Desglose del Deportista</div>";
-  h += "<span style='font-size:11px;color:#9ca3af;'>"+sesionFiltrada.length+" jugadores</span>";
+  // ── TABLA DESGLOSE — Training Parameters Table ───────────────
+  h += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:10px;overflow:hidden;'>";
+  h += "<div style='padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;'>";
+  h += "<div style='font-size:13px;font-weight:800;color:#f1f5f9;'>Training Parameters Table</div>";
+  h += "<span style='font-size:11px;color:#64748b;'>"+sesionFiltrada.length+" jugadores</span>";
   h += "</div>";
   h += "<div style='overflow-x:auto;'>";
-  h += "<table style='width:100%;border-collapse:collapse;min-width:800px;'>";
-  h += "<thead><tr style='background:var(--bg-elevated);border-bottom:2px solid #e5e7eb;'>";
-  h += "<th style='padding:10px 12px;text-align:left;font-size:10px;font-weight:700;color:var(--text-2);cursor:pointer;'>NOMBRE ↑</th>";
-  h += "<th style='padding:10px 8px;text-align:center;font-size:10px;font-weight:700;color:var(--text-2);'>POS.</th>";
-  h += "<th style='padding:10px 8px;text-align:center;font-size:10px;font-weight:700;color:var(--text-2);'>ESTADO</th>";
+  h += "<table style='width:100%;border-collapse:collapse;min-width:900px;font-size:11px;'>";
+  // Cabecera — fondo muy oscuro, texto visible
+  h += "<thead><tr style='background:#0f172a;border-bottom:2px solid rgba(255,255,255,.12);'>";
+  h += "<th style='padding:10px 12px;text-align:left;font-size:10px;font-weight:700;color:#94a3b8;white-space:nowrap;'>NOMBRE</th>";
+  h += "<th style='padding:10px 8px;text-align:center;font-size:10px;font-weight:700;color:#94a3b8;'>POS.</th>";
+  h += "<th style='padding:10px 8px;text-align:center;font-size:10px;font-weight:700;color:#94a3b8;'>ESTADO</th>";
   GPS_VARS.forEach(function(v){
-    h += "<th style='padding:10px 8px;text-align:right;font-size:10px;font-weight:700;color:"+v.color+";white-space:nowrap;'>"+v.icon+" "+v.label+"<br><span style='font-size:8px;font-weight:400;color:#9ca3af;'>"+v.unit+"</span></th>";
+    h += "<th style='padding:10px 8px;text-align:right;font-size:10px;font-weight:700;color:"+v.color+";white-space:nowrap;'>"+v.icon+" "+v.label+"<br><span style='font-size:8px;font-weight:400;color:#475569;'>"+v.unit+"</span></th>";
   });
   h += "</tr></thead><tbody>";
 
@@ -11638,30 +11654,30 @@ function renderGPSActividad(){
     var nombre = jug ? ((jug.apellido||'')+(jug.nombre?' '+jug.nombre.slice(0,1)+'.':'')).toUpperCase() : (c.nombreOrig||'—');
     var pos = jug ? (jug.pos||jug.posicion||'—') : '—';
     var estado = c.estado||'completo';
-    var estadoCfg = {completo:{bg:'#d1fae5',color:'#065f46',txt:'✅ Completo'},
-                     parcial:{bg:'#fef3c7',color:'#92400e',txt:'⚠️ Parcial'},
-                     baja:{bg:'#fee2e2',color:'#991b1b',txt:'🔴 Baja'}};
+    var estadoCfg = {completo:{bg:'rgba(5,150,105,.18)',color:'#34d399',txt:'✅ Completo'},
+                     parcial:{bg:'rgba(245,158,11,.15)',color:'#fbbf24',txt:'⚠️ Parcial'},
+                     baja:{bg:'rgba(220,38,38,.15)',color:'#f87171',txt:'🔴 Baja'}};
     var eCfg = estadoCfg[estado]||estadoCfg.completo;
-    var bg = ri%2===0 ? '#fff' : '#fafafa';
+    var bg = ri%2===0 ? 'rgba(255,255,255,.03)' : 'rgba(0,0,0,.12)';
 
-    h += "<tr style='background:"+bg+";border-bottom:1px solid #f3f4f6;hover:background:#f0f9ff;'>";
-    h += "<td style='padding:8px 12px;font-size:11px;font-weight:700;color:#1a1a1a;white-space:nowrap;'>"+nombre+"</td>";
-    h += "<td style='padding:8px;text-align:center;'><span style='font-size:10px;font-weight:800;color:#fff;background:#1a1a1a;padding:2px 7px;border-radius:99px;'>"+abrevPos(pos)+"</span></td>";
+    h += "<tr style='background:"+bg+";border-bottom:1px solid rgba(255,255,255,.05);'>";
+    h += "<td style='padding:8px 12px;font-size:11px;font-weight:700;color:#e2e8f0;white-space:nowrap;'>"+nombre+"</td>";
+    h += "<td style='padding:8px;text-align:center;'><span style='font-size:10px;font-weight:800;color:#f1f5f9;background:rgba(255,255,255,.12);padding:2px 8px;border-radius:99px;'>"+abrevPos(pos)+"</span></td>";
     h += "<td style='padding:8px;text-align:center;'><span style='font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;background:"+eCfg.bg+";color:"+eCfg.color+";'>"+eCfg.txt+"</span></td>";
     GPS_VARS.forEach(function(v){
       var val = parseFloat(c[v.k])||0;
       var pv = prom[v.k];
       var diff = pv > 0 ? (val-pv)/pv : 0;
-      var txtColor = diff > 0.15 ? '#059669' : diff < -0.15 ? '#dc2626' : '#374151';
-      var bold = Math.abs(diff) > 0.15 ? '800' : '600';
+      var txtColor = diff > 0.15 ? '#34d399' : diff < -0.15 ? '#f87171' : '#cbd5e1';
+      var bold = Math.abs(diff) > 0.15 ? '800' : '500';
       h += "<td style='padding:8px;text-align:right;font-size:12px;font-weight:"+bold+";color:"+txtColor+";'>"+formatGPSVal(v.k,val)+"</td>";
     });
     h += "</tr>";
   });
 
   // Fila de promedios al final (como Catapult)
-  h += "<tr style='background:#1a1a1a;border-top:2px solid #333;'>";
-  h += "<td style='padding:10px 12px;font-size:11px;font-weight:800;color:#fff;'>PROMEDIO</td>";
+  h += "<tr style='background:#0f172a;border-top:2px solid rgba(255,255,255,.12);'>";
+  h += "<td style='padding:10px 12px;font-size:11px;font-weight:800;color:#f1f5f9;'>⌀ PROMEDIO</td>";
   h += "<td colspan='2'></td>";
   GPS_VARS.forEach(function(v){
     h += "<td style='padding:10px 8px;text-align:right;font-size:12px;font-weight:900;color:#f5c800;'>"+formatGPSVal(v.k,prom[v.k])+"</td>";
@@ -11674,35 +11690,39 @@ function renderGPSActividad(){
 
 function renderGraficaAtletas(datos, varKey, plantel, posiciones, maxVal){
   // Gráfica de barras agrupadas por posición (estilo Catapult)
-  var COLOR_VARS = {distancia:'#10b981',hsr:'#8B0000',playerLoad:'#b45309',vmax:'#1d4ed8',acc:'#7c3aed'};
-  var color = COLOR_VARS[varKey] || '#1a1a1a';
-  var varCfg = GPS_VARS.find(function(v){ return v.k===varKey; }) || {label:varKey,unit:'',icon:''};
+  var varCfg = GPS_VARS.find(function(v){ return v.k===varKey; }) || {label:varKey,unit:'',icon:'',color:'#10b981'};
+  var color = varCfg.color || '#10b981';
 
-  var BAR_W = 36, GAP_JUG = 6, GAP_POS = 20, HEIGHT = 200, PAD_L = 50, PAD_B = 60;
+  var BAR_W = 36, GAP_JUG = 6, GAP_POS = 24, HEIGHT = 200, PAD_L = 52, PAD_B = 64;
 
-  // Calcular ancho total
   var totalJugs = datos.length;
   var numPos = posiciones.length;
   var totalW = PAD_L + totalJugs*BAR_W + totalJugs*GAP_JUG + numPos*GAP_POS + 20;
+  var svgW = Math.max(totalW, 600);
+  var svgH = HEIGHT + PAD_B + 20;
 
-  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+Math.max(totalW,600)+'" height="'+(HEIGHT+PAD_B+20)+'" style="font-family:Arial,sans-serif;">';
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+svgW+'" height="'+svgH+'" style="font-family:Arial,sans-serif;">';
 
-  // Fondo
-  svg += '<rect width="100%" height="100%" fill="#fff"/>';
+  // Fondo transparente oscuro (compatible con tema dark)
+  svg += '<rect width="100%" height="100%" fill="rgba(0,0,0,0)" rx="6"/>';
 
-  // Líneas de referencia
-  var prom = datos.reduce(function(a,c){ return a+(parseFloat(c[varKey])||0); },0)/datos.length;
+  // Líneas de referencia (tema oscuro)
+  var promVal = datos.reduce(function(a,c){ return a+(parseFloat(c[varKey])||0); },0)/(datos.length||1);
   [0.25,0.5,0.75,1].forEach(function(pct){
     var y = HEIGHT - Math.round(pct*HEIGHT) + 20;
-    var val = Math.round(maxVal*pct);
-    svg += '<line x1="'+PAD_L+'" y1="'+y+'" x2="'+(totalW-10)+'" y2="'+y+'" stroke="#f3f4f6" stroke-width="1"/>';
-    svg += '<text x="'+(PAD_L-4)+'" y="'+(y+4)+'" text-anchor="end" font-size="9" fill="#9ca3af">'+val+'</text>';
+    var val = pct===1 ? maxVal : Math.round(maxVal*pct);
+    var dispVal = val >= 1000 ? (val/1000).toFixed(1)+'k' : val;
+    svg += '<line x1="'+PAD_L+'" y1="'+y+'" x2="'+(svgW-10)+'" y2="'+y+'" stroke="rgba(255,255,255,.08)" stroke-width="1"/>';
+    svg += '<text x="'+(PAD_L-4)+'" y="'+(y+4)+'" text-anchor="end" font-size="9" fill="#64748b">'+dispVal+'</text>';
   });
 
-  // Línea de promedio
-  var yProm = HEIGHT - Math.round(prom/maxVal*HEIGHT) + 20;
-  svg += '<line x1="'+PAD_L+'" y1="'+yProm+'" x2="'+(totalW-10)+'" y2="'+yProm+'" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="5,4"/>';
-  svg += '<text x="'+(totalW-8)+'" y="'+(yProm-3)+'" font-size="9" fill="#6b7280" font-weight="700">prom</text>';
+  // Línea de promedio del equipo
+  if(promVal > 0){
+    var yProm = HEIGHT - Math.round(promVal/maxVal*HEIGHT) + 20;
+    svg += '<line x1="'+PAD_L+'" y1="'+yProm+'" x2="'+(svgW-10)+'" y2="'+yProm+'" stroke="#f5c800" stroke-width="1.5" stroke-dasharray="6,4" opacity=".7"/>';
+    var promDisp = varCfg.dec > 0 ? promVal.toFixed(varCfg.dec) : Math.round(promVal);
+    svg += '<text x="'+(svgW-8)+'" y="'+(yProm-3)+'" font-size="9" fill="#f5c800" font-weight="700" text-anchor="end">⌀ '+promDisp+'</text>';
+  }
 
   var xCursor = PAD_L + GAP_POS/2;
 
@@ -11713,51 +11733,64 @@ function renderGraficaAtletas(datos, varKey, plantel, posiciones, maxVal){
     }).sort(function(a,b){ return (parseFloat(b[varKey])||0)-(parseFloat(a[varKey])||0); });
     if(!jugsPos.length) return;
 
-    // Etiqueta de posición
-    var xMid = xCursor + (jugsPos.length*(BAR_W+GAP_JUG))/2 - GAP_JUG/2;
-    svg += '<text x="'+xMid+'" y="16" text-anchor="middle" font-size="10" font-weight="800" fill="#374151">'+abrevPos(pos)+'</text>';
-    svg += '<line x1="'+xCursor+'" y1="20" x2="'+(xCursor+jugsPos.length*(BAR_W+GAP_JUG)-GAP_JUG)+'" y2="20" stroke="#e5e7eb" stroke-width="1"/>';
+    var blockW = jugsPos.length*(BAR_W+GAP_JUG) - GAP_JUG;
+    var xMid = xCursor + blockW/2;
+    // Etiqueta posición
+    svg += '<text x="'+xMid+'" y="14" text-anchor="middle" font-size="10" font-weight="800" fill="#94a3b8">'+abrevPos(pos)+'</text>';
+    svg += '<line x1="'+xCursor+'" y1="19" x2="'+(xCursor+blockW)+'" y2="19" stroke="rgba(255,255,255,.12)" stroke-width="1"/>';
 
     jugsPos.forEach(function(c){
       var val = parseFloat(c[varKey])||0;
-      var barH = maxVal > 0 ? Math.round(val/maxVal*HEIGHT) : 0;
+      var barH = maxVal > 0 ? Math.max(Math.round(val/maxVal*HEIGHT), val>0?2:0) : 0;
       var y = HEIGHT - barH + 20;
       var jug = plantel.find(function(p){ return p.id===c.pid; });
-      var nombre = jug ? (jug.apellido||jug.nombre||'').split(' ')[0].toUpperCase() : (c.nombreOrig||'').split(' ')[0].toUpperCase();
+      var nombre = jug ? (jug.apellido||jug.nombre||'').split(' ')[0].toUpperCase() : (c.nombre||c.nombreOrig||'').split(' ')[0].toUpperCase();
       if(nombre.length>8) nombre=nombre.slice(0,7)+'.';
 
-      // Barra
-      svg += '<rect x="'+xCursor+'" y="'+y+'" width="'+BAR_W+'" height="'+barH+'" fill="'+color+'" rx="3" opacity="0.88"/>';
+      // Barra con gradiente implícito (opacidad)
+      var alpha = val/maxVal;
+      var barColor = color;
+      svg += '<rect x="'+xCursor+'" y="'+y+'" width="'+BAR_W+'" height="'+barH+'" fill="'+barColor+'" rx="3" opacity="'+(0.6+alpha*0.4).toFixed(2)+'"/>';
+
       // Valor encima
-      if(val>0) svg += '<text x="'+(xCursor+BAR_W/2)+'" y="'+(y-4)+'" text-anchor="middle" font-size="9" font-weight="700" fill="#374151">'+Math.round(val)+'</text>';
+      if(val>0){
+        var dispVal = varCfg.dec > 0 ? parseFloat(val).toFixed(varCfg.dec) : Math.round(val);
+        svg += '<text x="'+(xCursor+BAR_W/2)+'" y="'+(y-5)+'" text-anchor="middle" font-size="9" font-weight="700" fill="#f1f5f9">'+dispVal+'</text>';
+      }
       // Nombre rotado abajo
-      svg += '<text transform="rotate(-55,'+(xCursor+BAR_W/2)+','+(HEIGHT+PAD_B/2-10)+')" x="'+(xCursor+BAR_W/2)+'" y="'+(HEIGHT+PAD_B/2-10)+'" text-anchor="end" font-size="9" fill="#6b7280">'+nombre+'</text>';
+      svg += '<text transform="rotate(-50,'+(xCursor+BAR_W/2)+','+(HEIGHT+PAD_B/2-6)+')" x="'+(xCursor+BAR_W/2)+'" y="'+(HEIGHT+PAD_B/2-6)+'" text-anchor="end" font-size="9" fill="#94a3b8">'+nombre+'</text>';
 
       xCursor += BAR_W + GAP_JUG;
     });
     xCursor += GAP_POS;
   });
 
+  // Sin datos
+  if(!datos.length){
+    svg += '<text x="'+svgW/2+'" y="'+svgH/2+'" text-anchor="middle" font-size="13" fill="#475569">Sin datos para esta sesión</text>';
+  }
+
   // Eje Y label
-  svg += '<text transform="rotate(-90,14,'+(HEIGHT/2+20)+')" x="14" y="'+(HEIGHT/2+20)+'" text-anchor="middle" font-size="10" fill="#9ca3af">'+varCfg.icon+' '+varCfg.label+' ('+varCfg.unit+')</text>';
+  svg += '<text transform="rotate(-90,13,'+(HEIGHT/2+20)+')" x="13" y="'+(HEIGHT/2+20)+'" text-anchor="middle" font-size="10" fill="#475569">'+varCfg.icon+' '+varCfg.label+'</text>';
   svg += '</svg>';
   return svg;
 }
 
 function cambiarVarGraficaAct(varKey){
-  var COLORS = {distancia:'#10b981',hsr:'#8B0000',playerLoad:'#b45309',vmax:'#1d4ed8',acc:'#7c3aed'};
-  // Actualizar botones
-  ['distancia','hsr','playerLoad','vmax','acc'].forEach(function(k){
+  // Actualizar botones visualmente
+  GPS_VARS_GRAFICA.forEach(function(k){
     var btn = document.getElementById('btn-act-'+k);
     if(!btn) return;
-    var c = COLORS[k];
+    var vCfg = GPS_VARS.find(function(v){ return v.k===k; });
+    var c = vCfg ? vCfg.color : '#1a1a1a';
     if(k===varKey){ btn.style.background=c; btn.style.color='#fff'; btn.style.borderColor=c; }
-    else{ btn.style.background='transparent'; btn.style.color='#6b7280'; btn.style.borderColor='#d1d5db'; }
+    else{ btn.style.background='transparent'; btn.style.color='#9ca3af'; btn.style.borderColor='rgba(255,255,255,.15)'; }
   });
-  // Re-render gráfica
-  var plantel = JDB.length>0?JDB:PL;
+  // Re-render gráfica usando gpsCargoFiltrado (incluye Catapult CSV)
+  var plantel = JDB.length>0 ? JDB : PL;
   var fechaSel = (document.getElementById('gps-fecha-sel')||{value:''}).value || '';
-  var sesion = fechaSel ? safeArr(CARGA).filter(function(c){ return c.fecha===fechaSel; }) : [];
+  if(!fechaSel) return;
+  var sesion = gpsCargoFiltrado().filter(function(c){ return c.fecha===fechaSel; });
   if(!sesion.length) return;
   var posConDatos = POSICIONES_GPS.filter(function(pos){
     return sesion.some(function(c){
@@ -11821,7 +11854,7 @@ function renderGPSSemanal(){
   // Gráfica de barras por día
   h += "<div class='card' style='padding:14px;margin-bottom:14px;'>";
   var tituloGrafica = jugsF && jugsF.length===1 ? "📊 PlayerLoad Diario — "+((plantelSem.find(function(p){return p.id===jugsF[0];})||{}).apellido||'Jugador') : jugsF && jugsF.length>1 ? "📊 PlayerLoad Diario — Comparativa Jugadores" : "📊 PlayerLoad Diario — Promedio Equipo";
-  h += "<div style='font-size:11px;font-weight:700;color:#1a1a1a;margin-bottom:12px;'>"+tituloGrafica+"</div>";
+  h += "<div style='font-size:11px;font-weight:700;color:#e2e8f0;margin-bottom:12px;'>"+tituloGrafica+"</div>";
 
   var maxLoad = 0;
   var dayData = semanaActual.map(function(fecha){
@@ -11897,8 +11930,8 @@ function renderGPSSemanal(){
       var pids = jugPos.map(function(j){ return j.id; });
       var datos = cargaFil.filter(function(c){ return semanaActual.includes(c.fecha) && pids.includes(c.pid); });
       if(!datos.length) return;
-      h += "<tr style='background:"+(pi%2?'#fafafa':'#fff')+";border-bottom:1px solid #f3f4f6;'>";
-      h += "<td style='padding:7px 10px;font-size:11px;font-weight:700;color:#1a1a1a;'>"+pos+"<span style='font-size:9px;color:#9ca3af;font-weight:400;margin-left:6px;'>("+datos.length+" sesiones)</span></td>";
+      h += "<tr style='background:"+(pi%2?'#fafafa':'#fff')+";border-bottom:1px solid rgba(255,255,255,.05);'>";
+      h += "<td style='padding:7px 10px;font-size:11px;font-weight:700;color:#e2e8f0;'>"+pos+"<span style='font-size:9px;color:#9ca3af;font-weight:400;margin-left:6px;'>("+datos.length+" sesiones)</span></td>";
       GPS_VARS.slice(0,5).forEach(function(v){
         var vals = datos.map(function(c){ return parseFloat(c[v.k])||0; }).filter(Boolean);
         var avg = vals.length ? vals.reduce(function(a,b){ return a+b; },0)/vals.length : 0;
@@ -11922,8 +11955,8 @@ function renderGPSSemanal(){
     semanaActual.forEach(function(fecha, ri){
       var reg = cargaFil.find(function(c){ return c.fecha===fecha; });
       var bg = ri%2===0?'#fff':'#fafafa';
-      h += "<tr style='background:"+bg+";border-bottom:1px solid #f3f4f6;'>";
-      h += "<td style='padding:7px 10px;font-size:11px;font-weight:700;color:#1a1a1a;'>"+fecha+"</td>";
+      h += "<tr style='background:"+bg+";border-bottom:1px solid rgba(255,255,255,.05);'>";
+      h += "<td style='padding:7px 10px;font-size:11px;font-weight:700;color:#e2e8f0;'>"+fecha+"</td>";
       GPS_VARS.slice(0,6).forEach(function(v){
         var val = reg ? parseFloat(reg[v.k])||0 : 0;
         h += "<td style='padding:7px 6px;text-align:right;font-size:11px;font-weight:700;color:var(--text-2);'>"+(val?formatGPSVal(v.k,val):'—')+"</td>";
@@ -11959,8 +11992,8 @@ function renderGPSSemanal(){
       var jugCarga = cargaFil.filter(function(c){ return semanaActual.includes(c.fecha) && c.pid===jid; });
       var color = GPS_CHIP_COLORS[ri%GPS_CHIP_COLORS.length];
       var bg = ri%2===0?'#fff':'#fafafa';
-      h += "<tr style='background:"+bg+";border-bottom:1px solid #f3f4f6;'>";
-      h += "<td style='padding:8px 10px;font-size:11px;font-weight:700;color:#1a1a1a;'>"
+      h += "<tr style='background:"+bg+";border-bottom:1px solid rgba(255,255,255,.05);'>";
+      h += "<td style='padding:8px 10px;font-size:11px;font-weight:700;color:#e2e8f0;'>"
          + "<span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:"+color+";margin-right:6px;'></span>"
          + nombre.toUpperCase()
          + "<span style='font-size:9px;color:#9ca3af;font-weight:400;margin-left:6px;'>("+jugCarga.length+" ses)</span></td>";
@@ -12057,7 +12090,7 @@ function renderGPSLongitudinalVar(varKey){
     : jugsF && jugsF.length>1
       ? "📈 Tendencia de "+varMeta.label+" — "+jugsF.length+" jugadores (prom. individual)"
       : "📈 Tendencia de "+varMeta.label+" — Promedio Equipo";
-  h += "<div style='font-size:11px;font-weight:700;color:#1a1a1a;margin-bottom:4px;'>"+tituloTend+filLabel+"</div>";
+  h += "<div style='font-size:11px;font-weight:700;color:#e2e8f0;margin-bottom:4px;'>"+tituloTend+filLabel+"</div>";
   h += "<div style='font-size:9px;color:#9ca3af;margin-bottom:12px;'>Últimas "+Math.min(fechas.length,20)+" sesiones</div>";
 
   var tendencia = fechas.map(function(fecha){
@@ -12143,8 +12176,8 @@ function renderGPSLongitudinalVar(varKey){
       ranking.forEach(function(r, ri){
         var bg = ri%2===0?'#fff':'#fafafa';
         var medal = ri===0?'🥇':ri===1?'🥈':ri===2?'🥉':'';
-        h += "<tr style='background:"+bg+";border-bottom:1px solid #f3f4f6;'>";
-        h += "<td style='padding:7px 10px;font-size:11px;font-weight:700;color:#1a1a1a;'>"+medal+" "+r.nombre+"</td>";
+        h += "<tr style='background:"+bg+";border-bottom:1px solid rgba(255,255,255,.05);'>";
+        h += "<td style='padding:7px 10px;font-size:11px;font-weight:700;color:#e2e8f0;'>"+medal+" "+r.nombre+"</td>";
         h += "<td style='padding:7px 6px;text-align:center;font-size:9px;color:var(--text-2);'>"+abrevPos(r.pos)+"</td>";
         h += "<td style='padding:7px 6px;text-align:right;font-size:12px;font-weight:900;color:"+varMeta.color+";'>"+formatGPSVal(varSel,r.prom)+"</td>";
         h += "<td style='padding:7px 6px;text-align:right;font-size:11px;font-weight:700;color:var(--text-2);'>"+formatGPSVal(varSel,r.max)+"</td>";
@@ -12183,8 +12216,8 @@ function renderGPSLongitudinalVar(varKey){
       var diffC = diff>5 ? '#059669' : diff<-5 ? '#dc2626' : '#6b7280';
       var pct = maxGrupo>0 ? avg/maxGrupo*100 : 0;
       var bg = ri%2===0?'#fff':'#fafafa';
-      h += "<tr style='background:"+bg+";border-bottom:1px solid #f3f4f6;'>";
-      h += "<td style='padding:8px 10px;font-size:11px;font-weight:700;color:#1a1a1a;'>"
+      h += "<tr style='background:"+bg+";border-bottom:1px solid rgba(255,255,255,.05);'>";
+      h += "<td style='padding:8px 10px;font-size:11px;font-weight:700;color:#e2e8f0;'>"
          + "<span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:"+color+";margin-right:6px;'></span>"
          + nombre+"</td>";
       h += "<td style='padding:8px 6px;text-align:center;font-size:12px;font-weight:900;color:"+varMeta.color+";'>"+formatGPSVal(varSel,avg)+"</td>";
@@ -12268,7 +12301,7 @@ function renderGPSComparativa(){
     var diff = avgA>0 ? (avgB-avgA)/avgA*100 : 0;
     var diffColor = diff>5 ? '#065f46' : diff<-5 ? '#991b1b' : '#6b7280';
 
-    h += "<div style='display:grid;grid-template-columns:1fr 120px 1fr;align-items:center;padding:10px 14px;background:"+(vi%2?'#fafafa':'#fff')+";border-bottom:1px solid #f3f4f6;'>";
+    h += "<div style='display:grid;grid-template-columns:1fr 120px 1fr;align-items:center;padding:10px 14px;background:"+(vi%2?'#fafafa':'#fff')+";border-bottom:1px solid rgba(255,255,255,.05);'>";
     h += "<div style='display:flex;align-items:center;gap:8px;justify-content:flex-end;'>";
     h += "<div style='font-size:13px;font-weight:800;color:#b45309;'>"+formatGPSVal(v.k,avgA)+"</div>";
     h += "<div style='width:80px;height:14px;background:var(--bg-elevated);border-radius:99px;overflow:hidden;'>";
@@ -12322,8 +12355,8 @@ function renderGPSComparativa(){
         var nombre = jug ? (jug.apellido||jug.nombre||'—').toUpperCase() : (regA&&regA.nombreOrig||'—');
         var pos = jug ? abrevPos(jug.pos||jug.posicion||'—') : '—';
         var bg = ri%2===0?'#fff':'#fafafa';
-        h += "<tr style='background:"+bg+";border-bottom:1px solid #f3f4f6;'>";
-        h += "<td style='padding:6px 10px;font-size:11px;font-weight:700;color:#1a1a1a;'>"+nombre+"</td>";
+        h += "<tr style='background:"+bg+";border-bottom:1px solid rgba(255,255,255,.05);'>";
+        h += "<td style='padding:6px 10px;font-size:11px;font-weight:700;color:#e2e8f0;'>"+nombre+"</td>";
         h += "<td style='padding:6px 4px;text-align:center;font-size:9px;color:var(--text-2);'>"+pos+"</td>";
         GPS_VARS.slice(0,5).forEach(function(v){
           var vA = parseFloat(regA?regA[v.k]:0)||0;
@@ -12684,11 +12717,12 @@ function cambiarVarComparativa(varKey, label){
 
 // ── HELPERS ──────────────────────────────────────────────────────
 function formatGPSVal(key, val){
-  if(!val || isNaN(val)) return '—';
-  // Decimales para velocidades, ratios y PlayerLoad
-  // Acepta tanto nombres GPS_VARS (vmax, mpm) como nombres de campo raw (velMax, metrajeMin)
-  if(['velMax','vmax','mpm','metrajeMin','pctVmax','velMaxPct','playerLoad'].indexOf(key)>=0) return parseFloat(val).toFixed(1);
-  return Math.round(val).toString();
+  if(val===undefined || val===null || val==='' || isNaN(val) || val===0) return '—';
+  var v = GPS_VARS.find(function(v){ return v.k===key; });
+  var dec = v ? (v.dec||0) : 0;
+  // Forzar decimales para velocidades, ratios, PlayerLoad y m/min
+  if(['vmax','velMax','mpm','metrajeMin','vmaxPct','velMaxPct','playerLoad'].indexOf(key)>=0) dec=1;
+  return dec>0 ? parseFloat(val).toFixed(dec) : Math.round(val).toString();
 }
 function abrevPos(pos){
   var map = {'Portero':'POR','Defensa Central':'DFC','Lateral':'LAT','Volante':'VOL','Extremo':'EXT','Delantero':'DEL'};
@@ -18449,8 +18483,10 @@ function verFichaCompleta(jid) {
     .sort(function(a,b){ return (b.fecha||'').localeCompare(a.fecha||''); }).slice(0,7).reverse();
   var rpePromSem = rpeData.length ? (rpeData.reduce(function(s,b){return s+(parseFloat(b.rpe_post)||0);},0)/rpeData.length).toFixed(1) : null;
 
-  var gpsData = safeArr(CARGA).filter(function(c){
-    return c.pid===jid || (j.apellido&&(c.nombre||'').toUpperCase().includes((j.apellido||'').toUpperCase()));
+  // Usar fuente GPS unificada (Catapult CSV + CARGA RPE)
+  var _gpsUnifDB = (typeof gpsCargoFiltrado==='function') ? gpsCargoFiltrado() : safeArr(CARGA);
+  var gpsData = _gpsUnifDB.filter(function(c){
+    return c.pid===jid;
   }).sort(function(a,b){ return (b.fecha||'').localeCompare(a.fecha||''); }).slice(0,5);
 
   var neuroData = safeArr(NEURO).filter(function(n){ return n.pid===jid; })
@@ -18469,8 +18505,8 @@ function verFichaCompleta(jid) {
 
   var acwr = '';
   if (gpsData.length >= 2) {
-    var cargaSem7 = gpsData.reduce(function(s,c){ return s+(parseFloat(c.distTotal)||0); },0);
-    var lastDist = parseFloat(gpsData[gpsData.length-1].distTotal)||0;
+    var cargaSem7 = gpsData.reduce(function(s,c){ return s+(parseFloat(c.distancia)||parseFloat(c.distTotal)||0); },0);
+    var lastDist = parseFloat(gpsData[gpsData.length-1].distancia)||parseFloat(gpsData[gpsData.length-1].distTotal)||0;
     if (cargaSem7 > 0) acwr = ((lastDist * gpsData.length) / cargaSem7).toFixed(2);
   }
 
@@ -24914,16 +24950,21 @@ function catapultProcesarCSV(){
     }
     var colName    = findCol(['jugador','athlete','player name','player','nombre','atleta','name']);
     var colDist    = findCol(['tot dist','total distance','total dist','distance (m)','distancia total','dist total','distancia']);
-    var colDur     = findCol(['tot dur','duration','time (min)','tiempo total','tiempo','duracion','duración','minutes','mins','time']);
-    var colHSR     = findCol(['high speed dist','high speed running','high speed distance','hsr','hir','alta velocidad','dist alta','vel b4']);
-    var colSpr     = findCol(['mts sprint','sprint (+25','sprint distance','sprint dist','dist sprint','sprint','sprints']);
-    var colVmax    = findCol(['max vel (km','max velocity','max speed','maximum velocity','vmax','vel max','vel máx','velocidad max','max vel']);
-    var colVmaxPct = findCol(['max vel (% max)','% max','vel (% max)','pct max','percent max','% vel']);
-    var colAcc     = findCol(['# acel','acel >','acceleration','accelerations','acelerations','aceleraciones','acc ']);
-    var colDeac    = findCol(['# desacel','desacel >','deceleration','decelerations','desaceleraciones','deac']);
+    var colDur     = findCol(['tot dur','duration','time (min)','tiempo total','tiempo','duracion','duración','minutes','mins']);
+    // HSR = High Speed Running/Distance — NO confundir con Vel B4
+    var colHSR     = findCol(['high speed dist','high speed running','high speed distance','hsr','hir','alta velocidad','dist alta','high spe']);
+    // Vel B4 = distancia a velocidad media (zona 4 Catapult) — columna separada
+    var colDistB4  = findCol(['vel b4 tot','vel b4','velb4','zone 4','zona 4','dist b4']);
+    var colSpr     = findCol(['mts sprint (+25','mts sprint','sprint distance (+25','sprint dist (+25','sprint (+25']);
+    var colVmax    = findCol(['max vel (km','max velocity','max speed','maximum velocity','velocidad max']);
+    var colVmaxPct = findCol(['max vel (% max)','% max','vel (% max)','pct max','percent max']);
+    var colAcc     = findCol(['# acel >3','# acel','accel >3','acel >','acceleration >3','accelerations >3','aceleraciones']);
+    var colDeac    = findCol(['# d >3','# desacel','decel >3','desacel >','deceleration >3','desaceleraciones']);
     var colPL      = findCol(['tot pl','player load','playerload']);
-    var colMpm     = findCol(['metraje por minuto','metros/min','m/min','met por min','distance per min']);
-    var colNSpr    = findCol(['# sprint +','# sprint','num sprint','sprint count']);
+    var colMpm     = findCol(['meterage per minute','metraje por minuto','metros/min','m/min','met por min','distance per min']);
+    var colNSpr    = findCol(['# sprint +25','# sprint +','num sprint','sprint count','nsprints']);
+    var colEffs95  = findCol(['effs +95','effs+95','eff +95','esfuerzos +95']);
+    var colDEffs95 = findCol(['dist +95','distance +95','dist+95']);
 
     if(colName === -1){ toast('❌ No se encontró columna de jugador. Buscá: Jugador, Athlete, Player, Name'); return; }
 
@@ -24978,20 +25019,32 @@ function catapultProcesarCSV(){
       var _csvSesId = (window._jornadaSesionActiva && window._jornadaSesionActiva.id) ? window._jornadaSesionActiva.id : null;
       var _gpsEntry = {
         pid:              matched.id,
-        nombre:           ((matched.nombre||matched.name||'')+' '+(matched.apellido||matched.lastname||'')).trim(),
+        nombre:           ((matched.apellido||matched.lastname||'')+' '+(matched.nombre||matched.name||'')).trim(),
         fecha:            fecha,
-        distancia:        parseNum(colDist),
-        hsr:              parseNum(colHSR),
-        sprints:          parseNum(colSpr),
-        nSprints:         parseNum(colNSpr),
+        // ── campos alineados a GPS_VARS / informe Catapult ──
         duracion:         parseNum(colDur),
+        mpm:              parseNum(colMpm),
+        distancia:        parseNum(colDist),
+        playerLoad:       parseNum(colPL),
+        acc:              parseNum(colAcc),
+        dcc:              parseNum(colDeac),
+        distB4:           parseNum(colDistB4),
+        sprints:          parseNum(colSpr),
+        hsr:              parseNum(colHSR),
+        nSprints:         parseNum(colNSpr),
+        vmax:             parseNum(colVmax),
+        vmaxPct:          parseNum(colVmaxPct),
+        effs95:           parseNum(colEffs95),
+        distEffs95:       parseNum(colDEffs95),
+        // ── alias originales para compatibilidad ──
         velMax:           parseNum(colVmax),
         velMaxPct:        parseNum(colVmaxPct),
         aceleraciones:    parseNum(colAcc),
         desaceleraciones: parseNum(colDeac),
-        playerLoad:       parseNum(colPL),
         metrajeMin:       parseNum(colMpm),
+        // ── metadatos ──
         fuente:           'catapult_csv',
+        estado:           'completo',
         ts:               Date.now()
       };
       if(_csvSesId) _gpsEntry.sesId = _csvSesId;
