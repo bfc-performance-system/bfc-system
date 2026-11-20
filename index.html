@@ -22418,33 +22418,67 @@ function histUsarPlantilla(id){
   histLoad();
   var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
   if(!snap){ toast('⚠️ Sesión no encontrada'); return; }
-  showModal("<div style='padding:20px 24px;max-width:340px;text-align:center;'><div style='font-size:34px;margin-bottom:10px;'>📋</div><div style='color:#f1f5f9;font-weight:800;font-size:14px;margin-bottom:6px;'>¿Usar como plantilla?</div><div style='color:#64748b;font-size:12px;margin-bottom:18px;'>Se copiarán todas las tareas y objetivos de la sesión. Solo deberás cambiar la fecha y el número de sesión.</div><div style='display:flex;gap:8px;justify-content:center;'><button onclick='closeModal();_histUsarPlantillaOk(\""+id+"\")' style='background:rgba(245,200,0,.2);border:1px solid rgba(245,200,0,.4);color:#fcd34d;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:800;'>📋 Usar como plantilla</button><button onclick='closeModal()' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:700;'>Cancelar</button></div></div>");
+  var numTareas = (snap.tareas||[]).length;
+  var tieneImgs = (snap.tareas||[]).some(function(t){ return t.img; });
+  var tieneZonas = (snap.tareas||[]).some(function(t){ return t.zonaData; });
+  var extras = [];
+  if(tieneImgs) extras.push('fotos');
+  if(tieneZonas) extras.push('zonas');
+  var extrasMsg = extras.length ? ' Incluye '+extras.join(' y ')+' de cada tarea.' : '';
+  showModal("<div style='padding:20px 24px;max-width:360px;text-align:center;'>"
+    +"<div style='font-size:34px;margin-bottom:10px;'>📋</div>"
+    +"<div style='color:#f1f5f9;font-weight:800;font-size:14px;margin-bottom:6px;'>¿Usar como plantilla?</div>"
+    +"<div style='color:#64748b;font-size:12px;margin-bottom:4px;'>Se copiarán las <b style=\"color:#f1f5f9;\">"+numTareas+" tareas</b>, objetivos y toda la estructura."+extrasMsg+"</div>"
+    +"<div style='color:#94a3b8;font-size:11px;margin-bottom:18px;'>Solo deberás cambiar la fecha y el número de sesión.</div>"
+    +"<div style='display:flex;gap:8px;justify-content:center;'>"
+    +"<button onclick='closeModal();_histUsarPlantillaOk(\""+id+"\")' style='background:rgba(245,200,0,.2);border:1px solid rgba(245,200,0,.4);color:#fcd34d;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:800;'>📋 Usar como plantilla</button>"
+    +"<button onclick='closeModal()' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:700;'>Cancelar</button>"
+    +"</div></div>");
 }
 function _histUsarPlantillaOk(id){
   histLoad();
   var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
   if(!snap){ toast('⚠️ Sesión no encontrada'); return; }
   // Copiar todo EXCEPTO fecha, sesionNum y morfociclo → el usuario los cambia
-  sesData.fecha        = TODAY; // siempre hoy como punto de partida
-  sesData.sesionNum    = '';     // limpiar para que lo llene el usuario
-  sesData.morfociclo   = '';     // limpiar para que lo llene el usuario
-  sesData.numJugadores = snap.numJugadores || 0;
-  sesData.tiempo       = snap.tiempo || '';
-  sesData.objtacof     = snap.objtacof || '';
-  sesData.objtacdef    = snap.objtacdef || '';
-  sesData.objtecof     = snap.objtecof || '';
-  sesData.objtecdef    = snap.objtecdef || '';
-  sesData.objfisof     = snap.objfisof || '';
-  sesData.objfisdef    = snap.objfisdef || '';
-  sesData.faseFinal    = snap.faseFinal || '';
+  sesData.fecha         = TODAY;  // punto de partida; el usuario cambia a mañana
+  sesData.sesionNum     = '';     // limpiar para que lo llene el usuario
+  sesData.morfociclo    = '';     // limpiar para que lo llene el usuario
+  sesData.numJugadores  = snap.numJugadores  || 0;
+  sesData.tiempo        = snap.tiempo        || '';
+  sesData.codigo        = snap.cdefSel       || snap.codigo || '';
+  sesData.cdefSel       = snap.cdefSel       || '';
+  sesData.cdefNota      = snap.cdefNota      || '';
+  sesData.objtacof      = snap.objtacof      || '';
+  sesData.objtacdef     = snap.objtacdef     || '';
+  sesData.objtecof      = snap.objtecof      || '';
+  sesData.objtecdef     = snap.objtecdef     || '';
+  sesData.objfisof      = snap.objfisof      || '';
+  sesData.objfisdef     = snap.objfisdef     || '';
+  sesData.objpsiof      = snap.objpsiof      || '';
+  sesData.objpsidef     = snap.objpsidef     || '';
+  sesData['ses-tac']    = snap['ses-tac']    || snap.objtacof || '';
+  sesData['ses-tec']    = snap['ses-tec']    || snap.objtecof || '';
+  sesData['ses-fis']    = snap['ses-fis']    || snap.objfisof || '';
+  sesData['ses-psi']    = snap['ses-psi']    || snap.objpsiof || '';
+  sesData.faseFinal     = snap.faseFinal     || '';
   sesData.observaciones = snap.observaciones || '';
+  sesData.videoLink     = snap.videoLink     || '';
+  // Copiar tareas CON fotos y zonas — es una plantilla, no una sesión nueva vacía
   sesData.tareas = (snap.tareas||[]).map(function(t){
-    return {titulo:t.titulo||'',objetivo:t.objetivo||'',descripcion:t.descripcion||'',tiempo:t.tiempo||'',img:null,zonaData:null};
+    return {
+      titulo:      t.titulo      || '',
+      objetivo:    t.objetivo    || '',
+      descripcion: t.descripcion || '',
+      tiempo:      t.tiempo      || '',
+      img:         t.img         || null,   // ✅ copiar foto
+      zonaData:    t.zonaData    || null,   // ✅ copiar zona
+      videoLink:   t.videoLink   || ''
+    };
   });
   sesSave();
   irA('sesion');
   setTimeout(function(){ renderSesion(); }, 100);
-  toast('📋 Plantilla cargada — cambiá fecha y número de sesión');
+  toast('📋 Plantilla cargada con fotos y zonas — cambiá fecha y número de sesión');
 }
 
 function histVerPDF(id){
