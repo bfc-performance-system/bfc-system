@@ -800,6 +800,12 @@ function fbEscucharHistorial() {
     if (pgH && pgH.classList.contains('on') && typeof renderHistorial === 'function') {
       renderHistorial();
     }
+    // Re-renderizar el dashboard si está visible — una sesión planificada puede haber
+    // llegado desde Firebase y no estaba aún en bfc_ses_hist (localStorage) al arrancar
+    var pgJ = document.getElementById('page-jornada');
+    if (pgJ && pgJ.classList.contains('on') && typeof renderJornada === 'function') {
+      renderJornada();
+    }
   });
 }
 
@@ -8384,6 +8390,13 @@ function renderProgramacion() {
   for (var si2 = 0; si2 < SES_DB_RAW.length; si2++) {
     var sf = SES_DB_RAW[si2].fecha || SES_DB_RAW[si2].fechaSes;
     if (sf === todayStr) { sesHoy = SES_DB_RAW[si2]; break; }
+  }
+  // Fallback: buscar en HISTORIAL_DB por si bfc_ses_hist aún no tiene la entrada de hoy
+  if (!sesHoy && typeof HISTORIAL_DB !== 'undefined') {
+    for (var si2d = 0; si2d < HISTORIAL_DB.length; si2d++) {
+      var sf2d = HISTORIAL_DB[si2d].fecha || HISTORIAL_DB[si2d].fechaSes;
+      if (sf2d === todayStr) { sesHoy = HISTORIAL_DB[si2d]; break; }
+    }
   }
 
   // Sesión registrada mañana — buscar en bfc_ses_hist Y en HISTORIAL_DB
@@ -22284,6 +22297,22 @@ function _histGuardarLocalSinImgs(){
       return sc;
     });
     localStorage.setItem('BFC_HISTORIAL', JSON.stringify(_hsi));
+    // Sincronizar bfc_ses_hist desde HISTORIAL_DB para que sesHoy/sesManana estén disponibles
+    // incluso si la sesión fue planificada desde otro dispositivo (antes del fix de fallback a HISTORIAL_DB)
+    try{
+      var _sesHist2 = JSON.parse(localStorage.getItem('bfc_ses_hist')||'[]')||[];
+      var _sesHistMap = {};
+      _sesHist2.forEach(function(s){ _sesHistMap[s.fecha||s.fechaSes||''] = true; });
+      HISTORIAL_DB.forEach(function(ses){
+        var fISO = ses.fecha || ses.fechaSes || '';
+        if(!fISO) return;
+        if(!_sesHistMap[fISO]){
+          _sesHist2.unshift({ fecha:fISO, fechaSes:fISO, sesionNum:ses.sesionNum||'', cdefSel:ses.cdefSel||ses.codigo||'', duracion:ses.duracion||ses.tiempo||'', morfociclo:ses.morfociclo||'', tiempo:ses.tiempo||'', videoLink:ses.videoLink||'' });
+          _sesHistMap[fISO] = true;
+        }
+      });
+      localStorage.setItem('bfc_ses_hist', JSON.stringify(_sesHist2));
+    }catch(e2){}
   }catch(e){ console.warn('[BFC] _histGuardarLocalSinImgs error:', e.message); }
 }
 
