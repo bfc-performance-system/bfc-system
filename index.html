@@ -18717,50 +18717,99 @@ function _fbMigrarHistImgsAFirebase(){
 }
 
 // ════════════════════════════════════════════════════════════════
-// LIMPIEZA AUTOMÁTICA AL ARRANQUE — migra fotos a Firebase y libera localStorage
+// LIMPIEZA AUTOMÁTICA AL ARRANQUE — siempre compacta datos pesados
 // ════════════════════════════════════════════════════════════════
 (function(){
   try {
-    var _used = 0;
-    for(var k in localStorage){ if(localStorage.hasOwnProperty(k)) _used += (localStorage[k]||'').length * 2; }
-    var _pct = _used / (5*1024*1024);
-    if(_pct >= 0.80) {
-      // Eliminar fotos base64 residuales de bfc_jdb (fotos de jugadores → ya están en Firebase bfc/fotos)
-      try {
-        var _jdb = JSON.parse(localStorage.getItem('bfc_jdb')||'[]')||[];
-        var _dirty = _jdb.some(function(j){ return j.foto && j.foto.indexOf('data:')===0; });
-        if(_dirty){
-          var _clean = _jdb.map(function(j){ var c={}; for(var k2 in j){ if(k2!=='foto') c[k2]=j[k2]; } return c; });
-          localStorage.setItem('bfc_jdb', JSON.stringify(_clean));
-          console.log('[BFC] Auto-limpieza: fotos de jugadores eliminadas de localStorage');
-        }
-      } catch(e2) {}
-      // Recortar BFC_HISTORIAL a 15 entradas (texto, sin imágenes) — Firebase tiene el historial completo
-      try {
-        var _h = JSON.parse(localStorage.getItem('BFC_HISTORIAL')||'[]')||[];
-        if(_h.length > 15) localStorage.setItem('BFC_HISTORIAL', JSON.stringify(_h.slice(0,15)));
-      } catch(e3) {}
-      // Eliminar backups automáticos antiguos y compactar los que quedan
-      try {
-        ['BFC_BACKUP_AUTO','BFC_BACKUP_MANUAL'].forEach(function(bk){
-          var _bRaw = localStorage.getItem(bk);
-          if(!_bRaw) return;
-          try {
-            var _b = JSON.parse(_bRaw);
-            // Compactar historial del backup a máximo 5 entradas con solo metadatos
-            if(_b.historial && _b.historial.length > 5){
-              _b.historial = _b.historial.slice(0,5).map(function(ses){
-                return { id:ses.id, fecha:ses.fecha, sesionNum:ses.sesionNum };
-              });
-              localStorage.setItem(bk, JSON.stringify(_b));
+    // 1. Siempre: eliminar fotos base64 residuales de bfc_jdb (ya están en Firebase bfc/fotos)
+    try {
+      var _jdb = JSON.parse(localStorage.getItem('bfc_jdb')||'[]')||[];
+      var _dirty = _jdb.some(function(j){ return j.foto && j.foto.indexOf('data:')===0; });
+      if(_dirty){
+        var _clean = _jdb.map(function(j){ var c={}; for(var k2 in j){ if(k2!=='foto') c[k2]=j[k2]; } return c; });
+        localStorage.setItem('bfc_jdb', JSON.stringify(_clean));
+        console.log('[BFC] Limpieza arranque: fotos base64 eliminadas de bfc_jdb');
+      }
+    } catch(e2) {}
+
+    // 2. Siempre: compactar BFC_HISTORIAL (solo texto, sin imágenes, máx 15 sesiones)
+    try {
+      var _hRaw = localStorage.getItem('BFC_HISTORIAL');
+      if(_hRaw){
+        var _h = JSON.parse(_hRaw)||[];
+        // Eliminar imágenes base64 residuales de tareas y recortar a 15
+        var _hLimpio = _h.map(function(ses){
+          var sc = Object.assign({}, ses);
+          if(sc.tareas && Array.isArray(sc.tareas)){
+            sc.tareas = sc.tareas.map(function(t){
+              var tc = Object.assign({}, t);
+              if(tc.img && typeof tc.img==='string' && tc.img.indexOf('data:')===0) delete tc.img;
+              return tc;
+            });
+          }
+          return sc;
+        }).slice(0,15);
+        localStorage.setItem('BFC_HISTORIAL', JSON.stringify(_hLimpio));
+        console.log('[BFC] Limpieza arranque: BFC_HISTORIAL compactado a', _hLimpio.length, 'sesiones');
+      }
+    } catch(e3) {}
+
+    // 3. Siempre: compactar backups (historial mínimo, sin imágenes, máx 5 sesiones)
+    try {
+      ['BFC_BACKUP_AUTO','BFC_BACKUP_MANUAL'].forEach(function(bk){
+        var _bRaw = localStorage.getItem(bk);
+        if(!_bRaw) return;
+        try {
+          var _b = JSON.parse(_bRaw);
+          var _bModificado = false;
+          // Compactar historial del backup: máx 5 entradas con solo metadatos esenciales
+          if(_b.historial && Array.isArray(_b.historial)){
+            var _hBkCompacto = _b.historial.slice(0,5).map(function(ses){
+              return { id:ses.id, fecha:ses.fecha, sesionNum:ses.sesionNum,
+                       duracion:ses.duracion, morfociclo:ses.morfociclo };
+            });
+            if(JSON.stringify(_hBkCompacto) !== JSON.stringify(_b.historial)){
+              _b.historial = _hBkCompacto;
+              _bModificado = true;
             }
-          } catch(e4) { localStorage.removeItem(bk); }
-        });
-      } catch(e5) {}
-      // Marcar para migrar BFC_HIST_IMGS a Firebase cuando fbDB esté listo
-      window._BFC_MIGRAR_HIST_IMGS = true;
-      console.log('[BFC] Auto-limpieza: pendiente migrar BFC_HIST_IMGS a Firebase');
-    }
+          }
+          // Eliminar fotos base64 del JDB dentro del backup
+          if(_b.jdb && Array.isArray(_b.jdb)){
+            var _jdbDirty = _b.jdb.some(function(j){ return j.foto && j.foto.indexOf('data:')===0; });
+            if(_jdbDirty){
+              _b.jdb = _b.jdb.map(function(j){ var c={}; for(var kk in j){ if(kk!=='foto') c[kk]=j[kk]; } return c; });
+              _bModificado = true;
+            }
+          }
+          if(_bModificado){
+            try {
+              localStorage.setItem(bk, JSON.stringify(_b));
+              console.log('[BFC] Limpieza arranque: ' + bk + ' compactado');
+            } catch(eSet){
+              // Si aún es muy grande, guardar solo lo mínimo
+              var _bMin = { ts:_b.ts, fecha:_b.fecha, origen:_b.origen, pl:_b.pl, jdb:_b.jdb||[], historial:[] };
+              try { localStorage.setItem(bk, JSON.stringify(_bMin)); } catch(e6) { localStorage.removeItem(bk); }
+            }
+          }
+        } catch(e4) { localStorage.removeItem(bk); }
+      });
+    } catch(e5) {}
+
+    // 4. Si quedan imágenes en BFC_HIST_IMGS, marcar para migrar a Firebase al conectar
+    try {
+      var _histImgs = localStorage.getItem('BFC_HIST_IMGS');
+      if(_histImgs && _histImgs.length > 10){
+        window._BFC_MIGRAR_HIST_IMGS = true;
+        console.log('[BFC] Limpieza arranque: BFC_HIST_IMGS pendiente de migrar a Firebase');
+      }
+    } catch(e7) {}
+
+    // Log del resultado
+    try {
+      var _usedFinal = 0;
+      for(var kf in localStorage){ if(localStorage.hasOwnProperty(kf)) _usedFinal += (localStorage[kf]||'').length * 2; }
+      console.log('[BFC] Limpieza arranque completada — uso:', Math.round(_usedFinal/1024), 'KB (', Math.round(_usedFinal/(5*1024*1024)*100), '%)');
+    } catch(e8) {}
   } catch(e) {}
 })();
 
