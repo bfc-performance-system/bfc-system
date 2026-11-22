@@ -18630,6 +18630,36 @@ function _limpiarImgsLS(){
   }
 }
 
+// ════════════════════════════════════════════════════════════════
+// LIMPIEZA AUTOMÁTICA AL ARRANQUE — si localStorage está al límite
+// ════════════════════════════════════════════════════════════════
+(function(){
+  try {
+    var _used = 0;
+    for(var k in localStorage){ if(localStorage.hasOwnProperty(k)) _used += (localStorage[k]||'').length * 2; }
+    var _pct = _used / (5*1024*1024);
+    if(_pct >= 0.80) {
+      // Eliminar BFC_HIST_IMGS completo — las fotos de sesión están en Firebase (bfc/fotos_sesion)
+      localStorage.removeItem('BFC_HIST_IMGS');
+      // Eliminar fotos base64 residuales de bfc_jdb (por si quedaron de versión anterior)
+      try {
+        var _jdb = JSON.parse(localStorage.getItem('bfc_jdb')||'[]')||[];
+        var _dirty = _jdb.some(function(j){ return j.foto && j.foto.indexOf('data:')===0; });
+        if(_dirty){
+          var _clean = _jdb.map(function(j){ var c={}; for(var k2 in j){ if(k2!=='foto') c[k2]=j[k2]; } return c; });
+          localStorage.setItem('bfc_jdb', JSON.stringify(_clean));
+        }
+      } catch(e2) {}
+      // Recortar BFC_HISTORIAL a 20 entradas
+      try {
+        var _h = JSON.parse(localStorage.getItem('BFC_HISTORIAL')||'[]')||[];
+        if(_h.length > 20) localStorage.setItem('BFC_HISTORIAL', JSON.stringify(_h.slice(0,20)));
+      } catch(e3) {}
+      console.log('[BFC] Auto-limpieza de localStorage ejecutada (espacio crítico)');
+    }
+  } catch(e) {}
+})();
+
 // ================================================
 // ARRANQUE
 // ================================================
