@@ -465,6 +465,7 @@ function fbInit() {
     fbPresenciaInit();       // 👥 Presencia multi-usuario
     fbBackupAutoInit();      // 💾 Backup automático periódico
     setTimeout(fbMigrarFotosAntiguas, 3000); // 📸 Migrar fotos antiguas (grandes) a Firebase comprimidas
+    if(window._BFC_MIGRAR_HIST_IMGS) setTimeout(_fbMigrarHistImgsAFirebase, 5000); // 📸 Migrar BFC_HIST_IMGS → Firebase y liberar localStorage
     console.log("[BFC Firebase] Conectado a Realtime Database");
   } catch(e) {
     console.warn("[BFC Firebase] Error al inicializar:", e.message);
@@ -18631,7 +18632,54 @@ function _limpiarImgsLS(){
 }
 
 // ════════════════════════════════════════════════════════════════
-// LIMPIEZA AUTOMÁTICA AL ARRANQUE — si localStorage está al límite
+// MIGRACIÓN: BFC_HIST_IMGS (localStorage) → bfc/fotos_sesion (Firebase)
+// Se ejecuta cuando el localStorage está al límite y Firebase está disponible.
+// Después de subir cada sesión, elimina sus fotos de BFC_HIST_IMGS.
+// ════════════════════════════════════════════════════════════════
+function _fbMigrarHistImgsAFirebase(){
+  if(!window.fbDB){ console.log('[BFC-MIG] Firebase no disponible, cancelando migración'); return; }
+  try {
+    var _imgs = JSON.parse(localStorage.getItem('BFC_HIST_IMGS')||'{}');
+    var _keys = Object.keys(_imgs);
+    if(_keys.length === 0){ localStorage.removeItem('BFC_HIST_IMGS'); return; }
+    // Agrupar por sesId
+    var _porSes = {};
+    _keys.forEach(function(k){
+      var parts = k.split('_');
+      var ti = parts.pop();
+      var sesId = parts.join('_');
+      if(!_porSes[sesId]) _porSes[sesId] = {};
+      var entrada = _imgs[k];
+      var imgStr = entrada && entrada.img ? entrada.img : (typeof entrada==='string' ? entrada : null);
+      if(imgStr) _porSes[sesId]['t'+ti] = { img: imgStr, real: (entrada && entrada._imgReal===true) };
+    });
+    var sesIds = Object.keys(_porSes);
+    console.log('[BFC-MIG] Migrando fotos de', sesIds.length, 'sesiones a Firebase...');
+    var pendientes = sesIds.length;
+    sesIds.forEach(function(sesId){
+      window.fbDB.ref('bfc/fotos_sesion/'+sesId).update(_porSes[sesId])
+        .then(function(){
+          console.log('[BFC-MIG] ✅ Sesión', sesId, 'migrada a Firebase');
+          pendientes--;
+          if(pendientes === 0){
+            // Todas subidas → eliminar BFC_HIST_IMGS de localStorage
+            localStorage.removeItem('BFC_HIST_IMGS');
+            console.log('[BFC-MIG] ✅ BFC_HIST_IMGS eliminado de localStorage — fotos en Firebase');
+            if(typeof toast === 'function') toast('✅ Fotos migradas a Firebase — espacio liberado');
+          }
+        })
+        .catch(function(e){
+          console.warn('[BFC-MIG] Error subiendo sesión', sesId, ':', e.message);
+          pendientes--;
+        });
+    });
+  } catch(e) {
+    console.warn('[BFC-MIG] Error en migración:', e.message);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// LIMPIEZA AUTOMÁTICA AL ARRANQUE — migra fotos a Firebase y libera localStorage
 // ════════════════════════════════════════════════════════════════
 (function(){
   try {
@@ -18639,23 +18687,24 @@ function _limpiarImgsLS(){
     for(var k in localStorage){ if(localStorage.hasOwnProperty(k)) _used += (localStorage[k]||'').length * 2; }
     var _pct = _used / (5*1024*1024);
     if(_pct >= 0.80) {
-      // Eliminar BFC_HIST_IMGS completo — las fotos de sesión están en Firebase (bfc/fotos_sesion)
-      localStorage.removeItem('BFC_HIST_IMGS');
-      // Eliminar fotos base64 residuales de bfc_jdb (por si quedaron de versión anterior)
+      // Eliminar fotos base64 residuales de bfc_jdb (fotos de jugadores → ya están en Firebase bfc/fotos)
       try {
         var _jdb = JSON.parse(localStorage.getItem('bfc_jdb')||'[]')||[];
         var _dirty = _jdb.some(function(j){ return j.foto && j.foto.indexOf('data:')===0; });
         if(_dirty){
           var _clean = _jdb.map(function(j){ var c={}; for(var k2 in j){ if(k2!=='foto') c[k2]=j[k2]; } return c; });
           localStorage.setItem('bfc_jdb', JSON.stringify(_clean));
+          console.log('[BFC] Auto-limpieza: fotos de jugadores eliminadas de localStorage');
         }
       } catch(e2) {}
-      // Recortar BFC_HISTORIAL a 20 entradas
+      // Recortar BFC_HISTORIAL a 20 entradas (texto, sin imágenes)
       try {
         var _h = JSON.parse(localStorage.getItem('BFC_HISTORIAL')||'[]')||[];
         if(_h.length > 20) localStorage.setItem('BFC_HISTORIAL', JSON.stringify(_h.slice(0,20)));
       } catch(e3) {}
-      console.log('[BFC] Auto-limpieza de localStorage ejecutada (espacio crítico)');
+      // Marcar para migrar BFC_HIST_IMGS a Firebase cuando fbDB esté listo
+      window._BFC_MIGRAR_HIST_IMGS = true;
+      console.log('[BFC] Auto-limpieza: pendiente migrar BFC_HIST_IMGS a Firebase');
     }
   } catch(e) {}
 })();
@@ -22441,29 +22490,21 @@ function _histGuardarLocalSinImgs(){
 }
 
 function histSave(){
-  // Guardar en localStorage sin imágenes base64 para no saturar la cuota (~10MB)
-  // Las imágenes se guardan por separado en BFC_HIST_IMGS indexadas por sesId+tareaIdx
+  // Guardar en localStorage solo texto (sin imágenes base64) — las fotos van a Firebase (bfc/fotos_sesion)
   try{
-    var _histImgs = {};
     var _histSinImgs = HISTORIAL_DB.map(function(ses){
       var sc = Object.assign({}, ses);
       if(sc.tareas && Array.isArray(sc.tareas)){
-        sc.tareas = sc.tareas.map(function(t, ti){
+        sc.tareas = sc.tareas.map(function(t){
           var tc = Object.assign({}, t);
-          if(tc.img && typeof tc.img==='string' && tc.img.indexOf('data:')===0){
-            var imgKey = (sc.id||sc.fecha||'x')+'_'+ti;
-            _histImgs[imgKey] = { img: tc.img, _imgReal: tc._imgReal||false };
-            delete tc.img;
-          }
+          if(tc.img && typeof tc.img==='string' && tc.img.indexOf('data:')===0) delete tc.img;
           return tc;
         });
       }
       return sc;
     });
     localStorage.setItem('BFC_HISTORIAL', JSON.stringify(_histSinImgs));
-    if(Object.keys(_histImgs).length > 0){
-      try{ localStorage.setItem('BFC_HIST_IMGS', JSON.stringify(_histImgs)); }catch(e2){}
-    }
+    // BFC_HIST_IMGS ya no se escribe — las fotos viven en Firebase bfc/fotos_sesion
   }catch(e){
     console.warn('[BFC] histSave localStorage error:', e.message);
   }
