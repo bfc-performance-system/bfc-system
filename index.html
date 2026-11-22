@@ -18556,6 +18556,28 @@ function fbMostrarConfig() {
       h += "<div style='height:100%;width:"+_pct+"%;background:"+_color+";border-radius:99px;transition:width .4s;'></div>";
       h += "</div>";
       h += "<div style='font-size:10px;color:#64748b;margin-top:5px;'>"+_kb+" KB usados de ~5,120 KB ("+_pct+"%)</div>";
+      // Desglose por clave (top 8 más pesadas)
+      var _desglose = [];
+      for(var dk in localStorage){
+        if(localStorage.hasOwnProperty(dk)){
+          var _dkb = Math.round((localStorage[dk]||'').length * 2 / 1024);
+          if(_dkb > 5) _desglose.push({k:dk, kb:_dkb});
+        }
+      }
+      _desglose.sort(function(a,b){return b.kb-a.kb;});
+      if(_desglose.length > 0){
+        h += "<div style='margin-top:8px;font-size:9px;color:#475569;'>";
+        _desglose.slice(0,8).forEach(function(d){
+          var _w = Math.min(100, Math.round(d.kb/_kb*100));
+          var _dc = d.kb > 500 ? '#ef4444' : d.kb > 100 ? '#fbbf24' : '#64748b';
+          h += "<div style='display:flex;align-items:center;gap:5px;margin-top:3px;'>";
+          h += "<span style='width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b;'>"+d.k+"</span>";
+          h += "<div style='flex:1;background:rgba(255,255,255,.06);border-radius:3px;height:4px;'><div style='width:"+_w+"%;height:100%;background:"+_dc+";border-radius:3px;'></div></div>";
+          h += "<span style='width:45px;text-align:right;color:"+_dc+";font-weight:700;'>"+d.kb+" KB</span>";
+          h += "</div>";
+        });
+        h += "</div>";
+      }
       if(_pct >= 70) {
         h += "<button onclick=\"_limpiarImgsLS();closeModal();setTimeout(fbMostrarConfig,400);\" style='margin-top:8px;width:100%;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.35);color:#fca5a5;border-radius:7px;padding:6px;font-size:10px;font-weight:800;cursor:pointer;'>🗑️ Limpiar caché de imágenes (libera espacio)</button>";
       }
