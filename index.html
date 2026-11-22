@@ -1588,7 +1588,10 @@ function fbGuardar() {
       .catch(function(e) {
         console.warn("[BFC Firebase] Error guardando:", e.message);
         var badge = document.getElementById('fb-sync-badge');
-        if (badge) { badge.textContent = '⚠️ Error sync'; badge.style.color='#fbbf24'; }
+        if (badge) {
+          badge.innerHTML = '⚠️ Error sync &nbsp;<span onclick="fbGuardar();toast(\'🔄 Reintentando...\');" style="background:rgba(251,191,36,.25);border:1px solid rgba(251,191,36,.4);color:#fbbf24;border-radius:6px;padding:1px 7px;font-size:9px;cursor:pointer;font-weight:800;">↺ Reintentar</span>';
+          badge.style.color='#fbbf24'; badge.style.background='rgba(251,191,36,.1)'; badge.style.borderColor='rgba(251,191,36,.3)';
+        }
       });
   }, 800);
 }
@@ -18527,6 +18530,29 @@ function fbMostrarConfig() {
   h += "alert(msg);});})()' style='flex:1;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:8px;padding:7px;font-size:10px;font-weight:700;cursor:pointer;'>☁️ Ver FB</button>";
   h += "</div>";
   h += "</div>";
+
+  // ── Indicador de localStorage (solo visible aquí en el panel de config) ──
+  (function(){
+    try {
+      var _total = 5 * 1024 * 1024; // 5MB estimado
+      var _used = 0;
+      for(var k in localStorage){ if(localStorage.hasOwnProperty(k)) _used += (localStorage[k]||'').length * 2; }
+      var _pct = Math.min(100, Math.round(_used / _total * 100));
+      var _kb = Math.round(_used / 1024);
+      var _color = _pct >= 85 ? '#ef4444' : _pct >= 70 ? '#fbbf24' : '#34d399';
+      var _msg = _pct >= 85 ? '⚠️ Espacio crítico' : _pct >= 70 ? '⚡ Espacio limitado' : '✅ Espacio OK';
+      h += "<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:12px 14px;margin-top:10px;margin-bottom:4px;'>";
+      h += "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;'>";
+      h += "<span style='font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;'>💾 Almacenamiento local</span>";
+      h += "<span style='font-size:10px;font-weight:800;color:"+_color+";'>"+_msg+"</span>";
+      h += "</div>";
+      h += "<div style='background:rgba(255,255,255,.08);border-radius:99px;height:6px;overflow:hidden;'>";
+      h += "<div style='height:100%;width:"+_pct+"%;background:"+_color+";border-radius:99px;transition:width .4s;'></div>";
+      h += "</div>";
+      h += "<div style='font-size:10px;color:#64748b;margin-top:5px;'>"+_kb+" KB usados de ~5,120 KB ("+_pct+"%)</div>";
+      h += "</div>";
+    } catch(e) {}
+  })();
 
   h += "<div style='display:flex;gap:8px;margin-top:4px;'>";
   h += "<button class='btn' style='flex:1;' onclick='closeModal();fbVerBackups();'>💾 Ver backups</button>";
