@@ -931,7 +931,7 @@ function fbEscuchar() {
       var datosRemotoCambiaron = _jdbSinFoto(d.jdb) !== _jdbSinFoto(JDB);
       if (datosRemotoCambiaron) {
         JDB = _newJDB;
-        try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){}
+        try{ localStorage.setItem('bfc_jdb', _jdbLocalSinFotos(JDB)); }catch(e){}
         rerender = true;
       }
     }
@@ -946,7 +946,7 @@ function fbEscuchar() {
       });
       if(_fotosCambiaron){
         JDB = _localJDB2;
-        try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){}
+        try{ localStorage.setItem('bfc_jdb', _jdbLocalSinFotos(JDB)); }catch(e){}
         rerender = true;
       }
     }
@@ -1184,7 +1184,7 @@ function fbEscucharFotos() {
     });
     if (_cambio) {
       JDB = _localJDB;
-      try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){}
+      try{ localStorage.setItem('bfc_jdb', _jdbLocalSinFotos(JDB)); }catch(e){}
       // Re-renderizar vistas que muestran fotos
       if (typeof renderPlantilla === 'function') try{ renderPlantilla(); }catch(e){}
       if (typeof renderPlantel === 'function') try{ renderPlantel(); }catch(e){}
@@ -1604,7 +1604,7 @@ function fbVolcarALocalStorage() {
     localStorage.setItem("bfc_bien_sesiones", JSON.stringify(BIEN_SESIONES||[]));
     localStorage.setItem("bfc_neuro", JSON.stringify(NEURO));
     localStorage.setItem("bfc_evs", JSON.stringify(EVS));
-    localStorage.setItem("bfc_jdb", JSON.stringify(JDB));
+    localStorage.setItem("bfc_jdb", _jdbLocalSinFotos(JDB)); // sin fotos — viven en Firebase bfc/fotos
     localStorage.setItem("bfc_sdb", JSON.stringify(SDB));
     localStorage.setItem("bfc_pruebas", JSON.stringify(PRUEBAS||[]));
     localStorage.setItem("bfc_ci_db", JSON.stringify(CI_DB||[]));
@@ -1773,8 +1773,8 @@ function fbMigrarFotosAntiguas() {
       if (idx !== -1) JDB[idx].foto = fotoComprimida;
       pendientes--;
       if (pendientes === 0) {
-        // Cuando todas están comprimidas, guardar JDB completo a Firebase y localStorage
-        try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){}
+        // Cuando todas están comprimidas, guardar JDB sin fotos a localStorage (fotos van a Firebase)
+        try{ localStorage.setItem('bfc_jdb', _jdbLocalSinFotos(JDB)); }catch(e){}
         fbGuardar();
         console.log('[BFC] Migración de fotos completada.');
       }
@@ -1790,6 +1790,11 @@ function fbGuardarCanchaPos() {
     var _cp = {}; try{ var _r=localStorage.getItem('BFC_CANCHA_POS'); if(_r) _cp=JSON.parse(_r)||{}; }catch(e){}
     fbDB.ref('bfc').update({ cancha_pos: _cp }).catch(function(e){ console.warn('[BFC] Error sync cancha_pos:', e.message); });
   }, 600);
+}
+
+// Helper: serializar JDB sin fotos base64 para localStorage (las fotos viven en Firebase)
+function _jdbLocalSinFotos(arr){
+  return JSON.stringify((arr||JDB||[]).map(function(j){ var c={}; for(var k in j){ if(k!=='foto') c[k]=j[k]; } return c; }));
 }
 
 // ── Sincronizar fotos a Firebase en nodo separado bfc/fotos (id → base64) ──
@@ -1939,7 +1944,7 @@ function guardar() {
   localStorage.setItem("bfc_neuro", JSON.stringify(NEURO));
   localStorage.setItem("bfc_pruebas", JSON.stringify(PRUEBAS));
   localStorage.setItem("bfc_evs", JSON.stringify(EVS));
-  localStorage.setItem("bfc_jdb", JSON.stringify(JDB));
+  localStorage.setItem("bfc_jdb", _jdbLocalSinFotos(JDB));
   localStorage.setItem("bfc_sdb", JSON.stringify(SDB));
   // Indicador visual de guardado
   var btn = document.getElementById('_bfc-save-ind');
@@ -3407,7 +3412,7 @@ function plantillaGuardarADB(){
   // Add to main plantel (JDB preferred, fallback to PL)
   if(safeArr(JDB).length>0){
     JDB.push(newJug);
-    try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){}
+    try{ localStorage.setItem('bfc_jdb', _jdbLocalSinFotos(JDB)); }catch(e){}
   } else {
     PL.push(newJug);
     try{ localStorage.setItem('bfc_pl', JSON.stringify(PL)); }catch(e){}
@@ -3996,7 +4001,7 @@ function plantillaGuardarEdicion(jid){
 
   function _finalizarGuardadoEdicion() {
     if(!enManual){
-      if(safeArr(JDB).length>0){ JDB = plantelAll; try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){} }
+      if(safeArr(JDB).length>0){ JDB = plantelAll; try{ localStorage.setItem('bfc_jdb', _jdbLocalSinFotos(JDB)); }catch(e){} }
       else { PL = plantelAll; try{ localStorage.setItem('bfc_pl', JSON.stringify(PL)); }catch(e){} }
     } else {
       try{ localStorage.setItem('BFC_MANUAL_JUG', JSON.stringify(_plantillaManual)); }catch(e){}
@@ -4017,10 +4022,10 @@ function plantillaGuardarEdicion(jid){
       arr[idx].foto = fotoComprimida;
       // Actualizar JDB en memoria AHORA con la foto, antes de cualquier guardado
       if(!enManual && safeArr(JDB).length > 0) JDB = arr;
-      try{ localStorage.setItem('bfc_jdb', JSON.stringify(arr)); }catch(e){} // guardar foto en localStorage inmediatamente
+      try{ localStorage.setItem('bfc_jdb', _jdbLocalSinFotos(arr)); }catch(e){} // sin fotos — Firebase es la fuente
       _finalizarGuardadoEdicion();
-      // Llamar fbGuardarFotos explícitamente para asegurar sync de fotos a Firebase
-      setTimeout(function(){ if(typeof fbGuardarFotos==='function') fbGuardarFotos(); }, 1200);
+      // Subir foto a Firebase inmediatamente (sin esperar debounce)
+      if(typeof fbGuardarFotos==='function') fbGuardarFotos();
     });
   } else {
     // Sin foto nueva: preservar la foto que ya tenga el jugador (puede venir de Firebase o localStorage)
@@ -17889,8 +17894,8 @@ function bdGuardarJugador(id){
     JDB[idx][ce.k] = g('extra_'+ce.k);
   });
   if(window._efFotoBase64){ JDB[idx].foto=window._efFotoBase64; window._efFotoBase64=null; }
-  try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){}
-  fbGuardar(); // sincronizar jugador actualizado a Firebase
+  try{ localStorage.setItem('bfc_jdb', _jdbLocalSinFotos(JDB)); }catch(e){}
+  fbGuardar(); // sincronizar jugador actualizado a Firebase (incluye fotos via fbGuardarFotos)
   closeModal();
   rBDJ();
   if(typeof renderPlantilla==='function') try{ renderPlantilla(); }catch(e){}
@@ -17905,7 +17910,7 @@ function _bdGuardarConDorsal(){
   var idx = safeArr(JDB).findIndex(function(x){ return x.id===pend.id; });
   if(idx===-1) return;
   JDB[idx].num=pend.n; JDB[idx].numero=pend.n; JDB[idx].dorsal=pend.n;
-  try{ localStorage.setItem('bfc_jdb', JSON.stringify(JDB)); }catch(e){}
+  try{ localStorage.setItem('bfc_jdb', _jdbLocalSinFotos(JDB)); }catch(e){}
   fbGuardar(); // sincronizar dorsal actualizado a Firebase
   rBDJ();
   if(typeof renderPlantilla==='function') try{ renderPlantilla(); }catch(e){}
@@ -18550,6 +18555,9 @@ function fbMostrarConfig() {
       h += "<div style='height:100%;width:"+_pct+"%;background:"+_color+";border-radius:99px;transition:width .4s;'></div>";
       h += "</div>";
       h += "<div style='font-size:10px;color:#64748b;margin-top:5px;'>"+_kb+" KB usados de ~5,120 KB ("+_pct+"%)</div>";
+      if(_pct >= 70) {
+        h += "<button onclick=\"_limpiarImgsLS();closeModal();setTimeout(fbMostrarConfig,400);\" style='margin-top:8px;width:100%;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.35);color:#fca5a5;border-radius:7px;padding:6px;font-size:10px;font-weight:800;cursor:pointer;'>🗑️ Limpiar caché de imágenes (libera espacio)</button>";
+      }
       h += "</div>";
     } catch(e) {}
   })();
@@ -18562,6 +18570,64 @@ function fbMostrarConfig() {
   h += "</div>";
   document.getElementById('modal-content').innerHTML = h;
   document.getElementById('overlay').style.display = 'flex';
+}
+
+// ════════════════════════════════════════════════════════════════
+// LIMPIEZA DE localStorage — elimina imágenes antiguas del historial
+// ════════════════════════════════════════════════════════════════
+function _limpiarImgsLS(){
+  try {
+    var _liberado = 0;
+    // 1. Limpiar BFC_HIST_IMGS — mantener solo las últimas 15 sesiones
+    try {
+      var _imgs = JSON.parse(localStorage.getItem('BFC_HIST_IMGS')||'{}');
+      var _keys = Object.keys(_imgs);
+      if(_keys.length > 0) {
+        // Ordenar por clave (sesId_tareaIdx) — las más recientes suelen tener IDs más altos
+        // Mantener las últimas 15 sesiones únicas
+        var _sesIds = {};
+        _keys.forEach(function(k){ var s=k.split('_')[0]; _sesIds[s]=(_sesIds[s]||0)+1; });
+        var _allSes = Object.keys(_sesIds).sort();
+        var _keepSes = _allSes.slice(-15); // últimas 15 sesiones
+        var _keepSet = {};
+        _keepSes.forEach(function(s){ _keepSet[s]=true; });
+        var _newImgs = {};
+        _keys.forEach(function(k){
+          var s=k.split('_')[0];
+          if(_keepSet[s]) _newImgs[k]=_imgs[k];
+          else _liberado += (((_imgs[k]||{}).img||'').length*2);
+        });
+        localStorage.setItem('BFC_HIST_IMGS', JSON.stringify(_newImgs));
+      }
+    } catch(e2) { try{ localStorage.removeItem('BFC_HIST_IMGS'); }catch(e3){} }
+
+    // 2. Limpiar fotos residuales de JDB en localStorage (si aún quedara alguna de versión anterior)
+    try {
+      var _jdb = JSON.parse(localStorage.getItem('bfc_jdb')||'[]')||[];
+      var _conFoto = _jdb.filter(function(j){ return j.foto && j.foto.indexOf('data:')===0; });
+      if(_conFoto.length > 0) {
+        var _jdbClean = _jdb.map(function(j){ var c={}; for(var k in j){ if(k!=='foto') c[k]=j[k]; } return c; });
+        _liberado += (JSON.stringify(_jdb).length - JSON.stringify(_jdbClean).length) * 2;
+        localStorage.setItem('bfc_jdb', JSON.stringify(_jdbClean));
+      }
+    } catch(e2) {}
+
+    // 3. Reducir BFC_HISTORIAL a 20 entradas
+    try {
+      var _hist = JSON.parse(localStorage.getItem('BFC_HISTORIAL')||'[]')||[];
+      if(_hist.length > 20) {
+        var _antes = JSON.stringify(_hist).length;
+        _hist = _hist.slice(0,20);
+        localStorage.setItem('BFC_HISTORIAL', JSON.stringify(_hist));
+        _liberado += (_antes - JSON.stringify(_hist).length)*2;
+      }
+    } catch(e2) {}
+
+    var _libKB = Math.round(_liberado/1024);
+    if(typeof toast==='function') toast('🗑️ Limpieza completada — ~'+_libKB+' KB liberados');
+  } catch(e) {
+    if(typeof toast==='function') toast('⚠️ Error en limpieza: '+e.message);
+  }
 }
 
 // ================================================
