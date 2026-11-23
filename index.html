@@ -23446,7 +23446,25 @@ function histVerPDF(id){
     if(!sesData) _sesInitBlanco();
     histCargarSesionSilencioso(s);
     window._sesVerDesdeHistorial = true;
-    setTimeout(function(){ sesVerPreview(); window._sesVerDesdeHistorial = false; }, 200);
+    // Guardar las fotos del snap directamente en sesData ANTES del preview
+    // para evitar que fbEscucharFotosSesion u otro listener las sobreescriba en los 200ms
+    var _tareasCopiaConFotos = (s.tareas||[]).map(function(t){ return Object.assign({},t); });
+    setTimeout(function(){
+      // Re-aplicar fotos al sesData justo antes de renderizar (evita condición de carrera con listeners)
+      if(sesData && sesData.tareas){
+        sesData.tareas = sesData.tareas.map(function(t, i){
+          var tSnap = _tareasCopiaConFotos[i];
+          if(tSnap && tSnap.img && typeof tSnap.img === 'string' && tSnap.img.indexOf('data:') === 0){
+            if(!t.img || typeof t.img !== 'string' || t.img.indexOf('data:') !== 0){
+              return Object.assign({}, t, { img: tSnap.img, _imgReal: tSnap._imgReal });
+            }
+          }
+          return t;
+        });
+      }
+      sesVerPreview();
+      window._sesVerDesdeHistorial = false;
+    }, 200);
   }
 
   // Siempre consultar Firebase para obtener fotos de TODAS las tareas
