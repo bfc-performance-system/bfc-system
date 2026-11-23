@@ -816,11 +816,11 @@ function fbEscucharHistorial() {
     // Re-aplicar fotos desde el caché en memoria (evita que el merge sobrescriba fotos ya recibidas)
     var _fotCache = window._fotosSesionCache;
     if(_fotCache && typeof _fotCache === 'object'){
-      var _fotCambio = false;
       HISTORIAL_DB = safeArr(HISTORIAL_DB).map(function(ses){
         var sesId = ses.id;
         if(!sesId || !_fotCache[sesId]) return ses;
         var fotasTarea = _fotCache[sesId];
+        var _fotCambioSes = false; // flag POR SESIÓN — no compartido entre sesiones
         var tareasActualizadas = (ses.tareas||[]).map(function(t, i){
           var key = 't'+i;
           var entrada = fotasTarea[key];
@@ -829,15 +829,16 @@ function fbEscucharHistorial() {
           var esReal    = typeof entrada === 'object' ? (entrada.real === true) : false;
           if(!imgRemota) return t;
           var localEsReal = t._imgReal === true;
+          if(localEsReal && !esReal) return t; // proteger foto real local contra versión no-real
           if(!t.img || (esReal && !localEsReal)){
-            _fotCambio = true;
+            _fotCambioSes = true;
             var imgStr = typeof imgRemota === 'string' ? imgRemota : null;
             if(!imgStr) return t;
             return Object.assign({}, t, { img: imgStr, _imgReal: esReal });
           }
           return t;
         });
-        if(_fotCambio) return Object.assign({}, ses, { tareas: tareasActualizadas });
+        if(_fotCambioSes) return Object.assign({}, ses, { tareas: tareasActualizadas });
         return ses;
       });
     }
@@ -1507,7 +1508,9 @@ function fbEscucharFotosSesion(){
         // Aplicar si:
         // 1) La tarea local no tiene imagen, O
         // 2) La foto remota es una foto REAL (subida por el usuario) y la local no lo es
+        // NUNCA sobreescribir una foto real local con una versión no-real (evita ciclo vicioso)
         var localEsReal = t._imgReal === true;
+        if(localEsReal && !esReal) return t; // proteger foto real local
         if(!t.img || (esReal && !localEsReal)){
           console.log('[BFC-FOTO-SES] Foto recibida para sesión', sesId, 'tarea', i, esReal ? '(real)' : '(diagrama)');
           _cambio = true;
@@ -17100,10 +17103,13 @@ function mcRPreview(skipSave){
 
   // Generar HTML de plantillas — cada una con ID propio para descarga individual
   var _btnIndiv = function(id,lbl){ return "<div style='text-align:right;margin-bottom:4px;'><button onclick=\"mcPNGIndividual('"+id+"','"+lbl+"')\" style='background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.35);color:#a5b4fc;border-radius:7px;padding:4px 12px;font-size:10px;font-weight:700;cursor:pointer;'>⬇️ Descargar solo esta</button></div>"; };
+  var _SEP = "<div style='height:4px;background:linear-gradient(90deg,transparent,rgba(99,102,241,.65) 15%,rgba(99,102,241,.65) 85%,transparent);border-radius:2px;margin:0 8px;'></div>";
   var plantillasHTML =
-    "<div id='mc-pl1-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl1-wrap','Logistica')+mcPL1(semUP,rival,jornada,horaP,estadio,true)+"</div>"+
-    "<div id='mc-pl2-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl2-wrap','Fisica')+mcPL2(sem2,rival,jornada,horaP,estadio,true)+"</div>"+
-    "<div id='mc-pl3-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl3-wrap','Tactica')+mcPL3(sem2,rival,jornada,horaP,estadio,true)+"</div>";
+    "<div id='mc-pl1-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl1-wrap','Logistica')+mcPL1(semUP,rival,jornada,horaP,estadio,false)+"</div>"+
+    "<div style='margin:4px 0;'>"+_SEP+"</div>"+
+    "<div id='mc-pl2-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl2-wrap','Fisica')+mcPL2(sem2,rival,jornada,horaP,estadio,false)+"</div>"+
+    "<div style='margin:4px 0;'>"+_SEP+"</div>"+
+    "<div id='mc-pl3-wrap' style='margin-bottom:24px;'>"+_btnIndiv('mc-pl3-wrap','Tactica')+mcPL3(sem2,rival,jornada,horaP,estadio,false)+"</div>";
 
   // Quitar modal previo
   var prev = document.getElementById('mc-preview-modal');
@@ -17203,7 +17209,7 @@ function mcPL1(semUP,rival,jornada,horaP,estadio,showFecha){
     var br = (i < nCols-1) ? "border-right:1px solid "+BORDER+";" : "";
     h += "<div style='grid-row:1;grid-column:"+(i+2)+";padding:9px 6px;background:"+thBg+";font-size:11px;font-weight:800;color:"+thCol+";text-align:center;"+br+"border-bottom:2px solid "+BORDER+";'>";
     var fechaDia=MC_FECHAS_ACTIVAS[i]?parseInt(MC_FECHAS_ACTIVAS[i].slice(8)):"";
-    h += (MC_DIAS_ACTIVOS[i]||MC_DIAS[i]).toUpperCase()+(fechaDia?"<br><span style='font-size:10px;font-weight:400;opacity:.6;'>"+fechaDia+"</span>":"");
+    h += (MC_DIAS_ACTIVOS[i]||MC_DIAS[i]).toUpperCase()+(showFecha!==false && fechaDia?"<br><span style='font-size:10px;font-weight:400;opacity:.6;'>"+fechaDia+"</span>":"");
     if(isMD && mcLogoRival) h += "<br><img src='"+mcLogoRival+"' style='width:26px;height:26px;object-fit:contain;margin-top:4px;'>";
     h += "</div>";
   });
@@ -19961,6 +19967,8 @@ function sesEscucharFb(){
         // (ej: el asistente subió una foto real desde su dispositivo)
         var remotaEsReal = tRemota._imgReal === true;
         var localEsReal  = tLocal._imgReal  === true;
+        // NUNCA sobreescribir foto real local con versión no-real (protege contra ciclo vicioso)
+        if(localEsReal && !remotaEsReal) return;
         if(localSinFoto || (remotaEsReal && !localEsReal)){
           tLocal.img = tRemota.img;
           tLocal._imgReal = remotaEsReal;
@@ -23017,7 +23025,7 @@ function _histEditarOk(id){
     rolAT2: snap.rolAT2||'', rolPF: snap.rolPF||'', rolVA: snap.rolVA||'',
     tareas: (snap.tareas||[]).map(function(t){
       return {titulo:t.titulo||'',objetivo:t.objetivo||'',descripcion:t.descripcion||'',
-              tiempo:t.tiempo||'',img:t.img||null,zonaData:t.zonaData||null,videoLink:t.videoLink||''};
+              tiempo:t.tiempo||'',img:t.img||null,_imgReal:t._imgReal===true,zonaData:t.zonaData||null,videoLink:t.videoLink||''};
     }),
     materialItems: snap.materialItems||[{nombre:"Balones",cantidad:""},{nombre:"Petos",cantidad:""},{nombre:"Platillos",cantidad:""}],
     jugadoresActivos: snap.jugadoresActivos||(JDB.length>0?JDB:PL).map(function(p){return p.id;}),
