@@ -813,6 +813,34 @@ function fbEscucharHistorial() {
       });
       return Object.assign({}, sRemota, { tareas: tareasConImg });
     });
+    // Re-aplicar fotos desde el caché en memoria (evita que el merge sobrescriba fotos ya recibidas)
+    var _fotCache = window._fotosSesionCache;
+    if(_fotCache && typeof _fotCache === 'object'){
+      var _fotCambio = false;
+      HISTORIAL_DB = safeArr(HISTORIAL_DB).map(function(ses){
+        var sesId = ses.id;
+        if(!sesId || !_fotCache[sesId]) return ses;
+        var fotasTarea = _fotCache[sesId];
+        var tareasActualizadas = (ses.tareas||[]).map(function(t, i){
+          var key = 't'+i;
+          var entrada = fotasTarea[key];
+          if(!entrada) return t;
+          var imgRemota = typeof entrada === 'string' ? entrada : (entrada.img || null);
+          var esReal    = typeof entrada === 'object' ? (entrada.real === true) : false;
+          if(!imgRemota) return t;
+          var localEsReal = t._imgReal === true;
+          if(!t.img || (esReal && !localEsReal)){
+            _fotCambio = true;
+            var imgStr = typeof imgRemota === 'string' ? imgRemota : null;
+            if(!imgStr) return t;
+            return Object.assign({}, t, { img: imgStr, _imgReal: esReal });
+          }
+          return t;
+        });
+        if(_fotCambio) return Object.assign({}, ses, { tareas: tareasActualizadas });
+        return ses;
+      });
+    }
     _histGuardarLocalSinImgs(); // sin base64 para no saturar localStorage
     // Si el historial está abierto, re-renderizar
     var pgH = document.getElementById('page-historial');
@@ -1492,6 +1520,8 @@ function fbEscucharFotosSesion(){
       });
       return Object.assign({}, ses, { tareas: tareasActualizadas });
     });
+    // Guardar snapshot en memoria para que fbEscucharHistorial pueda re-aplicar fotos
+    window._fotosSesionCache = fotosPorSes;
     if(_cambio){
       // Usar histSave() para separar las imágenes a BFC_HIST_IMGS correctamente
       if(typeof histSave === 'function') histSave();
@@ -19953,7 +19983,7 @@ function sesEscucharFb(){
     }
 
     if(!sesData){ sesData = {}; }
-    var camposSeguros = ['sesionNum','morfociclo','tiempo','codigo','cdefSel','cdefNota',
+    var camposSeguros = ['_sesId','sesionNum','morfociclo','tiempo','codigo','cdefSel','cdefNota',
       'ses-tac','ses-tec','ses-fis','ses-psi','objtacof','objtacdef','objtecof','objtecdef',
       'objfisof','objfisdef','objpsiof','objpsidef',
       'faseFinal','observaciones','videoLink',
@@ -20186,6 +20216,9 @@ function _sesInitBlanco(){
   var plantelBase = JDB.length>0 ? JDB : PL;
   var idsActivos = plantelBase.map(function(p){return p.id;});
   sesData = {
+    // ID estable asignado al crear — garantiza que el mismo registro se actualice siempre
+    // y nunca se duplique aunque cambien fecha o número de sesión
+    _sesId: 'ses_' + Date.now(),
     // Encabezado
     fecha: TODAY, // fecha local (no UTC) para evitar desfase en horas nocturnas
     sesionNum: "",
@@ -22814,16 +22847,32 @@ function guardarEnHistorial(){
     }
   }
   if(existe < 0){
-    // Buscar por fecha+sesionNum — solo si sesionNum no está vacío para evitar falsos positivos
+    // Buscar por _sesId (ID estable asignado al crear la sesión) — evita duplicados aunque cambien fecha/número
+    if(sesData._sesId){
+      existe = HISTORIAL_DB.findIndex(function(s){ return s.id === sesData._sesId; });
+    }
+  }
+  if(existe < 0){
+    // Buscar por fecha+sesionNum solo como último recurso (sesiones creadas antes del fix)
+    // Solo si sesionNum no está vacío para evitar falsos positivos
     if(sesData.sesionNum){
-      existe = HISTORIAL_DB.findIndex(function(s){
-        return (s.fecha || s.fechaSes || '') === fechaISO && s.sesionNum === sesData.sesionNum;
+      var _candidatos = [];
+      HISTORIAL_DB.forEach(function(s, idx){
+        if((s.fecha || s.fechaSes || '') === fechaISO && s.sesionNum === sesData.sesionNum){
+          _candidatos.push(idx);
+        }
       });
+      // Solo usar si hay exactamente un candidato — si hay varios, no podemos saber cuál es
+      if(_candidatos.length === 1) existe = _candidatos[0];
     }
   }
   var _snapPrev = existe>=0 ? HISTORIAL_DB[existe] : {};
+  // Usar el ID del registro existente, o el _sesId estable, o generar uno nuevo
+  var _sesIdFinal = (_snapPrev.id) || (sesData._sesId) || 'ses_'+Date.now();
+  // Guardar el ID en sesData para que futuros guardados actualicen el mismo registro
+  sesData._sesId = _sesIdFinal;
   var snapshot = {
-    id: (_snapPrev.id) || 'ses_'+Date.now(),
+    id: _sesIdFinal,
     fecha: fechaISO,
     fechaSes: fechaISO,
     sesionNum: sesData.sesionNum||'',
