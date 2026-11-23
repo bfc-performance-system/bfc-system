@@ -25787,6 +25787,17 @@ function _ciEliminarSesionOk(fecha, tipo){
   ciSave(); renderCargaInterna();
 }
 
+// Helper global para toggle de macro-grupos en Individual (evita conflicto de comillas en onclick)
+function ciToggleGrupo(k){
+  if(!Array.isArray(window._ciIndGrupos)) window._ciIndGrupos = [];
+  var g = window._ciIndGrupos;
+  var i = g.indexOf(k);
+  if(i >= 0){ g.splice(i, 1); }
+  else { if(g.length >= 2) g.shift(); g.push(k); }
+  window._ciIndGrupos = g;
+  renderCargaInterna();
+}
+
 function renderCargaInterna(){
   ciLoad();
   var el = document.getElementById('page-cargainterna');
@@ -26321,9 +26332,9 @@ function ciTabIndividualCI(plantel){
     return null;
   }
 
-  // Helper toggle grupo (máx 2)
+  // Helper toggle grupo (máx 2) — llama función global para evitar conflicto de comillas
   function toggleGrupoJS(k){
-    return "var g=window._ciIndGrupos||[];var i=g.indexOf('"+k+"');if(i>=0){g.splice(i,1);}else{if(g.length>=2)g.shift();g.push('"+k+"');}window._ciIndGrupos=g;renderCargaInterna();";
+    return "ciToggleGrupo('"+k+"')";
   }
 
   // Rango de fechas
