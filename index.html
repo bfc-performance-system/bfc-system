@@ -16330,18 +16330,25 @@ function renderMicro(){
     "<div class='ph'>" +
       "<div><div class='ph-title'>📅 Microciclo</div>" +
       "<div class='ph-sub'>Logística · Físico · Táctico — semana de entrenamiento</div></div>" +
-      "<div style='display:flex;gap:8px;flex-wrap:wrap;align-items:center;'>" +
-        "<button onclick=\"irA('historial-mc')\" style='padding:8px 14px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:var(--r-sm);font-size:12px;font-weight:700;cursor:pointer;'>🕓 Historial</button>" +
-        "<button class='btn-y' onclick='mcGoTabPrev()'>👁 Vista previa</button>" +
-        "<button onclick='mcGuardarAlSistema()' style='padding:8px 16px;background:#059669;color:#fff;border:none;border-radius:var(--r-sm);font-size:12px;font-weight:700;cursor:pointer;'>💾 Guardar</button>" +
-        "<button id='mc-btn-pdf' class='btn-g' onclick='mcDescargaDirectaPDF()'>PDF</button>" +
-        "<button id='mc-btn-png' class='btn' onclick='mcDescargaDirectaPNG()'>PNG</button>" +
+      "<div style='display:flex;flex-direction:column;gap:6px;align-items:flex-end;'>" +
+        // Fila 1 — Acciones primarias
+        "<div style='display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;'>" +
+          "<button onclick='mcGuardarAlSistema()' style='padding:7px 14px;background:rgba(16,185,129,.2);border:1px solid rgba(16,185,129,.4);border-radius:9px;color:#6ee7b7;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>💾 Guardar</button>" +
+          "<button onclick='mcNuevoMicrociclo&&mcNuevoMicrociclo()' style='padding:7px 14px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:9px;color:#f87171;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;'>🆕 Nuevo</button>" +
+        "</div>" +
+        // Fila 2 — Consulta y exportar
+        "<div style='display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;'>" +
+          "<button onclick=\"irA('historial-mc')\" style='padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;'>🕓 Historial</button>" +
+          "<button onclick='mcGoTabPrev()' style='padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;'>👁 Preview</button>" +
+          "<button id='mc-btn-pdf' onclick='mcDescargaDirectaPDF()' style='padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer;'>PDF</button>" +
+          "<button id='mc-btn-png' onclick='mcDescargaDirectaPNG()' style='padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer;'>PNG</button>" +
+        "</div>" +
       "</div>" +
     "</div>" +
-    "<div style='display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;align-items:center;'>" +
-      "<button id='mct-datos' class='btn' onclick='mcGoTabD()'>1. Datos generales</button>" +
-      "<button id='mct-fisico' class='btn' onclick='mcGoTabF()'>2. Apartado físico</button>" +
-      "<button id='mct-tactico' class='btn' onclick='mcGoTabT()'>3. Apartado táctico</button>" +
+    "<div style='display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap;align-items:center;background:rgba(255,255,255,.04);border-radius:12px;padding:4px;'>" +
+      "<button id='mct-datos' onclick='mcGoTabD()' style='flex:1;padding:8px 10px;border:none;border-radius:9px;cursor:pointer;font-size:11px;font-weight:700;background:rgba(99,102,241,.8);color:#fff;'>1. Datos generales</button>" +
+      "<button id='mct-fisico' onclick='mcGoTabF()' style='flex:1;padding:8px 10px;border:none;border-radius:9px;cursor:pointer;font-size:11px;font-weight:700;background:transparent;color:#64748b;'>2. Apartado físico</button>" +
+      "<button id='mct-tactico' onclick='mcGoTabT()' style='flex:1;padding:8px 10px;border:none;border-radius:9px;cursor:pointer;font-size:11px;font-weight:700;background:transparent;color:#64748b;'>3. Apartado táctico</button>" +
     "</div>" +
 
     "<div id='mc-pnl-datos'></div>" +
@@ -16374,10 +16381,10 @@ function mcGoTab(id){
     var btn = document.getElementById("mct-"+t);
     var pnl = document.getElementById("mc-pnl-"+t);
     if(btn){
-      btn.style.background = t===id ? "#0f1623" : "#fff";
-      btn.style.color = t===id ? "#fff" : "#374151";
-      btn.style.fontWeight = t===id ? "700" : "500";
-      btn.style.borderColor = t===id ? "#0f1623" : "#d1d5db";
+      btn.style.background = t===id ? "rgba(99,102,241,.8)" : "transparent";
+      btn.style.color = t===id ? "#fff" : "#64748b";
+      btn.style.fontWeight = t===id ? "700" : "600";
+      btn.style.borderColor = "transparent";
     }
     if(pnl) pnl.style.display = t===id ? "block" : "none";
   });
@@ -20917,16 +20924,21 @@ function renderSesion(){
   h += "Planilla de sesión — lista para imprimir";
   h += "<span id='ses-sync-badge' style='font-size:10px;font-weight:700;padding:2px 10px;border-radius:99px;background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.25);letter-spacing:.03em;'>📝 En progreso</span>";
   h += "</div></div>";
-  h += "<div style='display:flex;gap:8px;flex-wrap:wrap;align-items:center;'>";
-  h += "<button onclick=\"window._histTab='sesiones';irA('historial')\" style='padding:8px 14px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;'>🕓 Historial de sesiones</button>";
-  h += "<button onclick=\"window._histTab='biblioteca';irA('historial')\" style='padding:8px 14px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);color:#fcd34d;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;'>📚 Biblioteca ejercicios</button>";
-  h += "<button class='btn' onclick='sesAddTarea()'>+ Tarea nueva</button>";
-  h += "<button class='btn-y' onclick='sesVerPreview()'>👁 Vista previa</button>";
-  h += "<button class='btn-g' onclick='sesImprimir()'>PDF</button>";
-  h += "<button class='btn' onclick='sesPNGDirecto()'>PNG</button>";
-  h += "<button onclick='sesGuardarManual()' style='padding:8px 14px;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.4);border-radius:9px;color:#a5b4fc;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>💾 Guardar borrador</button>";
-  h += "<button onclick='sesFinalizarConfirm()' style='padding:8px 14px;background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);border-radius:9px;color:#6ee7b7;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>&#9989; Finalizar sesi&#243;n</button>";
-  h += "<button onclick='sesNuevaSesionConfirm()' style='padding:8px 14px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:9px;color:#f87171;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>🆕 Nueva sesi&#243;n</button>";
+  h += "<div style='display:flex;flex-direction:column;gap:6px;align-items:flex-end;'>";
+  // Fila 1 — Acciones primarias
+  h += "<div style='display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;'>";
+  h += "<button onclick='sesGuardarManual()' style='padding:7px 14px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.4);border-radius:9px;color:#a5b4fc;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>💾 Guardar</button>";
+  h += "<button onclick='sesFinalizarConfirm()' style='padding:7px 14px;background:rgba(16,185,129,.2);border:1px solid rgba(16,185,129,.4);border-radius:9px;color:#6ee7b7;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>✅ Finalizar</button>";
+  h += "<button onclick='sesNuevaSesionConfirm()' style='padding:7px 14px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:9px;color:#f87171;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;'>🆕 Nueva</button>";
+  h += "</div>";
+  // Fila 2 — Consulta y exportar
+  h += "<div style='display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;'>";
+  h += "<button onclick=\"window._histTab='sesiones';irA('historial')\" style='padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;'>🕓 Historial</button>";
+  h += "<button onclick=\"window._histTab='biblioteca';irA('historial')\" style='padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;'>📚 Biblioteca</button>";
+  h += "<button onclick='sesVerPreview()' style='padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;'>👁 Preview</button>";
+  h += "<button onclick='sesImprimir()' style='padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer;'>PDF</button>";
+  h += "<button onclick='sesPNGDirecto()' style='padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer;'>PNG</button>";
+  h += "</div>";
   h += "</div></div>";
 
   // ── REPETIR SESIÓN ANTERIOR ──
@@ -21318,11 +21330,12 @@ function renderSesion(){
   h += "<button onclick='sesMatAgregar()' style='font-size:9px;padding:3px 8px;border-radius:4px;border:1px dashed rgba(255,255,255,.2);background:transparent;color:rgba(255,255,255,.5);cursor:pointer;font-weight:700;white-space:nowrap;'>+ Agregar</button>";
   h += "</div></div>";
 
-  h += "<div style='display:flex;gap:10px;margin-top:4px;margin-bottom:32px;'>";
-  h += "<button class='btn' onclick='sesAddTarea()'>+ Agregar tarea ("+sesData.tareas.length+"/6)</button>";
-  h += "<button class='btn-y' style='flex:1;' onclick='sesVerPreview()'>👁 Ver planilla completa</button>";
-  h += "<button class='btn-g' onclick='sesImprimir()'>PDF</button>";
-  h += "<button class='btn' onclick='sesPNGDirecto()'>PNG</button>";
+  h += "<div style='display:flex;gap:10px;margin-top:4px;margin-bottom:32px;align-items:center;'>";
+  if(sesData.tareas.length < 6){
+    h += "<button onclick='sesAddTarea()' style='display:flex;align-items:center;gap:8px;padding:10px 20px;background:rgba(99,102,241,.18);border:2px dashed rgba(99,102,241,.5);border-radius:10px;color:#a5b4fc;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;'>＋ Agregar tarea <span style=\"font-size:10px;font-weight:600;color:#64748b;\">("+sesData.tareas.length+"/6)</span></button>";
+  } else {
+    h += "<div style='padding:10px 20px;background:rgba(255,255,255,.04);border:2px dashed rgba(255,255,255,.1);border-radius:10px;color:#475569;font-size:11px;font-weight:700;'>Máximo de tareas alcanzado (6/6)</div>";
+  }
   h += "</div>";
 
   h += "</div></div>"; // cerrar grid 2 columnas
