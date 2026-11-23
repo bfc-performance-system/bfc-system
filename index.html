@@ -7940,6 +7940,33 @@ function jornadaGruposPanel(plantelAll, fechaEf, sesActiva){
     {k:'rehab',      icon:'🔴', lbl:'Rehab / Baja', color:'#f87171', bg:'rgba(239,68,68,.2)'},
     {k:'no_entrena', icon:'⚫', lbl:'No entrena',   color:'#94a3b8', bg:'rgba(100,116,139,.2)'},
   ];
+  // Mapa de frecuencias de primer apellido para detectar duplicados
+  var _apFreq = {};
+  plantelAll.forEach(function(j){
+    var a1 = ((j.apellido||j.lastname||'').split(' ')[0]||(j.nombre||'').split(' ')[0]).toUpperCase();
+    _apFreq[a1] = (_apFreq[a1]||0) + 1;
+  });
+  // Mapa de frecuencias de "APELLIDO I." para detectar colisión de inicial también
+  var _apInitFreq = {};
+  plantelAll.forEach(function(j){
+    var a1 = ((j.apellido||j.lastname||'').split(' ')[0]||(j.nombre||'').split(' ')[0]).toUpperCase();
+    var nom = (j.nombre||j.name||'').trim();
+    var ini = nom ? nom[0].toUpperCase() : '';
+    var key = a1 + (ini ? ' '+ini+'.' : '');
+    _apInitFreq[key] = (_apInitFreq[key]||0) + 1;
+  });
+  // Helper: nombre visible para chip, con desambiguación
+  function _nomChip(j){
+    var a1 = ((j.apellido||j.lastname||'').split(' ')[0]||(j.nombre||'').split(' ')[0]).toUpperCase();
+    if((_apFreq[a1]||0) <= 1) return a1; // único → solo apellido
+    var nom = (j.nombre||j.name||'').trim();
+    var ini = nom ? nom[0].toUpperCase() : '';
+    var keyIni = a1 + (ini ? ' '+ini+'.' : '');
+    if(ini && (_apInitFreq[keyIni]||0) <= 1) return a1 + ' ' + ini + '.'; // apellido + inicial
+    // colisión incluso con inicial → apellido + nombre completo
+    return nom ? a1 + ' ' + nom.split(' ')[0].toUpperCase() : a1;
+  }
+
   _grpDefs.forEach(function(grpDef){
     var grp = grpDef.k;
     var jugGrp = plantelAll.filter(function(j){ return grupoInicial(j)===grp; });
@@ -7948,7 +7975,7 @@ function jornadaGruposPanel(plantelAll, fechaEf, sesActiva){
     h += "<div style='font-size:9px;font-weight:800;color:"+grpDef.color+";text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;'>"+grpDef.icon+" "+grpDef.lbl+" ("+jugGrp.length+")</div>";
     h += "<div style='display:flex;flex-wrap:wrap;gap:6px;'>";
     jugGrp.forEach(function(j){
-      var ap = ((j.apellido||j.lastname||'').split(' ')[0]||(j.nombre||'').split(' ')[0]).toUpperCase();
+      var ap = _nomChip(j);
       var sinGps = grp==='campo' && gpsPids.indexOf(j.id)<0 && gpsPids.length>0;
       var tInd = tiempos['ind_'+j.id] !== undefined ? tiempos['ind_'+j.id] : '';
       // Chip con 4 botones de grupo
