@@ -23081,6 +23081,49 @@ function _histEditarOk(id){
   histLoad();
   var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
   if(!snap){ toast('⚠️ Sesión no encontrada'); return; }
+
+  // ── Intentar recuperar fotos desde Firebase antes de cargar para editar ──
+  var _tieneFotasLocal = (snap.tareas||[]).some(function(t){
+    var imgV = t.img;
+    if(imgV && typeof imgV !== 'string') imgV = (imgV.img && typeof imgV.img === 'string') ? imgV.img : null;
+    return imgV && imgV.indexOf('data:')===0;
+  });
+  var _necesitaFotasRemoto = !_tieneFotasLocal && (snap.tareas||[]).some(function(t){ return t._imgReal===true; });
+
+  if(_necesitaFotasRemoto && window.fbDB && snap.id){
+    toast('📷 Cargando fotos desde Firebase…');
+    window.fbDB.ref('bfc/fotos_sesion/'+snap.id).once('value', function(fSnap){
+      var fotasTarea = fSnap.val();
+      // Validar que el nodo no sea corrupto (debe tener claves t0, t1, etc.)
+      var _valido = fotasTarea && !Array.isArray(fotasTarea) && Object.keys(fotasTarea).some(function(k){ return /^t\d+$/.test(k); });
+      if(_valido){
+        snap = Object.assign({}, snap, {
+          tareas: (snap.tareas||[]).map(function(t, i){
+            var imgVal = t.img;
+            if(imgVal && typeof imgVal !== 'string') imgVal = (imgVal.img && typeof imgVal.img === 'string') ? imgVal.img : null;
+            var entrada = fotasTarea['t'+i];
+            if(entrada){
+              var imgStr = typeof entrada === 'string' ? entrada : (entrada.img||null);
+              var esReal = typeof entrada === 'object' ? (entrada.real===true) : false;
+              if(imgStr && imgStr.indexOf('data:')===0){
+                return Object.assign({}, t, { img: imgStr, _imgReal: esReal });
+              }
+            }
+            return Object.assign({}, t, { img: imgVal||null });
+          })
+        });
+        // Actualizar snap en HISTORIAL_DB con las fotos recuperadas
+        HISTORIAL_DB = HISTORIAL_DB.map(function(s){ return s.id===id ? snap : s; });
+      }
+      _histEditarOkCargar(id, snap);
+    }, function(){ _histEditarOkCargar(id, snap); });
+    return; // la carga ocurre en el callback
+  }
+
+  _histEditarOkCargar(id, snap);
+}
+
+function _histEditarOkCargar(id, snap){
   // Cargar sesión del historial como sesión activa para editar
   sesData = {
     fecha:        snap.fecha||'',
@@ -25811,7 +25854,10 @@ function catapultProcesarCSV(){
     }
     if(lines.length < 2){ toast('❌ CSV vacío o sin datos reconocibles'); return; }
 
+    // Eliminar BOM UTF-8 si existe
+    if(lines[0].charCodeAt(0) === 0xFEFF) lines[0] = lines[0].slice(1);
     var headers = lines[0].split(sep).map(function(h){ return h.replace(/"/g,'').trim().toLowerCase(); });
+    console.log('[BFC-GPS-CSV] sep='+JSON.stringify(sep)+' headers[0..3]='+JSON.stringify(headers.slice(0,4)));
 
     // ── Mapeo de columnas ampliado (Catapult en español e inglés) ──
     function findCol(candidates){
@@ -25855,16 +25901,24 @@ function catapultProcesarCSV(){
 
     // Columna "Tabla" — detectar si existe para filtrar filas de sección (INTENSIDAD CONTENIDOS, etc.)
     var colTabla = findCol(['tabla','table','section','seccion','sección']);
+    console.log('[BFC-GPS-CSV] colName='+colName+' colTabla='+colTabla+' colDist='+colDist+' totalLines='+lines.length);
 
     for(var i=1; i<lines.length; i++){
       var parts = lines[i].split(sep).map(function(p){ return p.replace(/"/g,'').trim(); });
       if(parts.length < 2) continue;
+
+      // Log de diagnóstico para las primeras 2 filas de datos
+      if(i<=2) console.log('[BFC-GPS-CSV] fila '+i+': parts[0]='+JSON.stringify(parts[0])+' parts[1]='+JSON.stringify(parts[1])+' partsLen='+parts.length);
 
       // Filtrar filas que no son de jugadores individuales (secciones de contenido, etc.)
       if(colTabla>=0){
         var tablaVal = (parts[colTabla]||'').trim().toLowerCase();
         // Solo procesar filas de JUGADORES, ignorar INTENSIDAD CONTENIDOS y otras secciones
         if(tablaVal && tablaVal !== 'jugadores') continue;
+      } else {
+        // Sin columna Tabla: filtrar filas donde el nombre parece una sección, no un jugador
+        var nameCheck = (parts[colName>=0?colName:1]||'').trim().toUpperCase();
+        if(nameCheck === 'JUGADORES' || nameCheck.indexOf('CONTENIDOS')>-1 || nameCheck.indexOf('INTENSIDAD')>-1) continue;
       }
 
       var nameRaw = colName>-1 ? (parts[colName]||'') : '';
