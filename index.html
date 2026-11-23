@@ -1320,15 +1320,78 @@ function fbGuardarFotosSesion(sesId, tareas){
       fotosMap[key] = { img: imgComprimida, real: esReal };
       pendientes--;
       if(pendientes === 0){
-        // Todas listas — subir de una vez
-        window.fbDB.ref('bfc/fotos_sesion/'+sesId).update(fotosMap).then(function(){
-          console.log('[BFC-FOTO-SES] Fotos subidas OK para sesión', sesId, Object.keys(fotosMap).length, 'fotos');
-        }).catch(function(e){
-          console.warn('[BFC-FOTO-SES] Error subiendo fotos sesión:', e.message);
-        });
+        // Todas listas — subir con reintentos y verificación
+        _fbSubirFotosConReintento(sesId, fotosMap, 0);
       }
     });
   });
+}
+
+// Sube fotosMap a Firebase con hasta 3 reintentos y verificación de escritura
+function _fbSubirFotosConReintento(sesId, fotosMap, intento){
+  if(!window.fbDB) return;
+  var MAX_INTENTOS = 3;
+  window.fbDB.ref('bfc/fotos_sesion/'+sesId).update(fotosMap)
+    .then(function(){
+      // Verificar que realmente se guardó leyendo de vuelta
+      window.fbDB.ref('bfc/fotos_sesion/'+sesId).once('value', function(snap){
+        var guardado = snap.val();
+        var clavesFotos = Object.keys(fotosMap);
+        var todasOK = guardado && clavesFotos.every(function(k){
+          return guardado[k] && guardado[k].img && typeof guardado[k].img === 'string' && guardado[k].img.indexOf('data:') === 0;
+        });
+        if(todasOK){
+          console.log('[BFC-FOTO-SES] ✅ Fotos subidas OK para sesión', sesId, clavesFotos.length, 'fotos — verificadas');
+          // Actualizar HISTORIAL_DB con las fotos confirmadas
+          HISTORIAL_DB = HISTORIAL_DB.map(function(s){
+            if(s.id !== sesId) return s;
+            var tareasAct = (s.tareas||[]).map(function(t, i){
+              var fb = fotosMap['t'+i];
+              if(fb && fb.img && (!t.img || typeof t.img !== 'string' || t.img.indexOf('data:') !== 0)){
+                return Object.assign({}, t, { img: fb.img, _imgReal: fb.real===true });
+              }
+              return t;
+            });
+            return Object.assign({}, s, { tareas: tareasAct });
+          });
+        } else {
+          console.warn('[BFC-FOTO-SES] ⚠️ Verificación fallida para', sesId, '— reintentando ('+intento+')');
+          if(intento < MAX_INTENTOS){
+            setTimeout(function(){ _fbSubirFotosConReintento(sesId, fotosMap, intento+1); }, 2000*(intento+1));
+          } else {
+            console.error('[BFC-FOTO-SES] ❌ No se pudieron subir fotos para', sesId, 'después de', MAX_INTENTOS, 'intentos — guardando en localStorage como respaldo');
+            // Guardar en BFC_HIST_IMGS como respaldo de emergencia
+            try {
+              var _backup = JSON.parse(localStorage.getItem('BFC_HIST_IMGS')||'{}');
+              Object.keys(fotosMap).forEach(function(k){
+                var ti = k.replace('t','');
+                _backup[sesId+'_'+ti] = { img: fotosMap[k].img, _imgReal: fotosMap[k].real };
+              });
+              localStorage.setItem('BFC_HIST_IMGS', JSON.stringify(_backup));
+              console.log('[BFC-FOTO-SES] 💾 Fotos guardadas en BFC_HIST_IMGS como respaldo para', sesId);
+            } catch(e){ console.warn('[BFC-FOTO-SES] Error guardando respaldo localStorage:', e.message); }
+          }
+        }
+      }, function(){ console.warn('[BFC-FOTO-SES] Error verificando fotos', sesId); });
+    })
+    .catch(function(e){
+      console.warn('[BFC-FOTO-SES] Error subiendo fotos sesión (intento '+(intento+1)+'):', e.message);
+      if(intento < MAX_INTENTOS){
+        setTimeout(function(){ _fbSubirFotosConReintento(sesId, fotosMap, intento+1); }, 2000*(intento+1));
+      } else {
+        console.error('[BFC-FOTO-SES] ❌ Falló subida después de', MAX_INTENTOS, 'intentos para', sesId);
+        // Respaldo en localStorage
+        try {
+          var _backup = JSON.parse(localStorage.getItem('BFC_HIST_IMGS')||'{}');
+          Object.keys(fotosMap).forEach(function(k){
+            var ti = k.replace('t','');
+            _backup[sesId+'_'+ti] = { img: fotosMap[k].img, _imgReal: fotosMap[k].real };
+          });
+          localStorage.setItem('BFC_HIST_IMGS', JSON.stringify(_backup));
+          console.log('[BFC-FOTO-SES] 💾 Fotos guardadas en BFC_HIST_IMGS como respaldo para', sesId);
+        } catch(e2){ console.warn('[BFC-FOTO-SES] Error guardando respaldo localStorage:', e2.message); }
+      }
+    });
 }
 
 // ── Listeners dedicados por sub-nodo — garantizan sync aunque el nodo raíz bfc sea muy grande ──
@@ -21561,9 +21624,14 @@ function sesVerPreview(){
     tareasHTML += "<div style='display:flex;border-top:0;'>";
 
     // COL 1: Imagen
+    // Usar foto de _histPreviewFotos si está disponible (evita condición de carrera con listeners Firebase)
+    var _imgPreview = t.img;
+    if(window._histPreviewFotos && window._histPreviewFotos[ti] && typeof window._histPreviewFotos[ti] === 'string'){
+      _imgPreview = window._histPreviewFotos[ti];
+    }
     tareasHTML += "<div style='width:260px;flex-shrink:0;border-right:2px solid "+accentColor+";'>";
-    if(t.img){
-      tareasHTML += "<img src='"+_imgStr(t.img)+"' style='width:100%;display:block;height:220px;object-fit:cover;'>";
+    if(_imgPreview && typeof _imgPreview === 'string' && _imgPreview.indexOf('data:') === 0){
+      tareasHTML += "<img src='"+_imgStr(_imgPreview)+"' style='width:100%;display:block;height:220px;object-fit:cover;'>";
     } else {
       tareasHTML += "<div style='background:#f1f5f9;height:220px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;'>";
       tareasHTML += "<span style='font-size:40px;'>⚽</span>";
@@ -23446,25 +23514,16 @@ function histVerPDF(id){
     if(!sesData) _sesInitBlanco();
     histCargarSesionSilencioso(s);
     window._sesVerDesdeHistorial = true;
-    // Guardar las fotos del snap directamente en sesData ANTES del preview
-    // para evitar que fbEscucharFotosSesion u otro listener las sobreescriba en los 200ms
-    var _tareasCopiaConFotos = (s.tareas||[]).map(function(t){ return Object.assign({},t); });
+    // Guardar fotos del snap en variable global temporal — inmune a condiciones de carrera
+    // sesVerPreview() la lee directamente en lugar de depender de sesData.tareas[i].img
+    window._histPreviewFotos = (s.tareas||[]).map(function(t){
+      return (t.img && typeof t.img === 'string' && t.img.indexOf('data:') === 0) ? t.img : null;
+    });
     setTimeout(function(){
-      // Re-aplicar fotos al sesData justo antes de renderizar (evita condición de carrera con listeners)
-      if(sesData && sesData.tareas){
-        sesData.tareas = sesData.tareas.map(function(t, i){
-          var tSnap = _tareasCopiaConFotos[i];
-          if(tSnap && tSnap.img && typeof tSnap.img === 'string' && tSnap.img.indexOf('data:') === 0){
-            if(!t.img || typeof t.img !== 'string' || t.img.indexOf('data:') !== 0){
-              return Object.assign({}, t, { img: tSnap.img, _imgReal: tSnap._imgReal });
-            }
-          }
-          return t;
-        });
-      }
       sesVerPreview();
+      window._histPreviewFotos = null;
       window._sesVerDesdeHistorial = false;
-    }, 200);
+    }, 50);
   }
 
   // Siempre consultar Firebase para obtener fotos de TODAS las tareas
