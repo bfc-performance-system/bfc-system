@@ -21387,7 +21387,8 @@ function sesVerPreview(){
   var accentColor = mcColors[sesData.morfociclo] || "#0f1623";
   var mcIcon = {"MD-5":"⚡","MD-4":"💪","MD-3":"🎯","MD-2":"⚽","MD-1":"🔥","MD":"🏆","MD+1":"♻️"}[sesData.morfociclo]||"📋";
   var cdefLetterMap = {"C":"Cdef","CD":"CDef","D":"CDef","E":"cdEf","F":"cdeF","cdef":"cdef","CDEF":"CDEF"};
-  var cdefVal = sesData.cdefSel ? (cdefLetterMap[sesData.cdefSel]||sesData.cdefSel) : "—";
+  var cdefLabelMap  = {"C":"Cdef — Creación","CD":"CDef — Decisión","D":"CDef — Decisión","E":"cdEf — Ejecución","F":"cdeF — Condición Física","cdef":"cdef — Recuperación","CDEF":"CDEF — MD (Partido)"};
+  var cdefVal = sesData.cdefSel ? (cdefLabelMap[sesData.cdefSel]||sesData.cdefSel) : "—";
 
   // Colores por posición
   var posColors = {
@@ -21647,7 +21648,7 @@ function sesVerPreview(){
     // Código pill
     "<div style='background:#1e293b;border:2px solid "+accentColor+";border-radius:6px;padding:6px 16px;text-align:center;'>"+
     "<div style='font-size:9px;font-weight:900;color:#94a3b8;letter-spacing:.14em;text-transform:uppercase;margin-bottom:2px;'>CÓDIGO</div>"+
-    "<div style='font-size:20px;font-weight:900;color:"+accentColor+";letter-spacing:.02em;'>"+(sesData.morfociclo||sesData.codigo||"—")+"</div>"+
+    "<div style='font-size:20px;font-weight:900;color:"+accentColor+";letter-spacing:.02em;'>"+(sesData.codigo||"—")+"</div>"+
     "</div>"+
 
     // Jugadores pill
@@ -21662,11 +21663,11 @@ function sesVerPreview(){
     "<div style='font-size:20px;font-weight:900;color:#f8fafc;'>⏱ "+(sesData.tiempo||"—")+"</div>"+
     "</div>"+
 
-    // CDEF pill
-    "<div style='background:#1e293b;border:2px solid #374151;border-radius:6px;padding:6px 16px;text-align:center;min-width:160px;max-width:240px;'>"+
+    // CDEF pill — label completo en blanco (mismo texto que el dropdown)
+    "<div style='background:#1e293b;border:2px solid #374151;border-radius:6px;padding:6px 16px;text-align:center;min-width:160px;max-width:260px;'>"+
     "<div style='font-size:9px;font-weight:900;color:#94a3b8;letter-spacing:.14em;text-transform:uppercase;margin-bottom:2px;'>ÉNFASIS CDEF</div>"+
-    "<div style='font-size:16px;font-weight:900;color:"+accentColor+";'>"+cdefVal+"</div>"+
-    (sesData.cdefNota?"<div style='font-size:10px;font-weight:600;color:#94a3b8;margin-top:2px;'>"+escHtml(sesData.cdefNota)+"</div>":"")+
+    "<div style='font-size:14px;font-weight:900;color:#ffffff;'>"+cdefVal+"</div>"+
+    (sesData.cdefNota?"<div style='font-size:10px;font-weight:600;color:#cbd5e1;margin-top:3px;'>"+escHtml(sesData.cdefNota)+"</div>":"")+
     "</div>"+
 
     "</div>"+ // /pills
@@ -23295,6 +23296,46 @@ function _histUsarPlantillaOk(id){
   histLoad();
   var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
   if(!snap){ toast('⚠️ Sesión no encontrada'); return; }
+
+  // ── Fotos en Firebase: descargar antes de copiar ─────────────────────────
+  var _tieneFotasLocal = (snap.tareas||[]).some(function(t){
+    var imgV = t.img;
+    if(imgV && typeof imgV !== 'string') imgV = (imgV.img && typeof imgV.img === 'string') ? imgV.img : null;
+    return imgV && imgV.indexOf('data:')===0;
+  });
+  var _necesitaFotasRemoto = !_tieneFotasLocal && (snap.tareas||[]).some(function(t){ return t._imgReal===true; });
+
+  if(_necesitaFotasRemoto && window.fbDB && snap.id){
+    toast('📷 Cargando fotos desde Firebase…');
+    window.fbDB.ref('bfc/fotos_sesion/'+snap.id).once('value', function(fSnap){
+      var fotasTarea = fSnap.val();
+      var _valido = fotasTarea && !Array.isArray(fotasTarea) && Object.keys(fotasTarea).some(function(k){ return /^t\d+$/.test(k); });
+      if(_valido){
+        snap = Object.assign({}, snap, {
+          tareas: (snap.tareas||[]).map(function(t, i){
+            var imgVal = t.img;
+            if(imgVal && typeof imgVal !== 'string') imgVal = (imgVal.img && typeof imgVal.img === 'string') ? imgVal.img : null;
+            var entrada = fotasTarea['t'+i];
+            if(entrada){
+              var imgStr = typeof entrada === 'string' ? entrada : (entrada.img||null);
+              var esReal = typeof entrada === 'object' ? (entrada.real===true) : false;
+              if(imgStr && imgStr.indexOf('data:')===0){
+                return Object.assign({}, t, { img: imgStr, _imgReal: esReal });
+              }
+            }
+            return Object.assign({}, t, { img: imgVal||null });
+          })
+        });
+      }
+      _histUsarPlantillaCargar(snap);
+    }, function(){ _histUsarPlantillaCargar(snap); });
+    return; // la carga ocurre en el callback
+  }
+
+  _histUsarPlantillaCargar(snap);
+}
+
+function _histUsarPlantillaCargar(snap){
   // Copiar todo EXCEPTO fecha, sesionNum y morfociclo → el usuario los cambia
   sesData.fecha         = TODAY;  // punto de partida; el usuario cambia a mañana
   sesData.sesionNum     = '';     // limpiar para que lo llene el usuario
@@ -23321,16 +23362,22 @@ function _histUsarPlantillaOk(id){
   sesData.videoLink     = snap.videoLink     || '';
   // Copiar tareas CON fotos y zonas — es una plantilla, no una sesión nueva vacía
   sesData.tareas = (snap.tareas||[]).map(function(t){
+    // Sanitizar img: garantizar que siempre sea string o null (nunca objeto)
+    var imgVal = t.img;
+    if(imgVal && typeof imgVal !== 'string') imgVal = (imgVal.img && typeof imgVal.img === 'string') ? imgVal.img : null;
     return {
       titulo:      t.titulo      || '',
       objetivo:    t.objetivo    || '',
       descripcion: t.descripcion || '',
       tiempo:      t.tiempo      || '',
-      img:         t.img         || null,   // ✅ copiar foto
+      img:         imgVal        || null,   // ✅ copiar foto (ya descargada de Firebase si era remota)
+      _imgReal:    t._imgReal    === true,
       zonaData:    t.zonaData    || null,   // ✅ copiar zona
       videoLink:   t.videoLink   || ''
     };
   });
+  // limpiar flag de edición histórica — esta es una sesión nueva
+  sesData._editandoHistId = null;
   sesSave();
   irA('sesion');
   setTimeout(function(){ renderSesion(); }, 100);
