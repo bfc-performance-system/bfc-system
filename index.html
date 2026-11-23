@@ -1078,8 +1078,13 @@ function fbEscuchar() {
     if ('mc_hist' in d) {
       var _mcHistRemoto = safeArr(d.mc_hist); // null → []
       var _mcHistLocal = []; try{ var _lmh=localStorage.getItem('bfc_mc_hist'); if(_lmh) _mcHistLocal=JSON.parse(_lmh)||[]; }catch(e){}
-      // Leer tombstones: hkeys eliminados localmente que no deben volver del remoto
+      // Leer tombstones: hkeys eliminados localmente + los que vienen del remoto (mc_deleted de Firebase)
       var _mcTombstones = []; try{ var _lt=localStorage.getItem('bfc_mc_deleted'); if(_lt) _mcTombstones=JSON.parse(_lt)||[]; }catch(e){}
+      // Merge tombstones remotos: si otro dispositivo eliminó un MC, respetar esa eliminación aquí también
+      if (d.mc_deleted && Array.isArray(d.mc_deleted)) {
+        d.mc_deleted.forEach(function(hk){ if(hk && _mcTombstones.indexOf(hk)<0) _mcTombstones.push(hk); });
+        try{ localStorage.setItem('bfc_mc_deleted', JSON.stringify(_mcTombstones)); }catch(e){}
+      }
       // Merge: combinar por _hkey, el más reciente (savedAt) gana; respetar tombstones
       var _mcMapa = {};
       _mcHistLocal.forEach(function(r){ if(r._hkey && _mcTombstones.indexOf(r._hkey)<0) _mcMapa[r._hkey] = r; });
@@ -1654,6 +1659,7 @@ function fbGuardar() {
       bien_extra: BIEN_EXTRA||[],
       bien_sesiones: BIEN_SESIONES||[],
       mc_hist: _fbMcHist, mc_last: _fbMcLast,
+      mc_deleted: (function(){ var t=[]; try{ var s=localStorage.getItem('bfc_mc_deleted'); if(s) t=JSON.parse(s)||[]; }catch(e){} return t; })(),
       mc_hist_ts: (function(){ var t=0; try{ var s=localStorage.getItem('bfc_mc_hist_ts'); if(s) t=parseInt(s)||0; }catch(e){} return t||Date.now(); })(),
       ip_db: _fbIpDb, gps_cat: _fbGpsCat,
       campos_extra: _fbCamposExtra,
@@ -16808,10 +16814,16 @@ function _mcHistEliminarOk(hkey){
   hist = hist.filter(function(h){ return h._hkey!==hkey; });
   var _mcTs = Date.now();
   try{ localStorage.setItem(BFC_MC_HIST_KEY, JSON.stringify(hist)); localStorage.setItem('bfc_mc_hist_ts', String(_mcTs)); }catch(e){}
-  // Guardar tombstone para que el merge de Firebase no vuelva a insertar este registro
+  // Guardar tombstone localmente y sincronizarlo a Firebase para que todos los dispositivos respeten la eliminación
   try{
     var _tomb = JSON.parse(localStorage.getItem('bfc_mc_deleted')||'[]')||[];
     if(_tomb.indexOf(hkey)<0){ _tomb.push(hkey); localStorage.setItem('bfc_mc_deleted', JSON.stringify(_tomb)); }
+    // Escritura directa del tombstone a Firebase — llega a otros dispositivos sin esperar fbGuardar completo
+    if(window.fbDB){
+      window.fbDB.ref('bfc/mc_deleted').set(_tomb).catch(function(e){
+        console.warn('[BFC-MC] Error sincronizando tombstone a Firebase:', e.message);
+      });
+    }
   }catch(e){}
   fbGuardar(); // sincronizar microciclos a Firebase (incluye lista actualizada sin el eliminado)
   renderMicro();
@@ -23292,9 +23304,26 @@ function histVerPDF(id){
   if(window.fbDB && snap.id){
     window.fbDB.ref('bfc/fotos_sesion/'+snap.id).once('value', function(fSnap){
       var fotasTarea = fSnap.val();
-      console.log('[BFC-HIST-VER] sesId:', snap.id, '— fotos_sesion en Firebase:', fotasTarea ? Object.keys(fotasTarea) : 'NULL/VACÍO');
+      var _fbRaw = fotasTarea ? JSON.stringify(fotasTarea).substring(0,120) : 'null';
+      console.log('[BFC-HIST-VER] sesId:', snap.id, '— fotos_sesion raw:', _fbRaw);
       (snap.tareas||[]).forEach(function(t,i){ console.log('[BFC-HIST-VER] tarea'+i+': img local='+(t.img?'SÍ('+t.img.length+'chars)':'NO')+' _imgReal='+t._imgReal); });
-      if(fotasTarea && typeof fotasTarea === 'object'){
+      // Detectar nodo corrupto: si fotasTarea es un array o no tiene claves que empiecen con 't'
+      var _esCorrupto = false;
+      if(fotasTarea){
+        if(Array.isArray(fotasTarea)) _esCorrupto = true;
+        else {
+          var _claves = Object.keys(fotasTarea);
+          var _tieneClavesTarea = _claves.some(function(k){ return /^t\d+$/.test(k); });
+          if(!_tieneClavesTarea) _esCorrupto = true;
+        }
+      }
+      if(_esCorrupto){
+        console.warn('[BFC-HIST-VER] Nodo fotos_sesion CORRUPTO para', snap.id, '— limpiando…');
+        // Limpiar nodo corrupto para evitar que siga interfiriendo
+        if(window.fbDB) window.fbDB.ref('bfc/fotos_sesion/'+snap.id).remove().catch(function(e){ console.warn('[BFC-HIST-VER] Error limpiando nodo corrupto:', e.message); });
+        fotasTarea = null;
+      }
+      if(fotasTarea && typeof fotasTarea === 'object' && !Array.isArray(fotasTarea)){
         var actualizado = false;
         var tareasNew = (snap.tareas||[]).map(function(t, i){
           // Sanitizar img local: si es objeto {img:...}, extraer el string
@@ -25824,35 +25853,55 @@ function catapultProcesarCSV(){
 
     function normStr(s){ return (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim(); }
 
+    // Columna "Tabla" — detectar si existe para filtrar filas de sección (INTENSIDAD CONTENIDOS, etc.)
+    var colTabla = findCol(['tabla','table','section','seccion','sección']);
+
     for(var i=1; i<lines.length; i++){
       var parts = lines[i].split(sep).map(function(p){ return p.replace(/"/g,'').trim(); });
       if(parts.length < 2) continue;
+
+      // Filtrar filas que no son de jugadores individuales (secciones de contenido, etc.)
+      if(colTabla>=0){
+        var tablaVal = (parts[colTabla]||'').trim().toLowerCase();
+        // Solo procesar filas de JUGADORES, ignorar INTENSIDAD CONTENIDOS y otras secciones
+        if(tablaVal && tablaVal !== 'jugadores') continue;
+      }
+
       var nameRaw = colName>-1 ? (parts[colName]||'') : '';
       nameRaw = nameRaw.trim();
       if(!nameRaw || /^\d+$/.test(nameRaw)) continue;
+      // Ignorar filas de Total/Promedio/Summary/TOTAL que puedan llegar aquí
+      if(/^(total|promedio|average|summary|TOTAL|PROMEDIO)$/i.test(nameRaw)) continue;
 
       // ── Fuzzy match contra plantel ──
       var nameNorm = normStr(nameRaw);
       var matched = null, bestScore = 0;
       plantelAll.forEach(function(j){
         var jFull  = normStr((j.apellido||j.lastname||'')+' '+(j.nombre||j.name||''));
+        var jFullInv = normStr((j.nombre||j.name||'')+' '+(j.apellido||j.lastname||'')); // invertido
         var jApell = normStr(j.apellido||j.lastname||'');
         var jNom   = normStr(j.nombre||j.name||'');
         var score = 0;
-        if(jFull === nameNorm || jApell === nameNorm) score = 10;
+        if(jFull === nameNorm || jFullInv === nameNorm || jApell === nameNorm) score = 10;
         // CSV puede tener apellido repetido (ej: "GUERRA GUERRA") — comparar primer token
         else if(nameNorm.split(/\s+/)[0] === jApell && jApell.length>2) score = 8;
+        else if(nameNorm.split(/\s+/)[0] === jNom && jNom.length>2) score = 8; // primer token es nombre
         else if(nameNorm.indexOf(jApell)>-1 && jApell.length>3) score = 6;
+        else if(nameNorm.indexOf(jNom)>-1 && jNom.length>3) score = 6; // nombre está en CSV
         else if(jApell.indexOf(nameNorm.split(/\s+/)[0])>-1 && nameNorm.split(/\s+/)[0].length>3) score = 5;
         else {
           var words = nameNorm.split(/\s+/);
-          words.forEach(function(w){ if(w.length>3 && (jFull.indexOf(w)>-1||jApell.indexOf(w)>-1)) score+=2; });
-          words.forEach(function(w){ if(w.length>2 && jNom.indexOf(w)>-1) score+=1; });
+          words.forEach(function(w){ if(w.length>3 && (jFull.indexOf(w)>-1||jApell.indexOf(w)>-1||jNom.indexOf(w)>-1)) score+=2; });
+          words.forEach(function(w){ if(w.length>2 && (jNom.indexOf(w)>-1||jApell.indexOf(w)>-1)) score+=1; });
         }
         if(score > bestScore){ bestScore = score; matched = j; }
       });
 
-      if(!matched || bestScore<2){ noEncontrados.push(nameRaw); continue; }
+      if(!matched || bestScore<2){
+        console.log('[BFC-GPS-CSV] No match para:', nameRaw, '(bestScore='+bestScore+')');
+        noEncontrados.push(nameRaw); continue;
+      }
+      console.log('[BFC-GPS-CSV] Match:', nameRaw, '→', matched.apellido, matched.nombre, '(score='+bestScore+')');
 
       function parseNum(idx){
         if(idx<0 || idx>=parts.length || !parts[idx]) return 0;
