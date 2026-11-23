@@ -1247,22 +1247,61 @@ function fbEscucharFotos() {
 // sean >150KB y se hayan stripeado del payload principal del historial.
 function fbGuardarFotosSesion(sesId, tareas){
   if(!window.fbDB || !sesId || !tareas || !tareas.length) return;
-  var fotosMap = {};
-  var total = 0;
+  // Comprimir y subir cada foto — puede ser asíncrono si la foto es muy grande
+  function _comprimirYSubir(imgData, esReal, key, cb){
+    if(imgData.length <= 150000){
+      // Ya es pequeña, subir directamente
+      cb(key, imgData, esReal);
+      return;
+    }
+    // Comprimir igual que sesSubirImgFb — target ~80KB
+    var img = new Image();
+    img.onload = function(){
+      var maxW = 480, maxH = 480;
+      var w = img.width, h = img.height;
+      if(w > maxW){ h = Math.round(h * maxW / w); w = maxW; }
+      if(h > maxH){ w = Math.round(w * maxH / h); h = maxH; }
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      var calidad = 0.65;
+      var compressed = canvas.toDataURL('image/jpeg', calidad);
+      while(compressed.length > 80000 && calidad > 0.2){ calidad -= 0.1; compressed = canvas.toDataURL('image/jpeg', calidad); }
+      if(compressed.length > 100000){
+        canvas.width = Math.round(w/2); canvas.height = Math.round(h/2);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        compressed = canvas.toDataURL('image/jpeg', 0.5);
+      }
+      cb(key, compressed, esReal);
+    };
+    img.onerror = function(){ console.warn('[BFC-FOTO-SES] Error comprimiendo foto', key); };
+    img.src = imgData;
+  }
+
+  var fotosParaSubir = [];
   tareas.forEach(function(t, i){
     if(t.img && typeof t.img === 'string' && t.img.indexOf('data:') === 0){
-      // Guardar solo si no es demasiado grande (límite prudente: 1MB por foto)
-      if(t.img.length <= 1400000){
-        // Guardar objeto {img, real} para que el receptor sepa si es foto real o diagrama
-        fotosMap['t'+i] = { img: t.img, real: t._imgReal === true };
-        total++;
-      }
+      fotosParaSubir.push({ key: 't'+i, img: t.img, real: t._imgReal === true });
     }
   });
-  if(total === 0) return;
-  console.log('[BFC-FOTO-SES] Subiendo', total, 'fotos de tareas para sesión', sesId);
-  window.fbDB.ref('bfc/fotos_sesion/'+sesId).update(fotosMap).catch(function(e){
-    console.warn('[BFC-FOTO-SES] Error subiendo fotos sesión:', e.message);
+  if(fotosParaSubir.length === 0) return;
+  console.log('[BFC-FOTO-SES] Subiendo', fotosParaSubir.length, 'fotos para sesión', sesId);
+
+  var fotosMap = {};
+  var pendientes = fotosParaSubir.length;
+  fotosParaSubir.forEach(function(f){
+    _comprimirYSubir(f.img, f.real, f.key, function(key, imgComprimida, esReal){
+      fotosMap[key] = { img: imgComprimida, real: esReal };
+      pendientes--;
+      if(pendientes === 0){
+        // Todas listas — subir de una vez
+        window.fbDB.ref('bfc/fotos_sesion/'+sesId).update(fotosMap).then(function(){
+          console.log('[BFC-FOTO-SES] Fotos subidas OK para sesión', sesId, Object.keys(fotosMap).length, 'fotos');
+        }).catch(function(e){
+          console.warn('[BFC-FOTO-SES] Error subiendo fotos sesión:', e.message);
+        });
+      }
+    });
   });
 }
 
@@ -22953,10 +22992,15 @@ function guardarEnHistorial(){
   }
   histSave();
   // Subir fotos de esta sesión específica inmediatamente (sin esperar el loop de histSave)
-  // Garantiza que las fotos lleguen a bfc/fotos_sesion aunque el loop falle o la sesión no tenga img en HISTORIAL_DB
-  if(window.fbDB && snapshot.id && snapshot.tareas && snapshot.tareas.some(function(t){ return t.img && t.img.indexOf && t.img.indexOf('data:')===0; })){
-    console.log('[BFC] guardarEnHistorial: subiendo fotos directamente para sesión', snapshot.id);
-    fbGuardarFotosSesion(snapshot.id, snapshot.tareas);
+  // Garantiza que las fotos lleguen a bfc/fotos_sesion aunque el loop falle
+  if(window.fbDB && snapshot.id){
+    var _tareasConFoto = (snapshot.tareas||[]).filter(function(t){ return t.img && typeof t.img==='string' && t.img.indexOf('data:')===0; });
+    console.log('[BFC] guardarEnHistorial: sesión', snapshot.id, '— tareas con foto:', _tareasConFoto.length, '— total tareas:', (snapshot.tareas||[]).length);
+    if(_tareasConFoto.length > 0){
+      fbGuardarFotosSesion(snapshot.id, snapshot.tareas);
+    } else {
+      console.warn('[BFC] guardarEnHistorial: ninguna tarea tiene foto base64 en el snapshot');
+    }
   }
   // ── Escribir bfc_ses_hist: usado por calendario de Programación para mostrar CDEF ──
   // HISTORIAL_DB ya está en Firebase; bfc_ses_hist es una copia local de sesiones
