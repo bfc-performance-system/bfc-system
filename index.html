@@ -7234,7 +7234,7 @@ function jornadaAnalisisPRE(plantelAll, fechaEf){
     h += "<div style='font-size:9px;color:#64748b;margin-bottom:10px;'>"+g.desc+"</div>";
     if(g.list.length){
       g.list.forEach(function(item){
-        var nm = ((item.j.apellido||item.j.lastname||item.j.nombre||'').split(' ')[0]||'').toUpperCase();
+        var nm = nomChipDesambiguar(item.j, plantelAll);
         var nmFull = ((item.j.nombre||item.j.name||'')+(item.j.apellido||item.j.lastname?' '+(item.j.apellido||item.j.lastname):''))||nm;
         var jid = item.j.id||item.j._id||'';
         h += "<div onclick='jornadaWellnessDetalle(\""+escHtml(jid)+"\",\""+escHtml(nmFull)+"\")' style='display:flex;justify-content:space-between;padding:5px 6px;border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer;border-radius:7px;transition:background .15s;' onmouseover=\"this.style.background='rgba(255,255,255,.05)'\" onmouseout=\"this.style.background='transparent'\">";
@@ -7940,33 +7940,6 @@ function jornadaGruposPanel(plantelAll, fechaEf, sesActiva){
     {k:'rehab',      icon:'🔴', lbl:'Rehab / Baja', color:'#f87171', bg:'rgba(239,68,68,.2)'},
     {k:'no_entrena', icon:'⚫', lbl:'No entrena',   color:'#94a3b8', bg:'rgba(100,116,139,.2)'},
   ];
-  // Mapa de frecuencias de primer apellido para detectar duplicados
-  var _apFreq = {};
-  plantelAll.forEach(function(j){
-    var a1 = ((j.apellido||j.lastname||'').split(' ')[0]||(j.nombre||'').split(' ')[0]).toUpperCase();
-    _apFreq[a1] = (_apFreq[a1]||0) + 1;
-  });
-  // Mapa de frecuencias de "APELLIDO I." para detectar colisión de inicial también
-  var _apInitFreq = {};
-  plantelAll.forEach(function(j){
-    var a1 = ((j.apellido||j.lastname||'').split(' ')[0]||(j.nombre||'').split(' ')[0]).toUpperCase();
-    var nom = (j.nombre||j.name||'').trim();
-    var ini = nom ? nom[0].toUpperCase() : '';
-    var key = a1 + (ini ? ' '+ini+'.' : '');
-    _apInitFreq[key] = (_apInitFreq[key]||0) + 1;
-  });
-  // Helper: nombre visible para chip, con desambiguación
-  function _nomChip(j){
-    var a1 = ((j.apellido||j.lastname||'').split(' ')[0]||(j.nombre||'').split(' ')[0]).toUpperCase();
-    if((_apFreq[a1]||0) <= 1) return a1; // único → solo apellido
-    var nom = (j.nombre||j.name||'').trim();
-    var ini = nom ? nom[0].toUpperCase() : '';
-    var keyIni = a1 + (ini ? ' '+ini+'.' : '');
-    if(ini && (_apInitFreq[keyIni]||0) <= 1) return a1 + ' ' + ini + '.'; // apellido + inicial
-    // colisión incluso con inicial → apellido + nombre completo
-    return nom ? a1 + ' ' + nom.split(' ')[0].toUpperCase() : a1;
-  }
-
   _grpDefs.forEach(function(grpDef){
     var grp = grpDef.k;
     var jugGrp = plantelAll.filter(function(j){ return grupoInicial(j)===grp; });
@@ -7975,7 +7948,7 @@ function jornadaGruposPanel(plantelAll, fechaEf, sesActiva){
     h += "<div style='font-size:9px;font-weight:800;color:"+grpDef.color+";text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;'>"+grpDef.icon+" "+grpDef.lbl+" ("+jugGrp.length+")</div>";
     h += "<div style='display:flex;flex-wrap:wrap;gap:6px;'>";
     jugGrp.forEach(function(j){
-      var ap = _nomChip(j);
+      var ap = nomChipDesambiguar(j, plantelAll);
       var sinGps = grp==='campo' && gpsPids.indexOf(j.id)<0 && gpsPids.length>0;
       var tInd = tiempos['ind_'+j.id] !== undefined ? tiempos['ind_'+j.id] : '';
       // Chip con 4 botones de grupo
@@ -8056,6 +8029,39 @@ function jornadaGuardarGruposFirebase(sesId){
 window.jornadaCambiarGrupo    = jornadaCambiarGrupo;
 window.jornadaGuardarTiempo   = jornadaGuardarTiempo;
 window.jornadaGuardarGruposFirebase = jornadaGuardarGruposFirebase;
+
+// ── Helper global: nombre desambiguado para chips ────────────────────────────
+// Devuelve el texto más corto que identifica unívocamente a 'j' dentro de 'plantelArr'.
+// - Apellido único → "MOSQUERA"
+// - Colisión de apellido, iniciales distintas → "MOSQUERA C." / "MOSQUERA J."
+// - Colisión incluso de inicial → "MOSQUERA CARLOS" / "MOSQUERA JUAN"
+function nomChipDesambiguar(j, plantelArr){
+  var a1 = ((j.apellido||j.lastname||'').split(' ')[0]||(j.nombre||j.name||'').split(' ')[0]).toUpperCase();
+  var pl = plantelArr || [];
+  // Mapa de frecuencias de primer apellido
+  var freq = {};
+  pl.forEach(function(p){
+    var k = ((p.apellido||p.lastname||'').split(' ')[0]||(p.nombre||p.name||'').split(' ')[0]).toUpperCase();
+    freq[k] = (freq[k]||0)+1;
+  });
+  if((freq[a1]||0) <= 1) return a1; // único
+  // Mapa de frecuencias de "APELLIDO I."
+  var freqIni = {};
+  pl.forEach(function(p){
+    var k = ((p.apellido||p.lastname||'').split(' ')[0]||(p.nombre||p.name||'').split(' ')[0]).toUpperCase();
+    var nom = (p.nombre||p.name||'').trim();
+    var ini = nom ? nom[0].toUpperCase() : '';
+    var key = k + (ini ? ' '+ini+'.' : '');
+    freqIni[key] = (freqIni[key]||0)+1;
+  });
+  var nom = (j.nombre||j.name||'').trim();
+  var ini = nom ? nom[0].toUpperCase() : '';
+  var keyIni = a1 + (ini ? ' '+ini+'.' : '');
+  if(ini && (freqIni[keyIni]||0) <= 1) return a1 + ' ' + ini + '.';
+  // Colisión incluso de inicial → primer nombre completo
+  return nom ? a1 + ' ' + nom.split(' ')[0].toUpperCase() : a1;
+}
+window.nomChipDesambiguar = nomChipDesambiguar;
 
 // ── Helpers de grupos — usados por CI y GPS para filtrar promedios ───────────
 function gruposDeSesionPorFecha(fecha){
@@ -8419,7 +8425,7 @@ function dispGenerarImagen(){
       if(!bHoy.length) return;
       var sc = bienScore6(bHoy[bHoy.length-1]);
       if(sc===null) return;
-      var nm = ((j.apellido||j.lastname||j.nombre||'').split(' ')[0]||'').toUpperCase();
+      var nm = nomChipDesambiguar(j, plantelAll);
       if(sc>=7) wL.push({nm:nm,sc:sc});
       else if(sc>=5) wP.push({nm:nm,sc:sc});
       else wA.push({nm:nm,sc:sc});
@@ -8516,7 +8522,7 @@ function dispCopiarWhatsapp(){
     if(!bHoy.length) return;
     var sc = bienScore6(bHoy[bHoy.length-1]);
     if(sc===null) return;
-    var nm = ((j.apellido||j.lastname||j.nombre||'').split(' ')[0]||'').toUpperCase();
+    var nm = nomChipDesambiguar(j, plantelAll);
     if(sc>=7) wListos.push(nm+' ('+sc+'/10)');
     else if(sc>=5) wPrec.push(nm+' ('+sc+'/10)');
     else wAlerta.push(nm+' ('+sc+'/10)');
@@ -8557,7 +8563,7 @@ function jornadaAbrirInformeHoy(){
   var listos=[], precaucion=[], alerta=[], sinDatos=[];
   plantelAll.forEach(function(j){
     var bHoy = safeArr(BIEN).filter(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===fecha&&(b.sueno||b.fatiga||b.disposicion); });
-    var nm = ((j.apellido||j.lastname||j.nombre||'').split(' ')[0]||'').toUpperCase();
+    var nm = nomChipDesambiguar(j, plantelAll);
     var pos = abrevPos(j.pos||j.posicion||'');
     if(!bHoy.length){ sinDatos.push({nm:nm,pos:pos}); return; }
     var sc = bienScore6(bHoy[bHoy.length-1]);
@@ -8618,7 +8624,7 @@ function jornadaExportarInformeHoy(){
   var listos=[], precaucion=[], alerta=[], sinDatos=[];
   plantelAll.forEach(function(j){
     var bHoy = safeArr(BIEN).filter(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===fecha&&(b.sueno||b.fatiga||b.disposicion); });
-    var nm = ((j.apellido||j.lastname||j.nombre||'').split(' ')[0]||'').toUpperCase();
+    var nm = nomChipDesambiguar(j, plantelAll);
     var pos = abrevPos(j.pos||j.posicion||'');
     if(!bHoy.length){ sinDatos.push({nm:nm,pos:pos}); return; }
     var sc = bienScore6(bHoy[bHoy.length-1]);
@@ -9147,9 +9153,7 @@ function renderProgramacion() {
     _bHoy.forEach(function(b){
       var pid = b.pid||b.jugadorId||'';
       var jug = plantelAll.find(function(p){ return (p.id||p._id)===pid; });
-      // Solo primer apellido — igual que el semáforo de Jornada
-      var nm = jug ? ((jug.apellido||jug.lastname||'').split(' ')[0] || (jug.nombre||'').split(' ')[0]) : (b.jugadorNombre||pid);
-      nm = nm.toUpperCase();
+      var nm = jug ? nomChipDesambiguar(jug, plantelAll) : (b.jugadorNombre||pid).toUpperCase();
       // RPE de ese jugador hoy
       var rpeEntry = safeArr(BIEN).filter(function(r){ return (r.pid===pid||r.jugadorId===pid) && r.fecha===todayStr && r.rpe_post>0; });
       var rpeVal = rpeEntry.length ? rpeEntry[rpeEntry.length-1].rpe_post : null;
@@ -9170,7 +9174,7 @@ function renderProgramacion() {
     // Jugadores pendientes (en plantel pero sin registro wellness hoy)
     var _pidConReg = _bHoy.map(function(b){ return b.pid||b.jugadorId||''; });
     var _wPendiente = plantelAll.filter(function(j){ return _pidConReg.indexOf(j.id)<0; }).map(function(j){
-      var ap = ((j.apellido||j.lastname||'').split(' ')[0] || (j.nombre||'').split(' ')[0]).toUpperCase();
+      var ap = nomChipDesambiguar(j, plantelAll);
       var rpeP = safeArr(BIEN).filter(function(r){ return (r.pid===j.id||r.jugadorId===j.id) && r.fecha===todayStr && r.rpe_post>0; });
       return {jid:j.id, nombre:ap, rpe: rpeP.length ? rpeP[rpeP.length-1].rpe_post : null};
     });
