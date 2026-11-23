@@ -22952,6 +22952,12 @@ function guardarEnHistorial(){
     HISTORIAL_DB.unshift(snapshot);
   }
   histSave();
+  // Subir fotos de esta sesión específica inmediatamente (sin esperar el loop de histSave)
+  // Garantiza que las fotos lleguen a bfc/fotos_sesion aunque el loop falle o la sesión no tenga img en HISTORIAL_DB
+  if(window.fbDB && snapshot.id && snapshot.tareas && snapshot.tareas.some(function(t){ return t.img && t.img.indexOf && t.img.indexOf('data:')===0; })){
+    console.log('[BFC] guardarEnHistorial: subiendo fotos directamente para sesión', snapshot.id);
+    fbGuardarFotosSesion(snapshot.id, snapshot.tareas);
+  }
   // ── Escribir bfc_ses_hist: usado por calendario de Programación para mostrar CDEF ──
   // HISTORIAL_DB ya está en Firebase; bfc_ses_hist es una copia local de sesiones
   // con formato de fecha ISO que el calendario necesita para hacer match por fecha.
@@ -23182,9 +23188,9 @@ function histVerPDF(id){
     setTimeout(function(){ sesVerPreview(); window._sesVerDesdeHistorial = false; }, 200);
   }
 
-  // Si hay tareas sin imagen, intentar cargar desde bfc/fotos_sesion antes de mostrar
-  var tieneTareasSinImg = (snap.tareas||[]).some(function(t){ return !t.img; });
-  if(tieneTareasSinImg && window.fbDB && snap.id){
+  // Siempre consultar bfc/fotos_sesion antes de mostrar — puede haber fotos reales
+  // aunque la sesión ya tenga diagramas generados en algunas tareas
+  if(window.fbDB && snap.id){
     window.fbDB.ref('bfc/fotos_sesion/'+snap.id).once('value', function(fSnap){
       var fotasTarea = fSnap.val();
       if(fotasTarea && typeof fotasTarea === 'object'){
