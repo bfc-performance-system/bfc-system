@@ -799,6 +799,18 @@ function fbEscucharHistorial() {
     // Aplicar siempre — merge preservando imágenes locales (Firebase no almacena img base64)
     var localMap2 = {};
     safeArr(HISTORIAL_DB).forEach(function(s){ if(s.id) localMap2[s.id] = s; });
+    // Sanitizar remoto: extraer imgs que Firebase guardó como objeto {img:...} en vez de string
+    remoto = remoto.map(function(sR){
+      var tarSan = (sR.tareas||[]).map(function(t){
+        if(t.img && typeof t.img !== 'string'){
+          var imgStr = (t.img && typeof t.img.img === 'string') ? t.img.img : null;
+          var esReal = (t.img && t.img.real === true) || t._imgReal === true;
+          return Object.assign({}, t, { img: imgStr, _imgReal: esReal });
+        }
+        return t;
+      });
+      return Object.assign({}, sR, { tareas: tarSan });
+    });
     HISTORIAL_DB = remoto.map(function(sRemota){
       var sLocal = localMap2[sRemota.id];
       if(!sLocal || !sLocal.tareas) return sRemota;
@@ -806,9 +818,16 @@ function fbEscucharHistorial() {
         var tL = sLocal.tareas && sLocal.tareas[i];
         // Si el remoto no tiene img, preservar la local (img base64 no se sube a Firebase)
         if(tL && tL.img && !tR.img){
-          return Object.assign({}, tR, { img: tL.img, _imgReal: tL._imgReal || false });
+          // Garantizar que img local sea siempre string (nunca objeto {img:...})
+          var imgLocal = typeof tL.img === 'string' ? tL.img : (tL.img && tL.img.img ? tL.img.img : null);
+          if(imgLocal) return Object.assign({}, tR, { img: imgLocal, _imgReal: tL._imgReal || false });
         }
         // Si el remoto SÍ tiene img (vino del nodo fotos_sesion vía merge previo), preservarla
+        // También garantizar que sea string
+        if(tR.img && typeof tR.img !== 'string'){
+          var imgRemStr = tR.img && tR.img.img ? tR.img.img : null;
+          return Object.assign({}, tR, { img: imgRemStr });
+        }
         return tR;
       });
       return Object.assign({}, sRemota, { tareas: tareasConImg });
@@ -23075,8 +23094,11 @@ function _histEditarOk(id){
     rolDT: snap.rolDT||'', rolAT1: snap.rolAT1||'',
     rolAT2: snap.rolAT2||'', rolPF: snap.rolPF||'', rolVA: snap.rolVA||'',
     tareas: (snap.tareas||[]).map(function(t){
+      // Sanitizar img: garantizar que siempre sea string o null (nunca objeto {img:...})
+      var imgVal = t.img;
+      if(imgVal && typeof imgVal !== 'string') imgVal = (imgVal.img && typeof imgVal.img === 'string') ? imgVal.img : null;
       return {titulo:t.titulo||'',objetivo:t.objetivo||'',descripcion:t.descripcion||'',
-              tiempo:t.tiempo||'',img:t.img||null,_imgReal:t._imgReal===true,zonaData:t.zonaData||null,videoLink:t.videoLink||''};
+              tiempo:t.tiempo||'',img:imgVal||null,_imgReal:t._imgReal===true,zonaData:t.zonaData||null,videoLink:t.videoLink||''};
     }),
     materialItems: snap.materialItems||[{nombre:"Balones",cantidad:""},{nombre:"Petos",cantidad:""},{nombre:"Platillos",cantidad:""}],
     jugadoresActivos: snap.jugadoresActivos||(JDB.length>0?JDB:PL).map(function(p){return p.id;}),
@@ -23225,6 +23247,32 @@ function histVerPDF(id){
   var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
   if(!snap) return;
 
+  // Sanitizar snap completo: extraer imgs que quedaron como objeto {img:...} en vez de string
+  // Esto repara sesiones guardadas con el bug anterior
+  function _sanitizarSnap(s){
+    var tareasReparadas = (s.tareas||[]).map(function(t){
+      if(t.img && typeof t.img !== 'string'){
+        var imgStr = (t.img && typeof t.img.img === 'string') ? t.img.img : null;
+        var esReal = (t.img && t.img.real === true) || t._imgReal === true;
+        return Object.assign({}, t, { img: imgStr, _imgReal: esReal });
+      }
+      return t;
+    });
+    return Object.assign({}, s, { tareas: tareasReparadas });
+  }
+
+  snap = _sanitizarSnap(snap);
+  // Actualizar HISTORIAL_DB con versión saneada
+  HISTORIAL_DB = HISTORIAL_DB.map(function(s){ return s.id===id ? snap : s; });
+  // Si hay fotos en el snap saneado, subirlas a fotos_sesion para reparar Firebase
+  if(window.fbDB && snap.id){
+    var _fotosEnSnap = (snap.tareas||[]).filter(function(t){ return t.img && typeof t.img==='string' && t.img.indexOf('data:')===0; });
+    if(_fotosEnSnap.length > 0){
+      console.log('[BFC-HIST-REP] Reparando fotos_sesion para sesión', snap.id, '—', _fotosEnSnap.length, 'fotos a subir');
+      fbGuardarFotosSesion(snap.id, snap.tareas);
+    }
+  }
+
   // Función interna que carga y abre la sesión en el preview
   function _abrirSnap(s){
     if(!sesData) _sesInitBlanco();
@@ -23243,19 +23291,25 @@ function histVerPDF(id){
       if(fotasTarea && typeof fotasTarea === 'object'){
         var actualizado = false;
         var tareasNew = (snap.tareas||[]).map(function(t, i){
+          // Sanitizar img local: si es objeto {img:...}, extraer el string
+          var tSan = t;
+          if(t.img && typeof t.img !== 'string'){
+            var imgSan = (t.img && t.img.img && typeof t.img.img === 'string') ? t.img.img : null;
+            tSan = Object.assign({}, t, { img: imgSan });
+          }
           var entrada = fotasTarea['t'+i];
-          if(!entrada) return t;
+          if(!entrada) return tSan;
           // entrada puede ser string (formato viejo) u objeto {img, real} (formato nuevo)
           var imgStr = typeof entrada === 'string' ? entrada : (entrada.img || null);
           var esReal  = typeof entrada === 'object' ? (entrada.real === true) : false;
-          if(!imgStr) return t;
-          var localEsReal = t._imgReal === true;
+          if(!imgStr) return tSan;
+          var localEsReal = tSan._imgReal === true;
           // Aplicar si: no hay img local, O la remota es foto real y la local no lo es
-          if(!t.img || (esReal && !localEsReal)){
+          if(!tSan.img || (esReal && !localEsReal)){
             actualizado = true;
-            return Object.assign({}, t, { img: imgStr, _imgReal: esReal });
+            return Object.assign({}, tSan, { img: imgStr, _imgReal: esReal });
           }
-          return t;
+          return tSan;
         });
         if(actualizado){
           snap = Object.assign({}, snap, { tareas: tareasNew });
