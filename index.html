@@ -23264,7 +23264,7 @@ function histVerPDF(id){
   snap = _sanitizarSnap(snap);
   // Actualizar HISTORIAL_DB con versión saneada
   HISTORIAL_DB = HISTORIAL_DB.map(function(s){ return s.id===id ? snap : s; });
-  // Si hay fotos en el snap saneado, subirlas a fotos_sesion para reparar Firebase
+  // Si hay fotos locales en el snap saneado, subirlas a fotos_sesion para reparar Firebase (asíncrono, no bloquea)
   if(window.fbDB && snap.id){
     var _fotosEnSnap = (snap.tareas||[]).filter(function(t){ return t.img && typeof t.img==='string' && t.img.indexOf('data:')===0; });
     if(_fotosEnSnap.length > 0){
@@ -23281,8 +23281,14 @@ function histVerPDF(id){
     setTimeout(function(){ sesVerPreview(); window._sesVerDesdeHistorial = false; }, 200);
   }
 
-  // Siempre consultar bfc/fotos_sesion antes de mostrar — puede haber fotos reales
-  // aunque la sesión ya tenga diagramas generados en algunas tareas
+  // Si el snap ya tiene fotos locales (después de sanitizar), abrir directamente — no esperar Firebase
+  var _snapTieneFotos = (snap.tareas||[]).some(function(t){ return t.img && typeof t.img==='string' && t.img.indexOf('data:')===0; });
+  if(_snapTieneFotos){
+    _abrirSnap(snap);
+    return;
+  }
+
+  // Consultar bfc/fotos_sesion solo cuando no hay fotos locales
   if(window.fbDB && snap.id){
     window.fbDB.ref('bfc/fotos_sesion/'+snap.id).once('value', function(fSnap){
       var fotasTarea = fSnap.val();
