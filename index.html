@@ -7879,17 +7879,23 @@ function jornadaGruposPanel(plantelAll, fechaEf, sesActiva){
   var gpsDB2=[]; try{ var _gd2=localStorage.getItem('BFC_GPS_CAT'); if(_gd2) gpsDB2=JSON.parse(_gd2)||[]; }catch(e){}
   var gpsPids = safeArr(gpsDB2).filter(function(r){ return r.fecha===fechaEf; }).map(function(r){ return r.pid||r.jugadorId||''; });
 
-  // Función para obtener grupo inicial desde Plantilla
+  // Función para obtener grupo inicial desde Plantilla + Disponibilidad médica
   function grupoInicial(j){
-    if(grupos[j.id]) return grupos[j.id]; // ya fue guardado
+    if(grupos[j.id]) return grupos[j.id]; // ya fue guardado manualmente → respetar
+    // 1. Estado médico (Disponibilidad) — máxima prioridad
+    var dispEst = (typeof dispGetEstado==='function') ? dispGetEstado(j.id, fechaEf) : null;
+    var dispKey = (dispEst && dispEst.estado) ? dispEst.estado : 'disponible';
+    if(dispKey==='rehabilitacion'||dispKey==='readaptacion'||dispKey==='baja') return 'rehab';
+    if(dispKey==='restriccion'||dispKey==='recuperacion') return 'diferenciado';
+    // 2. Override táctico del cuerpo técnico (_plantillaDisp)
     var ov = _plantillaDisp[j.id]||null;
     var est = ov ? ov.estado : 'disponible';
-    if(est==='no_disponible') return 'rehab';
+    if(est==='no_disponible') return 'no_entrena'; // ausente: selección, permiso, personal
     return 'campo'; // disponible o sin estado → campo por defecto
   }
 
   // Contar por grupo
-  var cnt = {campo:0, diferenciado:0, rehab:0};
+  var cnt = {campo:0, diferenciado:0, rehab:0, no_entrena:0};
   plantelAll.forEach(function(j){ cnt[grupoInicial(j)]++; });
 
   var h = '';
@@ -7899,11 +7905,12 @@ function jornadaGruposPanel(plantelAll, fechaEf, sesActiva){
   h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:8px;'>";
   h += "<div style='font-size:13px;font-weight:800;color:#fff;'>👥 Grupos de sesión</div>";
   h += "<div style='display:flex;gap:6px;'>";
-  h += "<span style='font-size:10px;padding:3px 10px;border-radius:99px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:#4ade80;font-weight:700;'>🟢 Campo: <span id='cnt-campo'>"+cnt.campo+"</span></span>";
-  h += "<span style='font-size:10px;padding:3px 10px;border-radius:99px;background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.3);color:#fbbf24;font-weight:700;'>🟡 Dif: <span id='cnt-dif'>"+cnt.diferenciado+"</span></span>";
-  h += "<span style='font-size:10px;padding:3px 10px;border-radius:99px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#f87171;font-weight:700;'>🔴 Rehab: <span id='cnt-rehab'>"+cnt.rehab+"</span></span>";
+  h += "<span style='font-size:10px;padding:3px 10px;border-radius:99px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:#4ade80;font-weight:700;'>🟢 Campo: "+cnt.campo+"</span>";
+  h += "<span style='font-size:10px;padding:3px 10px;border-radius:99px;background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.3);color:#fbbf24;font-weight:700;'>🟡 Dif: "+cnt.diferenciado+"</span>";
+  h += "<span style='font-size:10px;padding:3px 10px;border-radius:99px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#f87171;font-weight:700;'>🔴 Rehab: "+cnt.rehab+"</span>";
+  if(cnt.no_entrena) h += "<span style='font-size:10px;padding:3px 10px;border-radius:99px;background:rgba(100,116,139,.1);border:1px solid rgba(100,116,139,.3);color:#94a3b8;font-weight:700;'>⚫ No entrena: "+cnt.no_entrena+"</span>";
   h += "</div></div>";
-  h += "<div style='font-size:10px;color:#475569;margin-bottom:14px;'>Estado inicial heredado de Plantilla — toca el grupo para cambiarlo</div>";
+  h += "<div style='font-size:10px;color:#475569;margin-bottom:14px;'>Estado heredado de Plantilla y Disponibilidad — toca el grupo para cambiarlo</div>";
 
   // Tiempo de gimnasio por grupo
   h += "<div style='background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.15);border-radius:12px;padding:12px 14px;margin-bottom:16px;'>";
@@ -7926,34 +7933,38 @@ function jornadaGruposPanel(plantelAll, fechaEf, sesActiva){
   h += "<div style='font-size:9px;color:#475569;margin-top:8px;'>El tiempo de campo viene del GPS. Si un jugador no tenía GPS ese día, se le puede editar abajo ↑</div>";
   h += "</div>";
 
-  // Lista de jugadores
-  ['campo','diferenciado','rehab'].forEach(function(grp){
+  // Lista de jugadores — 4 grupos
+  var _grpDefs = [
+    {k:'campo',      icon:'🟢', lbl:'Campo',       color:'#4ade80', bg:'rgba(34,197,94,.25)'},
+    {k:'diferenciado',icon:'🟡',lbl:'Diferenciado', color:'#fbbf24', bg:'rgba(234,179,8,.2)'},
+    {k:'rehab',      icon:'🔴', lbl:'Rehab / Baja', color:'#f87171', bg:'rgba(239,68,68,.2)'},
+    {k:'no_entrena', icon:'⚫', lbl:'No entrena',   color:'#94a3b8', bg:'rgba(100,116,139,.2)'},
+  ];
+  _grpDefs.forEach(function(grpDef){
+    var grp = grpDef.k;
     var jugGrp = plantelAll.filter(function(j){ return grupoInicial(j)===grp; });
     if(!jugGrp.length) return;
-    var grpColor = grp==='campo'?'#4ade80':grp==='diferenciado'?'#fbbf24':'#f87171';
-    var grpIcon  = grp==='campo'?'🟢':grp==='diferenciado'?'🟡':'🔴';
-    var grpLbl   = grp==='campo'?'Campo':grp==='diferenciado'?'Diferenciado':'Rehab / Baja';
     h += "<div style='margin-bottom:12px;'>";
-    h += "<div style='font-size:9px;font-weight:800;color:"+grpColor+";text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;'>"+grpIcon+" "+grpLbl+" ("+jugGrp.length+")</div>";
+    h += "<div style='font-size:9px;font-weight:800;color:"+grpDef.color+";text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;'>"+grpDef.icon+" "+grpDef.lbl+" ("+jugGrp.length+")</div>";
     h += "<div style='display:flex;flex-wrap:wrap;gap:6px;'>";
     jugGrp.forEach(function(j){
       var ap = ((j.apellido||j.lastname||'').split(' ')[0]||(j.nombre||'').split(' ')[0]).toUpperCase();
       var sinGps = grp==='campo' && gpsPids.indexOf(j.id)<0 && gpsPids.length>0;
       var tInd = tiempos['ind_'+j.id] !== undefined ? tiempos['ind_'+j.id] : '';
-      // Chip con 3 botones de grupo
-      h += "<div style='display:inline-flex;align-items:center;gap:0;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:99px;overflow:hidden;'>";
-      // Botones de grupo
-      ['campo','diferenciado','rehab'].forEach(function(g2){
-        var ico = g2==='campo'?'🟢':g2==='diferenciado'?'🟡':'🔴';
-        var activo = grp===g2;
-        var bgBtn = activo ? (g2==='campo'?'rgba(34,197,94,.25)':g2==='diferenciado'?'rgba(234,179,8,.2)':'rgba(239,68,68,.2)') : 'transparent';
-        h += "<button onclick='jornadaCambiarGrupo(\""+sesId+"\",\""+j.id+"\")' title='Cambiar a "+g2+"'";
+      // Chip con 4 botones de grupo
+      var chipBorder = grp==='no_entrena'?'rgba(100,116,139,.3)':'rgba(255,255,255,.08)';
+      h += "<div style='display:inline-flex;align-items:center;gap:0;background:rgba(255,255,255,.04);border:1px solid "+chipBorder+";border-radius:99px;overflow:hidden;'>";
+      _grpDefs.forEach(function(g2){
+        var activo = grp===g2.k;
+        var bgBtn = activo ? g2.bg : 'transparent';
+        h += "<button onclick='jornadaCambiarGrupo(\""+sesId+"\",\""+j.id+"\",\""+g2.k+"\")' title='Mover a "+g2.lbl+"'";
         h += " style='padding:5px 7px;border:none;background:"+bgBtn+";cursor:pointer;font-size:11px;line-height:1;'>";
-        h += ico+"</button>";
+        h += g2.icon+"</button>";
       });
       // Nombre
-      h += "<span style='font-size:11px;font-weight:700;color:#e2e8f0;padding:0 8px;'>"+ap+"</span>";
-      // Advertencia sin GPS
+      var nmColor = grp==='no_entrena'?'#64748b':'#e2e8f0';
+      h += "<span style='font-size:11px;font-weight:700;color:"+nmColor+";padding:0 8px;'>"+ap+"</span>";
+      // Advertencia sin GPS (solo grupo campo)
       if(sinGps){
         h += "<span title='Sin GPS hoy — ingresa tiempo manual' style='font-size:10px;padding:0 4px;color:#f97316;'>⚠️</span>";
         h += "<input type='number' min='0' max='180' value='"+tInd+"' placeholder='min'";
@@ -7968,26 +7979,22 @@ function jornadaGruposPanel(plantelAll, fechaEf, sesActiva){
 
   h += "<div style='margin-top:16px;border-top:1px solid rgba(255,255,255,.06);padding-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;'>";
   h += "<button onclick='jornadaGuardarGruposFirebase(\""+sesId+"\")' style='padding:8px 20px;border-radius:10px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:12px;font-weight:800;cursor:pointer;'>💾 Guardar grupos</button>";
-  h += "<div style='font-size:10px;color:#475569;'>Los grupos se usan para calcular el promedio real de RPE del equipo (excluyendo rehab/diferenciado)</div>";
+  h += "<div style='font-size:10px;color:#475569;'>Solo Campo entra al promedio del equipo. Diferenciado y Rehab se pueden ver por separado en CI y GPS.</div>";
   h += "</div>";
 
   h += "</div>";
   return h;
 }
 
-function jornadaCambiarGrupo(sesId, pid){
+// nuevoGrp: 'campo'|'diferenciado'|'rehab'|'no_entrena'
+// Cada botón del chip pasa el grupo destino directamente
+function jornadaCambiarGrupo(sesId, pid, nuevoGrp){
   var gruposKey = 'BFC_GRUPOS_' + sesId;
   var grupos = {}; try{ var _g=localStorage.getItem(gruposKey); if(_g) grupos=JSON.parse(_g)||{}; }catch(e){}
-  // Determinar grupo actual (con herencia de plantilla)
-  var j = (safeArr(JDB).length?safeArr(JDB):safeArr(PL)).filter(function(x){return x.id===pid;})[0]||{};
-  var ov = _plantillaDisp[pid]||null;
-  var est = ov ? ov.estado : 'disponible';
-  var grpActual = grupos[pid] || (est==='no_disponible'?'rehab':'campo');
-  var orden = ['campo','diferenciado','rehab'];
-  var idx = orden.indexOf(grpActual);
-  grupos[pid] = orden[(idx+1)%3];
+  var validos = ['campo','diferenciado','rehab','no_entrena'];
+  if(validos.indexOf(nuevoGrp) < 0) return; // valor inválido, ignorar
+  grupos[pid] = nuevoGrp;
   try{ localStorage.setItem(gruposKey, JSON.stringify(grupos)); }catch(e){}
-  // Re-renderizar solo el paso grupos
   if(typeof renderJornada==='function') renderJornada();
 }
 
@@ -8035,10 +8042,51 @@ function esCampoEnFecha(pid, fecha){
   var grupos = gruposDeSesionPorFecha(fecha);
   if(!Object.keys(grupos).length) return true; // sin grupos guardados → incluir todos (comportamiento anterior)
   var g = grupos[pid] || 'campo';
-  return g === 'campo';
+  return g === 'campo'; // solo campo entra al promedio del equipo
 }
+// Devuelve el grupo de un jugador en una fecha (campo/diferenciado/rehab/no_entrena)
+function grupoEnFecha(pid, fecha){
+  var grupos = gruposDeSesionPorFecha(fecha);
+  if(!Object.keys(grupos).length) return 'campo';
+  return grupos[pid] || 'campo';
+}
+window.grupoEnFecha = grupoEnFecha;
 window.gruposDeSesionPorFecha = gruposDeSesionPorFecha;
 window.esCampoEnFecha = esCampoEnFecha;
+
+// Verifica si un jugador pertenece a un grupo específico en una fecha
+// Si no hay grupos guardados: solo devuelve true para 'campo' (compatibilidad)
+function esGrupoEnFecha(pid, fecha, grupo){
+  var grupos = gruposDeSesionPorFecha(fecha);
+  if(!Object.keys(grupos).length) return grupo==='campo'; // sin grupos → solo campo existe
+  var g = grupos[pid] || 'campo';
+  return g === grupo;
+}
+window.esGrupoEnFecha = esGrupoEnFecha;
+
+// Genera el HTML del selector de grupo para CI y GPS
+// varName: nombre de la variable global (ej: '_ciGrupoFil'), callback: función a llamar al cambiar
+var _GRUPO_DEFS = [
+  {k:'campo',        icon:'🟢', lbl:'Campo',        color:'rgba(34,197,94,.8)'},
+  {k:'diferenciado', icon:'🟡', lbl:'Diferenciado',  color:'rgba(234,179,8,.8)'},
+  {k:'rehab',        icon:'🔴', lbl:'Rehab',         color:'rgba(239,68,68,.8)'},
+  {k:'no_entrena',   icon:'⚫', lbl:'No entrena',    color:'rgba(100,116,139,.8)'}
+];
+function htmlSelectorGrupo(varName, callbackFn, actual){
+  var sel = actual || 'campo';
+  var h = "<div style='display:flex;align-items:center;gap:6px;flex-wrap:wrap;'>";
+  h += "<span style='font-size:9px;font-weight:800;color:#888;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;'>👥 GRUPO:</span>";
+  h += "<div style='display:flex;border:1px solid rgba(255,255,255,.12);border-radius:10px;overflow:hidden;'>";
+  _GRUPO_DEFS.forEach(function(gd){
+    var isAct = sel === gd.k;
+    var bg = isAct ? gd.color : 'rgba(255,255,255,.04)';
+    var col = isAct ? '#fff' : '#64748b';
+    h += "<button onclick='window."+varName+"=\""+gd.k+"\";"+callbackFn+"()' style='padding:6px 10px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+bg+";color:"+col+";white-space:nowrap;transition:all .15s;'>"+gd.icon+" "+gd.lbl+"</button>";
+  });
+  h += "</div></div>";
+  return h;
+}
+window.htmlSelectorGrupo = htmlSelectorGrupo;
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -12088,6 +12136,8 @@ function renderGPSActividad(){
     h += "<button onclick='limpiarFiltrosGPS()' style='padding:4px 10px;border-radius:8px;border:1px solid #ef4444;background:transparent;color:#ef4444;font-size:10px;font-weight:700;cursor:pointer;'>✕</button>";
     h += "</div>";
   }
+  // Selector de grupo GPS Actividad
+  h += "<div style='align-self:flex-end;'>" + htmlSelectorGrupo('_gpsGrupoFil', 'renderTabActividad', window._gpsGrupoFil||'campo') + "</div>";
   h += "</div>";
 
   if(!sesionFiltrada.length){
@@ -12109,12 +12159,13 @@ function renderGPSActividad(){
   h += "<span style='font-size:10px;color:"+DS.text3+";'>"+sesionFiltrada.length+" atletas</span>";
   h += "</div></div></div>";
   // Sesión anterior para delta
+  var _gpsGrpAct = window._gpsGrupoFil || 'campo';
   var fechaAnt = fechas.length > 1 ? fechas[fechas.indexOf(fechaSel)+1] : null;
   if(fechaAnt){
     var sesAnt = gpsCargoFiltrado().filter(function(c){ return c.fecha===fechaAnt; });
-    // Filtrar por grupo campo para promedios limpios
-    var sesActCampo = sesionFiltrada.filter(function(c){ return esCampoEnFecha(c.pid||c.jugadorId, fechaSel); });
-    var sesAntCampo = sesAnt.filter(function(c){ return esCampoEnFecha(c.pid||c.jugadorId, fechaAnt); });
+    // Filtrar por grupo seleccionado para promedios
+    var sesActCampo = sesionFiltrada.filter(function(c){ return esGrupoEnFecha(c.pid||c.jugadorId, fechaSel, _gpsGrpAct); });
+    var sesAntCampo = sesAnt.filter(function(c){ return esGrupoEnFecha(c.pid||c.jugadorId, fechaAnt, _gpsGrpAct); });
     var _baseAct = sesActCampo.length ? sesActCampo : sesionFiltrada;
     var _baseAnt = sesAntCampo.length ? sesAntCampo : sesAnt;
     var plAct = _baseAct.reduce(function(a,c){ return a+(parseFloat(c.playerLoad)||0); },0)/(_baseAct.length||1);
@@ -12130,7 +12181,7 @@ function renderGPSActividad(){
   h += "</div>";
 
   // ── KPI GRID — 4 columnas con top performer ───────────────────
-  var _sesActCampoKpi = sesionFiltrada.filter(function(c){ return esCampoEnFecha(c.pid||c.jugadorId, fechaSel); });
+  var _sesActCampoKpi = sesionFiltrada.filter(function(c){ return esGrupoEnFecha(c.pid||c.jugadorId, fechaSel, _gpsGrpAct); });
   var _baseSesKpi = _sesActCampoKpi.length ? _sesActCampoKpi : sesionFiltrada;
   var prom = {}, maxV = {};
   GPS_VARS.forEach(function(v){
@@ -12479,6 +12530,13 @@ function cambiarVarGraficaAct(varKey){
 }
 
 
+// Helper para refrescar GPS Semanal desde el selector de grupo
+function renderGPSSemanalRefresh(){
+  var el = document.getElementById('gps-tab-content');
+  if(el) el.innerHTML = renderGPSSemanal();
+}
+window.renderGPSSemanalRefresh = renderGPSSemanalRefresh;
+
 // ── INFORME 2: SEMANAL ────────────────────────────────────────────
 function renderGPSSemanal(){
   var _gpsCatChkS=[]; try{ var _gckS=localStorage.getItem('BFC_GPS_CAT'); if(_gckS) _gpsCatChkS=JSON.parse(_gckS)||[]; }catch(e){}
@@ -12524,6 +12582,10 @@ function renderGPSSemanal(){
   }
   h += "</div>";
 
+  // ── SELECTOR DE GRUPO ──────────────────────────────────────────
+  var _gpsGrpSem = window._gpsGrupoFil || 'campo';
+  h += "<div style='margin-bottom:12px;'>" + htmlSelectorGrupo('_gpsGrupoFil', 'renderGPSSemanalRefresh', _gpsGrpSem) + "</div>";
+
   // ── CARGA DIARIA: VISUALIZACIÓN ─────────────────────────────────
   h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;padding:14px 16px;margin-bottom:14px;'>";
   var tituloGrafica = jugsF && jugsF.length===1
@@ -12534,7 +12596,7 @@ function renderGPSSemanal(){
   var maxLoad = 0;
   var dayData = semanaActual.map(function(fecha){
     var ses = cargaFil.filter(function(c){ return c.fecha===fecha; });
-    var sesCampo = ses.filter(function(c){ return esCampoEnFecha(c.pid||c.jugadorId, fecha); });
+    var sesCampo = ses.filter(function(c){ return esGrupoEnFecha(c.pid||c.jugadorId, fecha, _gpsGrpSem); });
     var base = sesCampo.length ? sesCampo : ses;
     var avg = base.length ? base.reduce(function(a,c){ return a+(parseFloat(c.playerLoad)||0); },0)/base.length : 0;
     if(avg > maxLoad) maxLoad = avg;
@@ -12572,7 +12634,7 @@ function renderGPSSemanal(){
   GPS_VARS.forEach(function(v){
     var vals = semanaActual.reduce(function(acc, fecha){
       var sesF = cargaFil.filter(function(c){ return c.fecha===fecha; });
-      var sesFCampo = sesF.filter(function(c){ return esCampoEnFecha(c.pid||c.jugadorId, fecha); });
+      var sesFCampo = sesF.filter(function(c){ return esGrupoEnFecha(c.pid||c.jugadorId, fecha, _gpsGrpSem); });
       var base = sesFCampo.length ? sesFCampo : sesF;
       base.forEach(function(c){ var n=parseFloat(c[v.k]); if(n) acc.push(n); });
       return acc;
@@ -12580,7 +12642,7 @@ function renderGPSSemanal(){
     var avg = vals.length ? vals.reduce(function(a,b){return a+b;},0)/vals.length : 0;
     var sem_ant_vals = semanaAnterior.reduce(function(acc, fecha){
       var sesF = cargaFil.filter(function(c){ return c.fecha===fecha; });
-      var sesFCampo = sesF.filter(function(c){ return esCampoEnFecha(c.pid||c.jugadorId, fecha); });
+      var sesFCampo = sesF.filter(function(c){ return esGrupoEnFecha(c.pid||c.jugadorId, fecha, _gpsGrpSem); });
       var base = sesFCampo.length ? sesFCampo : sesF;
       base.forEach(function(c){ var n=parseFloat(c[v.k]); if(n) acc.push(n); });
       return acc;
@@ -25757,8 +25819,9 @@ function ciTabResumen(plantel){
 
   h += "</div></div>"; // fin panel config
 
-  // ── Selector de fecha ────────────────────────────────────────
-  h += "<div style='display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;'>";
+  // ── Selector de fecha + grupo ────────────────────────────────
+  h += "<div style='display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;'>";
+  h += "<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;'>";
   h += "<div style='font-size:9px;font-weight:800;color:#888;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;'>📅 DÍA:</div>";
   h += "<select onchange='window._ciResFecha=this.value;renderCargaInterna()' style='padding:8px 12px;border:1px solid var(--border-b);border-radius:var(--r-md);font-size:13px;font-weight:700;background:var(--bg-card);color:#e2e8f0;min-width:160px;'>";
   fechasDisp.forEach(function(f){
@@ -25768,15 +25831,20 @@ function ciTabResumen(plantel){
   h += "</select>";
   if(hoy!==TODAY) h += "<button onclick='window._ciResFecha=null;renderCargaInterna()' style='padding:7px 14px;border:1px solid var(--border-b);border-radius:var(--r-md);background:transparent;color:#888;font-size:10px;font-weight:700;cursor:pointer;'>Volver a hoy</button>";
   h += "</div>";
+  h += htmlSelectorGrupo('_ciGrupoFil', 'renderCargaInterna', window._ciGrupoFil||'campo');
+  h += "</div>";
 
   // ── KPIs del día ────────────────────────────────────────────
   var bHoy = safeArr(BIEN).filter(function(b){ return b.fecha===hoy; });
   var rpeHoy = bHoy.filter(function(b){ return b.rpe_post>0; });
   var wellHoy = bHoy.filter(function(b){ return bienScore6(b)!==null; });
-  // Filtrar solo grupo Campo para promedios del equipo
+  // Filtrar por grupo seleccionado (default: campo)
+  var _ciGrpSel = window._ciGrupoFil || 'campo';
   var _haGrupos = Object.keys(gruposDeSesionPorFecha(hoy)).length > 0;
-  var rpeHoyCampo  = rpeHoy.filter(function(b){ return esCampoEnFecha(b.pid||b.jugadorId, hoy); });
-  var wellHoyCampo = wellHoy.filter(function(b){ return esCampoEnFecha(b.pid||b.jugadorId, hoy); });
+  var rpeHoyCampo  = rpeHoy.filter(function(b){ return _haGrupos ? esGrupoEnFecha(b.pid||b.jugadorId, hoy, _ciGrpSel) : (b.rpe_post>0); });
+  var wellHoyCampo = wellHoy.filter(function(b){ return _haGrupos ? esGrupoEnFecha(b.pid||b.jugadorId, hoy, _ciGrpSel) : true; });
+  // Si no hay grupos guardados y el selector NO es campo → mostrar todos (sin grupos aún)
+  if(!_haGrupos){ rpeHoyCampo = rpeHoy; wellHoyCampo = wellHoy; }
   var avgRPE  = rpeHoyCampo.length  ? Math.round(rpeHoyCampo.reduce(function(a,b){return a+(b.rpe_post||0);},0)/rpeHoyCampo.length*10)/10 : null;
   var avgWell = wellHoyCampo.length ? Math.round(wellHoyCampo.reduce(function(a,b){return a+bienScore6(b);},0)/wellHoyCampo.length*10)/10 : null;
 
@@ -25787,7 +25855,8 @@ function ciTabResumen(plantel){
 
   h += "<div style='display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px;'>";
   var dLabel = hoy===TODAY ? 'hoy' : hoy;
-  var _grupoTag = _haGrupos ? "<span style='font-size:8px;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);color:#4ade80;border-radius:4px;padding:1px 5px;margin-left:4px;'>🟢 solo campo</span>" : '';
+  var _grpDef2 = _GRUPO_DEFS.find(function(g){return g.k===_ciGrpSel;})||_GRUPO_DEFS[0];
+  var _grupoTag = _haGrupos ? "<span style='font-size:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#e2e8f0;border-radius:4px;padding:1px 5px;margin-left:4px;'>"+_grpDef2.icon+" "+_grpDef2.lbl+"</span>" : '';
   var kpis = [
     {l:'RPE promedio',      v:avgRPE!==null?avgRPE:'—',      u:'/ 10', c:'#ef4444', i:'💢', s:rpeHoyCampo.length+(rpeHoy.length!==rpeHoyCampo.length?' de '+rpeHoy.length:'')+' registros · '+dLabel, tag:_grupoTag},
     {l:'Wellness promedio', v:avgWell!==null?avgWell:'—',     u:'/ 10', c:'#8b5cf6', i:'💜', s:wellHoyCampo.length+'/'+plantel.length+' completaron', tag:_grupoTag},
@@ -25962,13 +26031,24 @@ window.ciDetalleJugador = ciDetalleJugador;
 // ── TAB 2: TENDENCIA ─────────────────────────────────────────────
 function ciTabTendencia(plantel){
   var h = '';
+  var _ciGrpTend = window._ciGrupoFil || 'campo';
+  // Selector de grupo
+  h += "<div style='margin-bottom:14px;'>" + htmlSelectorGrupo('_ciGrupoFil', 'renderCargaInterna', _ciGrpTend) + "</div>";
   var semanas = [];
   for(var sw=7; sw>=0; sw--){
     var d1=new Date(TODAY+'T12:00:00'); d1.setDate(d1.getDate()-sw*7-6);
     var d2=new Date(TODAY+'T12:00:00'); d2.setDate(d2.getDate()-sw*7);
     var d1s=d1.toISOString().slice(0,10), d2s=d2.toISOString().slice(0,10);
-    var rpes=safeArr(BIEN).filter(function(b){ return b.fecha>=d1s&&b.fecha<=d2s&&b.rpe_post>0; }).map(function(b){return b.rpe_post;});
-    var wells=safeArr(BIEN).filter(function(b){ return b.fecha>=d1s&&b.fecha<=d2s; }).map(function(b){ return bienScore6(b); }).filter(function(x){return x!==null;});
+    var bienSem = safeArr(BIEN).filter(function(b){ return b.fecha>=d1s&&b.fecha<=d2s; });
+    // Filtrar por grupo (si hay grupos guardados en alguna fecha del rango)
+    var bienSemFil = bienSem.filter(function(b){
+      var _hg = Object.keys(gruposDeSesionPorFecha(b.fecha)).length > 0;
+      return _hg ? esGrupoEnFecha(b.pid||b.jugadorId, b.fecha, _ciGrpTend) : (_ciGrpTend==='campo');
+    });
+    // Si no hay filtrados (ningún día del rango tiene grupos) → usar todos
+    var _base = bienSemFil.length ? bienSemFil : bienSem;
+    var rpes=_base.filter(function(b){ return b.rpe_post>0; }).map(function(b){return b.rpe_post;});
+    var wells=_base.map(function(b){ return bienScore6(b); }).filter(function(x){return x!==null;});
     var label = sw===0?'Esta sem':'S-'+sw;
     semanas.push({
       label:label,
@@ -26310,6 +26390,7 @@ function ciTabSemanas(plantel){
   var selMode = window._ciSemMode || 'equipo';
   var selJug  = window._ciSemJug  || (plantel.length ? plantel[0].id : '');
 
+  var _ciGrpSem = window._ciGrupoFil || 'campo';
   h += "<div style='display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;'>";
   h += "<div style='display:flex;border:1px solid rgba(255,255,255,.12);border-radius:10px;overflow:hidden;'>";
   h += "<button onclick='window._ciSemMode=\"equipo\";renderCargaInterna()' style='padding:8px 16px;border:none;cursor:pointer;font-size:11px;font-weight:700;background:"+(selMode==='equipo'?'rgba(239,68,68,.35)':'rgba(255,255,255,.04)')+";color:"+(selMode==='equipo'?'#fca5a5':'#64748b')+";'>👥 Equipo</button>";
@@ -26323,6 +26404,10 @@ function ciTabSemanas(plantel){
     });
     h += "</select>";
   }
+  // Selector de grupo (solo visible en modo equipo)
+  if(selMode==='equipo'){
+    h += htmlSelectorGrupo('_ciGrupoFil', 'renderCargaInterna', _ciGrpSem);
+  }
   h += "</div>";
 
   var semanas = [];
@@ -26335,7 +26420,10 @@ function ciTabSemanas(plantel){
       if(selMode==='jugador') return (b.pid===selJug||b.jugadorId===selJug);
       return true;
     });
-    var regsWCampo = selMode==='jugador' ? regsW : regsW.filter(function(b){ return esCampoEnFecha(b.pid||b.jugadorId, b.fecha); });
+    var regsWCampo = selMode==='jugador' ? regsW : regsW.filter(function(b){
+      var _hg = Object.keys(gruposDeSesionPorFecha(b.fecha)).length > 0;
+      return _hg ? esGrupoEnFecha(b.pid||b.jugadorId, b.fecha, _ciGrpSem) : (_ciGrpSem==='campo');
+    });
     var _baseRegs = regsWCampo.length ? regsWCampo : regsW;
     var rpes=_baseRegs.filter(function(b){ return b.rpe_post>0; }).map(function(b){return b.rpe_post;});
     var wells=_baseRegs.map(function(b){ return bienScore6(b); }).filter(function(x){return x!==null;});
