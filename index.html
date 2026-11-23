@@ -23449,14 +23449,8 @@ function histVerPDF(id){
     setTimeout(function(){ sesVerPreview(); window._sesVerDesdeHistorial = false; }, 200);
   }
 
-  // Si el snap ya tiene fotos locales (después de sanitizar), abrir directamente — no esperar Firebase
-  var _snapTieneFotos = (snap.tareas||[]).some(function(t){ return t.img && typeof t.img==='string' && t.img.indexOf('data:')===0; });
-  if(_snapTieneFotos){
-    _abrirSnap(snap);
-    return;
-  }
-
-  // Consultar bfc/fotos_sesion solo cuando no hay fotos locales
+  // Siempre consultar Firebase para obtener fotos de TODAS las tareas
+  // (no saltarse Firebase aunque el snap tenga fotos parciales — puede haber tareas sin foto local)
   if(window.fbDB && snap.id){
     window.fbDB.ref('bfc/fotos_sesion/'+snap.id).once('value', function(fSnap){
       var fotasTarea = fSnap.val();
