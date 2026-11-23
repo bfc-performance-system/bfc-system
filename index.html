@@ -21345,8 +21345,8 @@ function sesVerPreview(){
   var mcColors = {"MD-5":"#2563eb","MD-4":"#7c3aed","MD-3":"#0891b2","MD-2":"#059669","MD-1":"#d97706","MD":"#dc2626","MD+1":"#9333ea"};
   var accentColor = mcColors[sesData.morfociclo] || "#0f1623";
   var mcIcon = {"MD-5":"⚡","MD-4":"💪","MD-3":"🎯","MD-2":"⚽","MD-1":"🔥","MD":"🏆","MD+1":"♻️"}[sesData.morfociclo]||"📋";
-  var cdefLabels = {"C":"Comunicación","CD":"Decisión","E":"Ejecución","F":"Condición Física","cdef":"Recuperación","CDEF":"MD Partido"};
-  var cdefVal = sesData.cdefSel ? (cdefLabels[sesData.cdefSel]||sesData.cdefSel) : "—";
+  var cdefLetterMap = {"C":"Cdef","CD":"CDef","D":"CDef","E":"cdEf","F":"cdeF","cdef":"cdef","CDEF":"CDEF"};
+  var cdefVal = sesData.cdefSel ? (cdefLetterMap[sesData.cdefSel]||sesData.cdefSel) : "—";
 
   // Colores por posición
   var posColors = {
@@ -21606,7 +21606,7 @@ function sesVerPreview(){
     // Código pill
     "<div style='background:#1e293b;border:2px solid "+accentColor+";border-radius:6px;padding:6px 16px;text-align:center;'>"+
     "<div style='font-size:9px;font-weight:900;color:#94a3b8;letter-spacing:.14em;text-transform:uppercase;margin-bottom:2px;'>CÓDIGO</div>"+
-    "<div style='font-size:20px;font-weight:900;color:"+accentColor+";letter-spacing:.02em;'>"+(sesData.codigo||"—")+"</div>"+
+    "<div style='font-size:20px;font-weight:900;color:"+accentColor+";letter-spacing:.02em;'>"+(sesData.morfociclo||sesData.codigo||"—")+"</div>"+
     "</div>"+
 
     // Jugadores pill
@@ -25830,11 +25830,32 @@ function catapultProcesarCSV(){
       }
       // Detectar inicio de SECCION 2+ → parar
       if(sec1HeaderFound && ll.toUpperCase().match(/SECCI[OÓ]N\s*[2-9]/)) break;
-      // Detectar cabecera de datos (tiene columna Jugador/Athlete)
+      // Detectar cabecera de datos (tiene columna Jugador/Athlete/Nombre/Tabla)
       if(!sec1HeaderFound){
         var llLow = ll.toLowerCase();
-        if(llLow.indexOf('jugador')>-1 || llLow.indexOf('athlete')>-1 || llLow.indexOf('player')>-1){
+        // Verificar que la línea es una cabecera real: debe contener palabras clave de columna
+        // pero NO ser una fila de datos (donde Tabla="JUGADORES" y Nombre=nombre_real)
+        // Una cabecera real tiene la palabra clave como columna header, no como valor
+        // Heurística: si la línea contiene "nombre" O "tabla" como token separado (cabecera Catapult),
+        // O si contiene "jugador/athlete/player" pero NO seguido de coma+nombre_real
+        var esHeaderNombre = llLow.indexOf('nombre')>-1 || llLow.indexOf('tabla')>-1;
+        var esHeaderJugador = (llLow.indexOf('jugador')>-1 || llLow.indexOf('athlete')>-1 || llLow.indexOf('player')>-1) && !esHeaderNombre;
+        // Si la línea contiene "nombre" (columna header del CSV Catapult), es la cabecera correcta
+        // Si solo contiene "jugador/athlete/player", verificar que no sea un valor de datos
+        // (los valores de datos en CSV Catapult tienen el formato: JUGADORES,NombreJugador,...)
+        // es decir, si "jugadores" está al inicio antes de la primera coma, es un valor, no header
+        if(esHeaderNombre){
           sec1HeaderFound = true; lines.push(ll); continue;
+        }
+        if(esHeaderJugador){
+          // Verificar que "jugador/athlete/player" no es el primer campo (valor de Tabla en CSV Catapult)
+          var primerCampo = ll.split(',')[0].replace(/"/g,'').trim().toUpperCase();
+          if(primerCampo === 'JUGADORES' || primerCampo === 'JUGADOR' || primerCampo === 'ATHLETE' || primerCampo === 'PLAYER'){
+            // Es una fila de datos, no cabecera — incluir como dato si ya encontramos header
+            if(inSec1 && !sec1HeaderFound){ continue; } // aún buscando header, saltar
+          } else {
+            sec1HeaderFound = true; lines.push(ll); continue;
+          }
         }
         if(!inSec1) continue;
         continue;
