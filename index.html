@@ -19526,25 +19526,38 @@ function mcPDFModal(){
 }
 
 function mcPNGModal(){
-  // Usamos un div temporal con el HTML completo (igual que mcDescargaDirectaPNG)
-  // para que los separadores y el pie de página queden incluidos
-  if(!document.getElementById('mc-plantillas-modal')){ alert('No hay plantillas para descargar.'); return; }
+  // Capturar directamente el contenido ya renderizado en el modal (mc-plantillas-modal)
+  // para evitar re-generar desde mcGetPlantillasHTML() que leería el microciclo en edición,
+  // no el que se está visualizando en la vista previa.
+  var area = document.getElementById('mc-plantillas-modal');
+  if(!area){ alert('No hay plantillas para descargar.'); return; }
   function doCapture(){
+    // Ocultar botones "Descargar solo esta" para que no aparezcan en el PNG
+    var btnsIndiv = area.querySelectorAll('button[onclick*="mcPNGIndividual"]');
+    btnsIndiv.forEach(function(b){ b.style.visibility='hidden'; });
+    toast('Generando imagen...');
+    // Crear un clon con ancho fijo para evitar que el scroll del modal recorte contenido
     var tmp = document.createElement('div');
     tmp.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1100px;background:#131c28;';
-    tmp.innerHTML = mcGetPlantillasHTML();
+    tmp.innerHTML = area.innerHTML;
+    // Ocultar también los botones del clon
+    tmp.querySelectorAll('button[onclick*="mcPNGIndividual"]').forEach(function(b){ b.style.display='none'; });
     document.body.appendChild(tmp);
-    toast('Generando imagen...');
     html2canvas(tmp, {scale:3, useCORS:true, allowTaint:true, backgroundColor:'#131c28', logging:false,
       width:tmp.scrollWidth, height:tmp.scrollHeight})
       .then(function(canvas){
         document.body.removeChild(tmp);
+        btnsIndiv.forEach(function(b){ b.style.visibility=''; });
         var a = document.createElement('a');
         a.download = 'BFC_Microciclo_'+(mcNumMicro||'semana').replace(/\s/g,'_')+'.png';
         a.href = canvas.toDataURL('image/png');
         a.click();
         toast('✅ Imagen descargada');
-      }).catch(function(e){ document.body.removeChild(tmp); alert('Error generando imagen: '+e.message); });
+      }).catch(function(e){
+        if(document.body.contains(tmp)) document.body.removeChild(tmp);
+        btnsIndiv.forEach(function(b){ b.style.visibility=''; });
+        alert('Error generando imagen: '+e.message);
+      });
   }
   if(typeof html2canvas === 'undefined'){
     toast('Cargando librería...');
@@ -19942,8 +19955,15 @@ function sesEscucharFb(){
     if(sesData && sesData.tareas && d.tareas && Array.isArray(d.tareas)){
       d.tareas.forEach(function(tRemota, idx){
         var tLocal = sesData.tareas[idx];
-        if(tRemota && tRemota.img && tLocal && !tLocal.img){
+        if(!tRemota || !tRemota.img || !tLocal) return;
+        var localSinFoto = !tLocal.img;
+        // Aplicar también si la remota es foto real (_imgReal) y la local no lo es
+        // (ej: el asistente subió una foto real desde su dispositivo)
+        var remotaEsReal = tRemota._imgReal === true;
+        var localEsReal  = tLocal._imgReal  === true;
+        if(localSinFoto || (remotaEsReal && !localEsReal)){
           tLocal.img = tRemota.img;
+          tLocal._imgReal = remotaEsReal;
           hayFotosNuevas = true;
         }
       });
@@ -23141,7 +23161,8 @@ function _histUsarPlantillaOk(id){
 }
 
 function histVerPDF(id){
-  histLoad();
+  // NO llamar histLoad() — sobreescribiría HISTORIAL_DB (en memoria con todas las sesiones)
+  // con solo las 15 del localStorage. HISTORIAL_DB ya está sincronizado desde Firebase.
   var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
   if(!snap) return;
 
@@ -23161,8 +23182,18 @@ function histVerPDF(id){
       if(fotasTarea && typeof fotasTarea === 'object'){
         var actualizado = false;
         var tareasNew = (snap.tareas||[]).map(function(t, i){
-          var imgRemota = fotasTarea['t'+i];
-          if(imgRemota && !t.img){ actualizado = true; return Object.assign({}, t, { img: imgRemota }); }
+          var entrada = fotasTarea['t'+i];
+          if(!entrada) return t;
+          // entrada puede ser string (formato viejo) u objeto {img, real} (formato nuevo)
+          var imgStr = typeof entrada === 'string' ? entrada : (entrada.img || null);
+          var esReal  = typeof entrada === 'object' ? (entrada.real === true) : false;
+          if(!imgStr) return t;
+          var localEsReal = t._imgReal === true;
+          // Aplicar si: no hay img local, O la remota es foto real y la local no lo es
+          if(!t.img || (esReal && !localEsReal)){
+            actualizado = true;
+            return Object.assign({}, t, { img: imgStr, _imgReal: esReal });
+          }
           return t;
         });
         if(actualizado){
