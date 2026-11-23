@@ -1030,11 +1030,15 @@ function fbEscuchar() {
     if ('mc_hist' in d) {
       var _mcHistRemoto = safeArr(d.mc_hist); // null → []
       var _mcHistLocal = []; try{ var _lmh=localStorage.getItem('bfc_mc_hist'); if(_lmh) _mcHistLocal=JSON.parse(_lmh)||[]; }catch(e){}
-      // Merge: combinar por _hkey, el más reciente (savedAt) gana
+      // Leer tombstones: hkeys eliminados localmente que no deben volver del remoto
+      var _mcTombstones = []; try{ var _lt=localStorage.getItem('bfc_mc_deleted'); if(_lt) _mcTombstones=JSON.parse(_lt)||[]; }catch(e){}
+      // Merge: combinar por _hkey, el más reciente (savedAt) gana; respetar tombstones
       var _mcMapa = {};
-      _mcHistLocal.forEach(function(r){ if(r._hkey) _mcMapa[r._hkey] = r; });
+      _mcHistLocal.forEach(function(r){ if(r._hkey && _mcTombstones.indexOf(r._hkey)<0) _mcMapa[r._hkey] = r; });
       _mcHistRemoto.forEach(function(r){
         if(!r._hkey) return;
+        // Si fue eliminado localmente, NO restaurar desde remoto
+        if(_mcTombstones.indexOf(r._hkey)>=0) return;
         var local = _mcMapa[r._hkey];
         // El remoto gana si no existe local, o si tiene savedAt más reciente
         if(!local || (r.savedAt||0) >= (local.savedAt||0)) _mcMapa[r._hkey] = r;
@@ -16479,21 +16483,28 @@ function mcActualizarDias(){
     };
   };
 
-  // Remapear por fecha: si se inserta/quita un día al inicio, los datos no se corren
-  if(MC_FECHAS_ACTIVAS.length && MC_FECHAS_ACTIVAS.length === mcData.length){
-    var oldFechas = MC_FECHAS_ACTIVAS.slice();
-    var oldData = mcData.slice();
-    var nuevoMcData = [];
+  // Remapear días al cambiar fechas:
+  // - Si venimos de un duplicado (window._mcEsDuplicado), mapear por POSICIÓN para conservar el contenido
+  // - Si es edición normal Y las fechas se solapan, mapear por fecha (para no correr datos al insertar un día)
+  // - Si no hay solapamiento (semana completamente diferente), también mapear por posición
+  var oldFechas = MC_FECHAS_ACTIVAS.slice();
+  var oldData = (mcData||[]).slice();
+  var hayFechasCoincidentes = nuevosDias.some(function(nd){ return oldFechas.indexOf(nd.fecha) >= 0; });
+  var nuevoMcData = [];
+  if(!window._mcEsDuplicado && hayFechasCoincidentes && oldFechas.length && oldFechas.length === oldData.length){
+    // Edición normal con fechas solapadas: mapear por fecha exacta
     for(var ni=0; ni<nDias; ni++){
       var nf = nuevosDias[ni].fecha;
       var oIdx = oldFechas.indexOf(nf);
       nuevoMcData.push(oIdx >= 0 ? oldData[oIdx] : plantillaDia());
     }
-    mcData = nuevoMcData;
   } else {
-    while(mcData.length < nDias) mcData.push(plantillaDia());
-    if(mcData.length > nDias) mcData = mcData.slice(0, nDias);
+    // Duplicado o semana completamente diferente: mapear por POSICIÓN conservando contenido
+    for(var ni2=0; ni2<nDias; ni2++){
+      nuevoMcData.push(ni2 < oldData.length ? oldData[ni2] : plantillaDia());
+    }
   }
+  mcData = nuevoMcData;
   
   // Actualizar variables globales
   MC_DIAS_ACTIVOS = nuevosDias.map(function(d){ return d.nombre; });
@@ -16655,8 +16666,9 @@ function mcHistGuardar(record){
   var key = editHkey || (String(record.numero||'')+'_'+String((record.fechas||[])[0]||''));
   record._hkey = key;
   if(idx>=0){ hist[idx]=record; } else { hist.unshift(record); }
-  // Limpiar el hkey de edición después de guardar
+  // Limpiar flags de edición/duplicado después de guardar
   window._mcEditHkey = null;
+  window._mcEsDuplicado = false;
   var _mcTs = Date.now();
   try{ localStorage.setItem(BFC_MC_HIST_KEY, JSON.stringify(hist)); localStorage.setItem('bfc_mc_hist_ts', String(_mcTs)); }catch(e){}
   fbGuardar(); // sincronizar microciclos a Firebase
@@ -16690,9 +16702,11 @@ function mcHistDuplicar(hkey){
   mcData = JSON.parse(JSON.stringify(rec.data||[]));
   // NO asignamos window._mcEditHkey → al guardar se creará un registro nuevo
   window._mcEditHkey = null;
+  // Marcar como duplicado: al cambiar fechas se conserva el contenido por posición
+  window._mcEsDuplicado = true;
   window._mcPagTab = 'editor';
   renderMicro();
-  if(typeof toast==='function') toast('📋 Microciclo duplicado — modificá fechas y guardá como nuevo');
+  if(typeof toast==='function') toast('📋 Microciclo duplicado — cambiá las fechas y guardá como nuevo');
 }
 
 function mcHistEliminar(hkey){
@@ -16703,8 +16717,14 @@ function _mcHistEliminarOk(hkey){
   hist = hist.filter(function(h){ return h._hkey!==hkey; });
   var _mcTs = Date.now();
   try{ localStorage.setItem(BFC_MC_HIST_KEY, JSON.stringify(hist)); localStorage.setItem('bfc_mc_hist_ts', String(_mcTs)); }catch(e){}
-  fbGuardar(); // sincronizar microciclos a Firebase
+  // Guardar tombstone para que el merge de Firebase no vuelva a insertar este registro
+  try{
+    var _tomb = JSON.parse(localStorage.getItem('bfc_mc_deleted')||'[]')||[];
+    if(_tomb.indexOf(hkey)<0){ _tomb.push(hkey); localStorage.setItem('bfc_mc_deleted', JSON.stringify(_tomb)); }
+  }catch(e){}
+  fbGuardar(); // sincronizar microciclos a Firebase (incluye lista actualizada sin el eliminado)
   renderMicro();
+  if(typeof toast==='function') toast('🗑️ Microciclo eliminado');
 }
 
 function mcHistVerPreview(hkey){
@@ -16829,8 +16849,15 @@ function mcGuardarAlSistema(){
   if(cambios > 0){
     toast('✅ Microciclo guardado · ' + cambios + ' partido(s) sincronizado(s) con Informes');
   } else {
-    toast('✅ Microciclo guardado (sin partidos esta semana)');
+    toast('✅ Microciclo guardado');
   }
+  // Después de guardar: limpiar flags y volver al historial para dejar la pantalla en limpio
+  window._mcEditHkey = null;
+  window._mcEsDuplicado = false;
+  setTimeout(function(){
+    window._mcPagTab = 'historial';
+    if(typeof renderMicro === 'function') renderMicro();
+  }, 800);
 }
 window.mcGuardarAlSistema = mcGuardarAlSistema;
 
@@ -18894,6 +18921,7 @@ function mcGoHistorial(){ window._mcPagTab="historial"; renderMicro(); }
 function mcNuevoMicrociclo(){
   // Resetear datos para nuevo microciclo limpio (mcData=null fuerza mcInitData() a usar plantilla)
   window._mcEditHkey = null;
+  window._mcEsDuplicado = false;
   mcNumMicro = '';
   MC_FECHAS_ACTIVAS = [];
   MC_DIAS_ACTIVOS = [];
@@ -20096,6 +20124,33 @@ function sesFinalizar(){
 }
 window.sesFinalizar = sesFinalizar;
 
+function sesNuevaSesionConfirm(){
+  showModal("<div style='padding:22px 20px;max-width:360px;text-align:center;'>"
+    +"<div style='font-size:30px;margin-bottom:10px;'>🆕</div>"
+    +"<div style='color:#f1f5f9;font-weight:800;font-size:14px;margin-bottom:6px;'>¿Iniciar una nueva sesión?</div>"
+    +"<div style='color:#64748b;font-size:12px;margin-bottom:4px;'>La sesión actual quedará como está en el historial si ya la guardaste.</div>"
+    +"<div style='color:#ef4444;font-size:11px;font-weight:700;margin-bottom:16px;'>⚠️ Los cambios no guardados se perderán.</div>"
+    +"<div style='display:flex;gap:8px;justify-content:center;'>"
+    +"<button onclick='closeModal();sesLimpiarEIniciar()' style='background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.35);color:#f87171;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:800;'>Sí, nueva sesión</button>"
+    +"<button onclick='closeModal()' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:700;'>Cancelar</button>"
+    +"</div></div>");
+}
+window.sesNuevaSesionConfirm = sesNuevaSesionConfirm;
+
+function sesLimpiarEIniciar(){
+  // Limpiar todo: sesData, localStorage, Firebase sesion_activa
+  sesData = null;
+  _sesLocalTs = 0; _sesLastSyncTs = 0; _sesLastRemoteTs = 0;
+  _sesEscuchando = false; window._sesInitFbPendiente = false;
+  try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
+  if(window.fbDB){ window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){}); }
+  // Inicializar sesión en blanco
+  _sesInitBlanco();
+  if(typeof renderSesion==='function') renderSesion();
+  if(typeof toast==='function') toast('🆕 Nueva sesión iniciada en blanco');
+}
+window.sesLimpiarEIniciar = sesLimpiarEIniciar;
+
 function sesInit(){
   if(sesData) return;
   // Intentar cargar sesión activa de hoy desde Firebase (asíncrono)
@@ -20715,6 +20770,7 @@ function renderSesion(){
   h += "<button class='btn' onclick='sesPNGDirecto()'>PNG</button>";
   h += "<button onclick='sesGuardarManual()' style='padding:8px 14px;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.4);border-radius:9px;color:#a5b4fc;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>💾 Guardar borrador</button>";
   h += "<button onclick='sesFinalizarConfirm()' style='padding:8px 14px;background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);border-radius:9px;color:#6ee7b7;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>&#9989; Finalizar sesi&#243;n</button>";
+  h += "<button onclick='sesNuevaSesionConfirm()' style='padding:8px 14px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:9px;color:#f87171;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>🆕 Nueva sesi&#243;n</button>";
   h += "</div></div>";
 
   // ── REPETIR SESIÓN ANTERIOR ──
@@ -22735,7 +22791,10 @@ function guardarEnHistorial(){
   notifAuto("sesion", "Sesión "+( sesData.sesionNum||"")+" guardada en historial. Fecha: "+(sesData.fecha||new Date().toLocaleDateString("es-CO"))+" · Tareas: "+(sesData.tareas||[]).length, null, null);
 
   sesSave();
-  histLoad();
+  // NO llamar histLoad() aquí — histLoad() lee desde localStorage que solo tiene 15 sesiones,
+  // sobreescribiría HISTORIAL_DB en memoria (que tiene TODAS las sesiones de Firebase) con una versión recortada,
+  // causando pérdida de sesiones antiguas al hacer el set() a Firebase en histSave().
+  // HISTORIAL_DB ya debe estar sincronizado desde Firebase vía fbEscucharHistorial().
   // Fecha en formato ISO yyyy-mm-dd (compatible con calendario de Programación)
   var fechaISO = sesData.fecha || TODAY;
   // Si venimos de _histEditarOk, buscar por ID para actualizar la sesión original
