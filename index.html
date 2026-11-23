@@ -21546,9 +21546,15 @@ function sesVerPreview(){
     tareasHTML += "<div style='background:"+accentColor+";padding:7px 12px;display:flex;align-items:center;gap:10px;'>";
     tareasHTML += "<span style='background:#fff;color:"+accentColor+";font-size:13px;font-weight:900;min-width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;letter-spacing:-.01em;'>"+(ti+1)+"</span>";
     tareasHTML += "<span style='font-size:14px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.06em;line-height:1.2;'>"+escHtml(t.titulo||"SIN TÍTULO")+"</span>";
-    if(t.tiempo){
-      tareasHTML += "<span style='margin-left:auto;background:#ffffff22;border:2px solid #ffffff44;color:#fff;font-size:15px;font-weight:900;padding:2px 14px;border-radius:4px;letter-spacing:.04em;white-space:nowrap;'>⏱ "+escHtml(t.tiempo)+"</span>";
+    // Grupo derecho: ícono video (si hay link) + tiempo
+    tareasHTML += "<span style='margin-left:auto;display:flex;align-items:center;gap:8px;flex-shrink:0;'>";
+    if(t.videoLink && t.videoLink.trim()){
+      tareasHTML += "<a href='"+escHtml(t.videoLink.trim())+"' target='_blank' rel='noopener noreferrer' title='Ver video del ejercicio' style='background:#ffffff22;border:2px solid #ffffff44;color:#fff;font-size:14px;font-weight:900;padding:2px 10px;border-radius:4px;text-decoration:none;white-space:nowrap;'>🎬</a>";
     }
+    if(t.tiempo){
+      tareasHTML += "<span style='background:#ffffff22;border:2px solid #ffffff44;color:#fff;font-size:15px;font-weight:900;padding:2px 14px;border-radius:4px;letter-spacing:.04em;white-space:nowrap;'>⏱ "+escHtml(t.tiempo)+"</span>";
+    }
+    tareasHTML += "</span>";
     tareasHTML += "</div>";
 
     // ── 3 columnas: imagen | objetivo+desc | campo ──
@@ -21585,16 +21591,6 @@ function sesVerPreview(){
     tareasHTML += "</div>";
 
     tareasHTML += "</div>"; // cierre 3 columnas
-
-    // ── Link de video de la tarea (si existe) ──
-    if(t.videoLink && t.videoLink.trim()){
-      var _tvl = t.videoLink.trim();
-      tareasHTML += "<div style='border-top:2px solid "+accentColor+";background:#f8fafc;padding:5px 14px;display:flex;align-items:center;gap:8px;'>"+
-        "<span style='font-size:9px;font-weight:900;color:#64748b;letter-spacing:.12em;text-transform:uppercase;white-space:nowrap;'>🎬 VIDEO</span>"+
-        "<a href='"+escHtml(_tvl)+"' target='_blank' rel='noopener noreferrer' style='font-size:11px;font-weight:600;color:#2563eb;word-break:break-all;'>"+escHtml(_tvl)+"</a>"+
-        "</div>";
-    }
-
     tareasHTML += "</div>"; // cierre wrapper tarea
   });
 
@@ -23484,6 +23480,9 @@ function histVerPDF(id){
         fotasTarea = null;
       }
       if(fotasTarea && typeof fotasTarea === 'object' && !Array.isArray(fotasTarea)){
+        // Detectar offset: algunas sesiones viejas usan t1,t2… (1-based) en vez de t0,t1… (0-based)
+        var _clavesFb = Object.keys(fotasTarea);
+        var _offset = (_clavesFb.indexOf('t0') < 0 && _clavesFb.indexOf('t1') >= 0) ? 1 : 0;
         var actualizado = false;
         var tareasNew = (snap.tareas||[]).map(function(t, i){
           // Sanitizar img local: si es objeto {img:...}, extraer el string
@@ -23492,15 +23491,16 @@ function histVerPDF(id){
             var imgSan = (t.img && t.img.img && typeof t.img.img === 'string') ? t.img.img : null;
             tSan = Object.assign({}, t, { img: imgSan });
           }
-          var entrada = fotasTarea['t'+i];
+          // Buscar con offset correcto (0-based o 1-based según cómo se guardó)
+          var entrada = fotasTarea['t'+(i+_offset)];
           if(!entrada) return tSan;
           // entrada puede ser string (formato viejo) u objeto {img, real} (formato nuevo)
           var imgStr = typeof entrada === 'string' ? entrada : (entrada.img || null);
           var esReal  = typeof entrada === 'object' ? (entrada.real === true) : false;
-          if(!imgStr) return tSan;
-          var localEsReal = tSan._imgReal === true;
-          // Aplicar si: no hay img local, O la remota es foto real y la local no lo es
-          if(!tSan.img || (esReal && !localEsReal)){
+          // Solo aplicar si es base64 válido
+          if(!imgStr || imgStr.indexOf('data:') !== 0) return tSan;
+          // Aplicar si no hay imagen local válida
+          if(!tSan.img || typeof tSan.img !== 'string' || tSan.img.indexOf('data:') !== 0){
             actualizado = true;
             return Object.assign({}, tSan, { img: imgStr, _imgReal: esReal });
           }
