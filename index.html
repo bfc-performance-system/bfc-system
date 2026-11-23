@@ -8801,9 +8801,16 @@ function renderProgramacion() {
   }
 
   // ── Disponibilidad real (médica + táctica) — misma jerarquía que plantillaEstado() ──
+  // Solo contar jugadores del plantel oficial (excluir invitados, a prueba y _esInvitado)
+  var _tagsNoOficiales = ['a prueba', 'invitado'];
+  var plantelOficial = plantelAll.filter(function(j) {
+    if (j._esInvitado) return false;
+    var t = (j.tag || '').toLowerCase().trim();
+    return _tagsNoOficiales.indexOf(t) < 0;
+  });
   var disp = { aptos: 0, dudas: 0, noDisp: 0, lesionados: 0 };
   dispLoad();
-  plantelAll.forEach(function(j) {
+  plantelOficial.forEach(function(j) {
     var jid = j.id || j._id || '';
     // Estado médico del día de hoy
     var recMed = dispGetEstado(jid, todayStr);
@@ -9458,10 +9465,27 @@ function renderProgramacion() {
       else               rinf2 = {c:'#eab308',bg:'rgba(234,179,8,.22)',bd:'rgba(234,179,8,.5)',r:'E',g:gf4+'-'+gc4};
     }
 
-    var cbg2  = esHoy2 ? 'rgba(99,102,241,.18)' : (rinf2 ? rinf2.bg : (tinf2 ? tinf2.bg : (esFin2 ? 'rgba(255,255,255,.015)' : 'transparent')));
-    var cbord2 = esHoy2 ? 'rgba(99,102,241,.8)' : (rinf2 ? rinf2.bd : (tinf2 ? tinf2.bord : 'rgba(255,255,255,.04)'));
+    // Días pasados (antes del lunes de la semana activa) sin resultado registrado
+    // se muestran apagados para no confundir con la semana activa
+    var _esPasado = esEsteMes && dStr2 < _lunStr;
+    var cbg2, cbord2;
+    if (esHoy2) {
+      cbg2 = 'rgba(99,102,241,.18)'; cbord2 = 'rgba(99,102,241,.8)';
+    } else if (rinf2) {
+      // Resultado registrado: siempre se muestra con color normal (victoria/empate/derrota)
+      cbg2 = rinf2.bg; cbord2 = rinf2.bd;
+    } else if (_esPasado && tinf2) {
+      // Semana pasada con tipo planificado pero sin resultado: fondo muy tenue para no confundir
+      cbg2 = esFin2 ? 'rgba(255,255,255,.015)' : 'rgba(255,255,255,.025)';
+      cbord2 = 'rgba(255,255,255,.04)';
+    } else if (tinf2) {
+      cbg2 = tinf2.bg; cbord2 = tinf2.bord;
+    } else {
+      cbg2 = esFin2 ? 'rgba(255,255,255,.015)' : 'transparent';
+      cbord2 = 'rgba(255,255,255,.04)';
+    }
 
-    h += "<div style='min-height:78px;padding:6px 7px;border-right:1px solid rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.04);background:" + cbg2 + ";box-shadow:inset 0 0 0 " + (esHoy2?'2':'1') + "px " + cbord2 + ";position:relative;cursor:pointer;' onclick='_progAbrirNotaDia(\"" + dStr2 + "\")'>";
+    h += "<div style='min-height:78px;padding:6px 7px;border-right:1px solid rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.04);background:" + cbg2 + ";box-shadow:inset 0 0 0 " + (esHoy2?'2':'1') + "px " + cbord2 + ";position:relative;cursor:pointer;" + (_esPasado&&!rinf2?'opacity:.6;':'') + "' onclick='_progAbrirNotaDia(\"" + dStr2 + "\")'>";
 
     // Nota staff del día
     var _notaDia = null;
