@@ -23479,10 +23479,44 @@ function histVerPDF(id){
         if(window.fbDB) window.fbDB.ref('bfc/fotos_sesion/'+snap.id).remove().catch(function(e){ console.warn('[BFC-HIST-VER] Error limpiando nodo corrupto:', e.message); });
         fotasTarea = null;
       }
+      // ── Fallback BFC_HIST_IMGS localStorage ──────────────────────────────
+      // Si Firebase no tiene fotos (fotasTarea===null), intentar recuperar desde
+      // localStorage (formato antiguo: claves "{sesId}_{tareaIdx}" → {img, _imgReal})
+      if(!fotasTarea){
+        try {
+          var _localStore = JSON.parse(localStorage.getItem('BFC_HIST_IMGS')||'{}');
+          var _localKeys = Object.keys(_localStore);
+          // Buscar claves que empiecen con "{snap.id}_"
+          var _prefix = snap.id + '_';
+          var _fotasLocal = {};
+          var _encontrado = false;
+          _localKeys.forEach(function(k){
+            if(k.indexOf(_prefix) === 0){
+              var ti = k.slice(_prefix.length); // extrae el índice: "0", "1", "2"…
+              var entrada = _localStore[k];
+              var imgStr = (entrada && entrada.img) ? entrada.img : (typeof entrada === 'string' ? entrada : null);
+              if(imgStr && imgStr.indexOf('data:') === 0){
+                _fotasLocal['t'+ti] = { img: imgStr, real: (entrada && entrada._imgReal===true) };
+                _encontrado = true;
+              }
+            }
+          });
+          if(_encontrado){
+            console.log('[BFC-HIST-VER] Firebase null → usando BFC_HIST_IMGS local para', snap.id, '— claves:', Object.keys(_fotasLocal));
+            fotasTarea = _fotasLocal;
+            // Re-subir a Firebase para reparar el nodo ausente permanentemente
+            if(window.fbDB){
+              var _fotasParaFB = _fotasLocal;
+              window.fbDB.ref('bfc/fotos_sesion/'+snap.id).set(_fotasParaFB).then(function(){
+                console.log('[BFC-HIST-VER] ✅ Fotos locales re-subidas a Firebase para', snap.id);
+              }).catch(function(e){ console.warn('[BFC-HIST-VER] Error re-subiendo fotos:', e.message); });
+            }
+          }
+        } catch(e){ console.warn('[BFC-HIST-VER] Error leyendo BFC_HIST_IMGS:', e.message); }
+      }
       if(fotasTarea && typeof fotasTarea === 'object' && !Array.isArray(fotasTarea)){
-        // Detectar offset: algunas sesiones viejas usan t1,t2… (1-based) en vez de t0,t1… (0-based)
-        var _clavesFb = Object.keys(fotasTarea);
-        var _offset = (_clavesFb.indexOf('t0') < 0 && _clavesFb.indexOf('t1') >= 0) ? 1 : 0;
+        // Las claves en Firebase son siempre 0-based (t0, t1, t2…) — exactamente el índice de la tarea.
+        // Si Firebase tiene t1 pero no t0, significa que la tarea 0 no tenía foto, no que sea 1-based.
         var actualizado = false;
         var tareasNew = (snap.tareas||[]).map(function(t, i){
           // Sanitizar img local: si es objeto {img:...}, extraer el string
@@ -23491,9 +23525,9 @@ function histVerPDF(id){
             var imgSan = (t.img && t.img.img && typeof t.img.img === 'string') ? t.img.img : null;
             tSan = Object.assign({}, t, { img: imgSan });
           }
-          // Buscar con offset correcto (0-based o 1-based según cómo se guardó)
-          var entrada = fotasTarea['t'+(i+_offset)];
-          if(!entrada) return tSan;
+          // Buscar la foto de esta tarea por su índice exacto
+          var entrada = fotasTarea['t'+i];
+          if(!entrada) return tSan; // esta tarea no tenía foto guardada
           // entrada puede ser string (formato viejo) u objeto {img, real} (formato nuevo)
           var imgStr = typeof entrada === 'string' ? entrada : (entrada.img || null);
           var esReal  = typeof entrada === 'object' ? (entrada.real === true) : false;
