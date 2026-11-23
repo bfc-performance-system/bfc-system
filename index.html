@@ -22801,7 +22801,7 @@ function histSave(){
   // (las imgs base64 se strippean del payload principal arriba)
   if(window.fbDB){
     HISTORIAL_DB.forEach(function(ses){
-      if(ses.id && ses.tareas && ses.tareas.some(function(t){ return t.img && t.img.indexOf('data:')===0; })){
+      if(ses.id && ses.tareas && ses.tareas.some(function(t){ return t.img && typeof t.img === 'string' && t.img.indexOf('data:')===0; })){
         fbGuardarFotosSesion(ses.id, ses.tareas);
       }
     });
@@ -22996,7 +22996,7 @@ function guardarEnHistorial(){
   if(window.fbDB && snapshot.id){
     var _tareasConFoto = (snapshot.tareas||[]).filter(function(t){ return t.img && typeof t.img==='string' && t.img.indexOf('data:')===0; });
     console.log('[BFC] guardarEnHistorial: sesión', snapshot.id, '— tareas con foto:', _tareasConFoto.length, '— total tareas:', (snapshot.tareas||[]).length);
-    (snapshot.tareas||[]).forEach(function(t,i){ console.log('[BFC] tarea'+i+': img='+(t.img?'SÍ('+t.img.length+'chars)':'NO')+' _imgReal='+t._imgReal+' _imgLocal='+t._imgLocal); });
+    (snapshot.tareas||[]).forEach(function(t,i){ console.log('[BFC] tarea'+i+': img='+(t.img?(typeof t.img==='string'?'SÍ('+t.img.length+'chars)':'OBJETO:'+JSON.stringify(t.img).substring(0,60)):'NO')+' _imgReal='+t._imgReal+' _imgLocal='+t._imgLocal); });
     if(_tareasConFoto.length > 0){
       fbGuardarFotosSesion(snapshot.id, snapshot.tareas);
     } else {
