@@ -16835,7 +16835,7 @@ function mcHistDuplicar(hkey){
   window._mcEsDuplicado = true;
   window._mcPagTab = 'editor';
   renderMicro();
-  if(typeof toast==='function') toast('📋 Microciclo duplicado — cambiá las fechas y guardá como nuevo');
+  if(typeof toast==='function') toast('📋 Microciclo cargado como base — ajustá las fechas y guardá como nuevo');
 }
 
 function mcHistEliminar(hkey){
@@ -16903,7 +16903,7 @@ function mcRenderHistorial(){
               '<div style="display:flex;gap:8px;flex-shrink:0;">'+
                 '<button onclick="mcHistVerPreview(\"'+hkey+'\")" style="padding:7px 14px;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.35);color:#6ee7b7;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">👁 Ver</button>'+
                 '<button onclick="mcHistEditar(\"'+hkey+'\")" style="padding:7px 14px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.35);color:#a5b4fc;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">✏️ Editar</button>'+
-                '<button onclick="mcHistDuplicar(\"'+hkey+'\")" style="padding:7px 14px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35);color:#fcd34d;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📋 Duplicar</button>'+
+                '<button onclick="mcHistDuplicar(\"'+hkey+'\")" style="padding:7px 14px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35);color:#fcd34d;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📋 Usar como base</button>'+
                 '<button onclick="mcHistEliminar(\"'+hkey+'\")" style="padding:7px 14px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#f87171;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🗑</button>'+
               '</div>'+
             '</div>';
@@ -19123,7 +19123,7 @@ function renderHistorialMc(){
           h += "<span title='"+d.tipo+"' style='display:inline-block;width:9px;height:9px;border-radius:50%;background:"+col2+";margin:0 1px;'></span>";
         });
         h += "</td>";
-        h += "<td style='padding:8px 10px;text-align:center;'><div style='display:flex;gap:5px;justify-content:center;'><button onclick=\"mcHistEditar('"+hkey+"');irA('microciclo')\" style='padding:4px 10px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;'>✏️ Editar</button><button onclick=\"mcHistDuplicar('"+hkey+"');irA('microciclo')\" style='padding:4px 10px;background:rgba(245,200,0,.1);border:1px solid rgba(245,200,0,.3);color:#fcd34d;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;'>📋 Duplicar</button></div></td>";
+        h += "<td style='padding:8px 10px;text-align:center;'><div style='display:flex;gap:5px;justify-content:center;'><button onclick=\"mcHistEditar('"+hkey+"');irA('microciclo')\" style='padding:4px 10px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;'>✏️ Editar</button><button onclick=\"mcHistDuplicar('"+hkey+"');irA('microciclo')\" style='padding:4px 10px;background:rgba(245,200,0,.1);border:1px solid rgba(245,200,0,.3);color:#fcd34d;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;'>📋 Usar como base</button></div></td>";
         h += "</tr>";
       });
       h += "</tbody></table></div>";
@@ -19165,7 +19165,7 @@ function renderHistorialMc(){
       h += "<div style='display:flex;gap:8px;flex-shrink:0;'>";
       h += "<button onclick=\"mcHistVerPreview('"+hkey+"');\" style='padding:8px 16px;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.35);color:#6ee7b7;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer;'>👁 Ver</button>";
       h += "<button onclick=\"mcHistEditar('"+hkey+"');irA('microciclo')\" style='padding:8px 16px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer;'>✏️ Editar</button>";
-      h += "<button onclick=\"mcHistDuplicar('"+hkey+"');irA('microciclo')\" style='padding:8px 16px;background:rgba(245,200,0,.1);border:1px solid rgba(245,200,0,.3);color:#fcd34d;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer;'>📋 Duplicar</button>";
+      h += "<button onclick=\"mcHistDuplicar('"+hkey+"');irA('microciclo')\" style='padding:8px 16px;background:rgba(245,200,0,.1);border:1px solid rgba(245,200,0,.3);color:#fcd34d;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer;'>📋 Usar como base</button>";
       h += "<button onclick=\"mcHistEliminar('"+hkey+"');renderHistorialMc()\" style='padding:8px 10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#f87171;border-radius:9px;font-size:11px;cursor:pointer;'>🗑</button>";
       h += "</div></div></div>";
     });
@@ -20681,8 +20681,8 @@ function sesAbrirHistorial(){
     return (b.fecha||'').localeCompare(a.fecha||'');
   });
 
-  var h = "<div style='font-size:14px;font-weight:800;color:#fff;margin-bottom:4px;'>📂 Historial de sesiones</div>";
-  h += "<div style='font-size:11px;color:#64748b;margin-bottom:14px;'>Elegí una sesión para copiarla como nueva sesión de hoy. Los datos se cargarán en el formulario.</div>";
+  var h = "<div style='font-size:14px;font-weight:800;color:#fff;margin-bottom:4px;'>🕓 Historial de sesiones</div>";
+  h += "<div style='font-size:11px;color:#64748b;margin-bottom:14px;'>Elegí una sesión del historial para usarla como base de una nueva. El historial no se modifica.</div>";
   h += "<div style='display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto;padding-right:4px;'>";
 
   sorted.forEach(function(ses, idx){
@@ -20708,8 +20708,7 @@ function sesAbrirHistorial(){
     h += "</div>";
     if(preview) h += "<div style='font-size:10px;color:#475569;margin-bottom:8px;'>"+escHtml(preview)+"</div>";
     h += "<div style='display:flex;gap:6px;'>";
-    h += "<button onclick='sesCargarDesdeSesion("+idx+")' style='flex:1;padding:6px 10px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.4);border-radius:7px;color:#a5b4fc;font-size:10px;font-weight:700;cursor:pointer;'>📂 Cargar sesión</button>";
-    h += "<button onclick='sesUsarComoPlantilla("+idx+")' style='flex:1;padding:6px 10px;background:rgba(245,200,0,.12);border:1px solid rgba(245,200,0,.35);border-radius:7px;color:#fcd34d;font-size:10px;font-weight:700;cursor:pointer;'>📋 Usar como plantilla</button>";
+    h += "<button onclick='sesUsarComoBase("+idx+")' style='flex:1;padding:6px 10px;background:rgba(245,200,0,.12);border:1px solid rgba(245,200,0,.35);border-radius:7px;color:#fcd34d;font-size:10px;font-weight:700;cursor:pointer;'>📋 Usar como base</button>";
     h += "</div>";
     h += "</div>";
   });
@@ -20789,6 +20788,10 @@ function sesUsarComoPlantilla(idx){
   toast('📋 Plantilla cargada — ajustá el número de sesión y guardá');
 }
 window.sesUsarComoPlantilla = sesUsarComoPlantilla;
+
+// Alias unificado — mismo comportamiento que "Usar como plantilla" con nombre consistente entre módulos
+function sesUsarComoBase(idx){ sesUsarComoPlantilla(idx); }
+window.sesUsarComoBase = sesUsarComoBase;
 
 function sesRemoveTarea(i){
   sesSave();
