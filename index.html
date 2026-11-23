@@ -23283,11 +23283,11 @@ function histUsarPlantilla(id){
   var extrasMsg = extras.length ? ' Incluye '+extras.join(' y ')+' de cada tarea.' : '';
   showModal("<div style='padding:20px 24px;max-width:360px;text-align:center;'>"
     +"<div style='font-size:34px;margin-bottom:10px;'>📋</div>"
-    +"<div style='color:#f1f5f9;font-weight:800;font-size:14px;margin-bottom:6px;'>¿Usar como plantilla?</div>"
+    +"<div style='color:#f1f5f9;font-weight:800;font-size:14px;margin-bottom:6px;'>¿Usar como base?</div>"
     +"<div style='color:#64748b;font-size:12px;margin-bottom:4px;'>Se copiarán las <b style=\"color:#f1f5f9;\">"+numTareas+" tareas</b>, objetivos y toda la estructura."+extrasMsg+"</div>"
-    +"<div style='color:#94a3b8;font-size:11px;margin-bottom:18px;'>Solo deberás cambiar la fecha y el número de sesión.</div>"
+    +"<div style='color:#94a3b8;font-size:11px;margin-bottom:18px;'>El historial no se modifica. Solo cambiá la fecha y el número de sesión.</div>"
     +"<div style='display:flex;gap:8px;justify-content:center;'>"
-    +"<button onclick='closeModal();_histUsarPlantillaOk(\""+id+"\")' style='background:rgba(245,200,0,.2);border:1px solid rgba(245,200,0,.4);color:#fcd34d;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:800;'>📋 Usar como plantilla</button>"
+    +"<button onclick='closeModal();_histUsarPlantillaOk(\""+id+"\")' style='background:rgba(245,200,0,.2);border:1px solid rgba(245,200,0,.4);color:#fcd34d;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:800;'>📋 Usar como base</button>"
     +"<button onclick='closeModal()' style='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:9px;padding:9px 20px;font-size:12px;cursor:pointer;font-weight:700;'>Cancelar</button>"
     +"</div></div>");
 }
@@ -23334,7 +23334,7 @@ function _histUsarPlantillaOk(id){
   sesSave();
   irA('sesion');
   setTimeout(function(){ renderSesion(); }, 100);
-  toast('📋 Plantilla cargada con fotos y zonas — cambiá fecha y número de sesión');
+  toast('📋 Sesión cargada como base — cambiá la fecha y el número de sesión');
 }
 
 function histVerPDF(id){
@@ -23626,8 +23626,7 @@ function renderHistorial(){
       h += "<div style='display:flex;gap:4px;padding:0 8px;flex-shrink:0;align-items:center;'>";
       h += "<button onclick=\"histVerPDF('"+snap.id+"')\" title='Ver PDF' style='background:rgba(16,185,129,.15);color:#6ee7b7;border:1px solid rgba(16,185,129,.3);border-radius:4px;padding:5px 9px;font-size:10px;font-weight:700;cursor:pointer;'>👁</button>";
       h += "<button onclick=\"histEditarSesion('"+snap.id+"')\" title='Editar' style='background:rgba(99,102,241,.18);color:#a5b4fc;border:1px solid rgba(99,102,241,.35);border-radius:4px;padding:5px 9px;font-size:10px;font-weight:700;cursor:pointer;'>✏️</button>";
-      h += "<button onclick=\"histUsarPlantilla('"+snap.id+"')\" title='Usar como plantilla' style='background:rgba(245,200,0,.18);color:#fcd34d;border:1px solid rgba(245,200,0,.3);border-radius:4px;padding:5px 9px;font-size:10px;cursor:pointer;font-weight:700;'>📋</button>";
-      h += "<button onclick=\"histCargarSesion('"+snap.id+"')\" title='Reutilizar sesión' style='background:rgba(139,0,0,.8);color:#fff;border:none;border-radius:4px;padding:5px 9px;font-size:10px;cursor:pointer;font-weight:700;'>🔄</button>";
+      h += "<button onclick=\"histUsarPlantilla('"+snap.id+"')\" title='Usar como base' style='background:rgba(245,200,0,.18);color:#fcd34d;border:1px solid rgba(245,200,0,.3);border-radius:4px;padding:5px 9px;font-size:10px;cursor:pointer;font-weight:700;'>📋</button>";
       h += "<button onclick=\"histEliminar('"+snap.id+"')\" title='Eliminar' style='background:rgba(248,113,113,.12);color:#fca5a5;border:1px solid rgba(248,113,113,.2);border-radius:4px;padding:5px 7px;font-size:11px;cursor:pointer;'>✕</button>";
       h += "</div>";
 
