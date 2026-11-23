@@ -1923,8 +1923,8 @@ function fbGuardarFotos() {
   if (!fbDB) return;
   clearTimeout(window._FB_FOTOS_TIMEOUT);
   window._FB_FOTOS_TIMEOUT = setTimeout(function() {
-    var _jdbLocal = []; try{ var _r=localStorage.getItem('bfc_jdb'); if(_r) _jdbLocal=JSON.parse(_r)||[]; }catch(e){}
-    var fuente = _jdbLocal.length > 0 ? _jdbLocal : safeArr(JDB);
+    // IMPORTANTE: leer siempre de JDB (memoria global), NO de localStorage (que se guarda sin fotos)
+    var fuente = safeArr(JDB);
     // Construir mapa id → foto (solo fotos comprimidas ≤55000 chars)
     var fotosMap = {};
     fuente.forEach(function(j){
@@ -1932,9 +1932,32 @@ function fbGuardarFotos() {
     });
     var total = Object.keys(fotosMap).length;
     console.log('[BFC-FOTO] fbGuardarFotos: subiendo', total, 'fotos al nodo bfc/fotos');
-    if(total === 0) return;
-    fbDB.ref('bfc/fotos').update(fotosMap).catch(function(e){ console.warn('[BFC] Error sync fotos:', e.message); });
+    if(total === 0){ console.warn('[BFC-FOTO] fbGuardarFotos: 0 fotos en JDB — no se sube nada'); return; }
+    fbDB.ref('bfc/fotos').update(fotosMap).then(function(){
+      console.log('[BFC-FOTO] fbGuardarFotos: OK —', total, 'fotos sincronizadas');
+    }).catch(function(e){ console.warn('[BFC] Error sync fotos:', e.message); });
   }, 800);
+}
+
+// ── Forzar subida de todas las fotos de JDB a Firebase (llamar una vez al inicio si hay fotos en memoria) ──
+function fbSincronizarTodasLasFotos() {
+  if (!fbDB) return;
+  var fuente = safeArr(JDB);
+  var fotosMap = {};
+  fuente.forEach(function(j){
+    if(j.id && j.foto && typeof j.foto === 'string' && j.foto.indexOf('data:')===0){
+      // Comprimir si es muy grande
+      if(j.foto.length <= 55000){
+        fotosMap[j.id] = j.foto;
+      }
+    }
+  });
+  var total = Object.keys(fotosMap).length;
+  if(total === 0) return;
+  console.log('[BFC-FOTO] fbSincronizarTodasLasFotos: sincronizando', total, 'fotos');
+  fbDB.ref('bfc/fotos').update(fotosMap).then(function(){
+    console.log('[BFC-FOTO] fbSincronizarTodasLasFotos: OK');
+  }).catch(function(e){ console.warn('[BFC-FOTO] Error:', e.message); });
 }
 var EJERCICIOS_DB = [];
 var HISTORIAL_DB = [];
