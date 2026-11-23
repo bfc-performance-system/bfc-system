@@ -22996,6 +22996,7 @@ function guardarEnHistorial(){
   if(window.fbDB && snapshot.id){
     var _tareasConFoto = (snapshot.tareas||[]).filter(function(t){ return t.img && typeof t.img==='string' && t.img.indexOf('data:')===0; });
     console.log('[BFC] guardarEnHistorial: sesión', snapshot.id, '— tareas con foto:', _tareasConFoto.length, '— total tareas:', (snapshot.tareas||[]).length);
+    (snapshot.tareas||[]).forEach(function(t,i){ console.log('[BFC] tarea'+i+': img='+(t.img?'SÍ('+t.img.length+'chars)':'NO')+' _imgReal='+t._imgReal+' _imgLocal='+t._imgLocal); });
     if(_tareasConFoto.length > 0){
       fbGuardarFotosSesion(snapshot.id, snapshot.tareas);
     } else {
@@ -23237,6 +23238,8 @@ function histVerPDF(id){
   if(window.fbDB && snap.id){
     window.fbDB.ref('bfc/fotos_sesion/'+snap.id).once('value', function(fSnap){
       var fotasTarea = fSnap.val();
+      console.log('[BFC-HIST-VER] sesId:', snap.id, '— fotos_sesion en Firebase:', fotasTarea ? Object.keys(fotasTarea) : 'NULL/VACÍO');
+      (snap.tareas||[]).forEach(function(t,i){ console.log('[BFC-HIST-VER] tarea'+i+': img local='+(t.img?'SÍ('+t.img.length+'chars)':'NO')+' _imgReal='+t._imgReal); });
       if(fotasTarea && typeof fotasTarea === 'object'){
         var actualizado = false;
         var tareasNew = (snap.tareas||[]).map(function(t, i){
