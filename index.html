@@ -9453,8 +9453,16 @@ function renderProgramacion() {
     // Excluir nota_staff del display de eventos del calendario
     var evs4vis = evs4.filter(function(e){ return e.tipo !== 'nota_staff'; });
     var tprin2 = null, tinf2 = null;
-    if (evs4vis.length) { tprin2 = (evs4vis[0].tipo||'').toLowerCase(); tinf2 = TC[tprin2]||null; }
-    else if (mc4)    { tprin2 = (mc4.tipo||'').toLowerCase(); tinf2 = TC[tprin2]||null; }
+    // Un evento de tipo 'partido' en EVS solo define el tipo visual si el MC del día
+    // también es 'partido' (o no hay MC). Si el MC dice 'entrenamiento'/'descanso'/etc.,
+    // el MC manda para el color/etiqueta y el evento se muestra como info secundaria.
+    var _mcTipo = mc4 ? (mc4.tipo||'').toLowerCase() : null;
+    var _evPartido = evs4vis.length && (evs4vis[0].tipo||'').toLowerCase() === 'partido';
+    if (evs4vis.length && (!_evPartido || !_mcTipo || _mcTipo === 'partido')) {
+      tprin2 = (evs4vis[0].tipo||'').toLowerCase(); tinf2 = TC[tprin2]||null;
+    } else if (mc4) {
+      tprin2 = _mcTipo; tinf2 = TC[tprin2]||null;
+    }
 
     // Resultado
     var rinf2 = null;
@@ -9510,6 +9518,14 @@ function renderProgramacion() {
     if (rinf2) {
       h += "<div style='font-size:11px;font-weight:900;color:" + rinf2.c + ";margin-bottom:1px;'>" + rinf2.r + " " + rinf2.g + "</div>";
       if (res4 && res4.rival) h += "<div style='font-size:7px;color:rgba(255,255,255,.38);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>vs " + (res4.rival||'').replace(/</g,'&lt;') + "</div>";
+    } else if (evs4vis.length && tprin2 !== _mcTipo && _evPartido && _mcTipo && _mcTipo !== 'partido') {
+      // Evento tipo partido pero MC no es partido → mostrar info del MC, no del evento
+      if (mc4 && mc4.tipo === 'descanso') {
+        h += "<div style='font-size:8px;color:#475569;font-weight:700;'>DESC</div>";
+      } else if (mc4 && mc4.tipo) {
+        var _tcEvFix = TC[(mc4.tipo||'').toLowerCase()];
+        if (_tcEvFix) h += "<div style='font-size:8px;font-weight:800;color:" + _tcEvFix.txt + ";opacity:.7;'>" + mc4.tipo.substring(0,3).toUpperCase() + "</div>";
+      }
     } else if (evs4vis.length) {
       var ev0 = evs4vis[0];
       var esPartidoCal = tprin2 === 'partido';
@@ -10268,8 +10284,12 @@ function _renderCalendarioBFC(){
     var res=_calGetRes(dStr);
 
     var tprin=null, tinf=null;
-    if(evs.length){ tprin=(evs[0].tipo||'').toLowerCase(); tinf=TC[tprin]||null; }
-    else if(ses){ tprin=(ses.tipo||'').toLowerCase(); tinf=TC[tprin]||null; }
+    // Un evento tipo 'partido' solo manda visualmente si el MC del día también es 'partido'
+    var _sesTipo = ses ? (ses.tipo||'').toLowerCase() : null;
+    var _evP = evs.length && (evs[0].tipo||'').toLowerCase()==='partido';
+    if(evs.length && (!_evP || !_sesTipo || _sesTipo==='partido')){
+      tprin=(evs[0].tipo||'').toLowerCase(); tinf=TC[tprin]||null;
+    } else if(ses){ tprin=_sesTipo; tinf=TC[tprin]||null; }
 
     var rinf=null;
     if(res&&res.golesF!==undefined){
