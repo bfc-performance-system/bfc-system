@@ -23527,18 +23527,17 @@ function histVerPDF(id){
           }
           // Buscar la foto de esta tarea por su índice exacto
           var entrada = fotasTarea['t'+i];
-          if(!entrada) return tSan; // esta tarea no tenía foto guardada
+          if(!entrada){ console.log('[BFC-HIST-VER] tarea'+i+': sin entrada en fotasTarea'); return tSan; }
           // entrada puede ser string (formato viejo) u objeto {img, real} (formato nuevo)
           var imgStr = typeof entrada === 'string' ? entrada : (entrada.img || null);
           var esReal  = typeof entrada === 'object' ? (entrada.real === true) : false;
           // Solo aplicar si es base64 válido
-          if(!imgStr || imgStr.indexOf('data:') !== 0) return tSan;
-          // Aplicar si no hay imagen local válida
-          if(!tSan.img || typeof tSan.img !== 'string' || tSan.img.indexOf('data:') !== 0){
-            actualizado = true;
-            return Object.assign({}, tSan, { img: imgStr, _imgReal: esReal });
-          }
-          return tSan;
+          if(!imgStr || imgStr.indexOf('data:') !== 0){ console.log('[BFC-HIST-VER] tarea'+i+': imgStr inválido'); return tSan; }
+          // Aplicar siempre que Firebase tenga una foto válida (Firebase es fuente de verdad)
+          var imgLocalValida = tSan.img && typeof tSan.img === 'string' && tSan.img.indexOf('data:') === 0;
+          console.log('[BFC-HIST-VER] tarea'+i+': imgFB OK ('+imgStr.length+'chars), imgLocal='+(imgLocalValida?'SÍ':'NO')+' → aplicando');
+          actualizado = true;
+          return Object.assign({}, tSan, { img: imgStr, _imgReal: esReal });
         });
         if(actualizado){
           snap = Object.assign({}, snap, { tareas: tareasNew });
