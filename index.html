@@ -21386,9 +21386,28 @@ function sesVerPreview(){
   var mcColors = {"MD-5":"#2563eb","MD-4":"#7c3aed","MD-3":"#0891b2","MD-2":"#059669","MD-1":"#d97706","MD":"#dc2626","MD+1":"#9333ea"};
   var accentColor = mcColors[sesData.morfociclo] || "#0f1623";
   var mcIcon = {"MD-5":"⚡","MD-4":"💪","MD-3":"🎯","MD-2":"⚽","MD-1":"🔥","MD":"🏆","MD+1":"♻️"}[sesData.morfociclo]||"📋";
+
+  // Leer CÓDIGO directamente del DOM para garantizar el valor actual del selector
+  var _codigoValidos = ["MD","MD-1","MD-2","MD-3","MD-4","MD-5","MD-6","MD+1","MD+2"];
+  var _codeEl = document.getElementById("ses-codigo");
+  var _codeRaw = "";
+  if(_codeEl){
+    if(_codeEl.value === "__manual__"){
+      var _codeManEl = document.getElementById("ses-codigo-manual");
+      _codeRaw = _codeManEl ? _codeManEl.value.trim() : "";
+    } else {
+      _codeRaw = _codeEl.value || "";
+    }
+  }
+  // Usar DOM si lo tiene; si no, sesData.codigo solo si es un valor MD válido
+  var _codigoDisplay = _codeRaw || (_codigoValidos.indexOf(sesData.codigo)>=0 ? sesData.codigo : "");
+
   var cdefLetterMap = {"C":"Cdef","CD":"CDef","D":"CDef","E":"cdEf","F":"cdeF","cdef":"cdef","CDEF":"CDEF"};
   var cdefLabelMap  = {"C":"Cdef — Creación","CD":"CDef — Decisión","D":"CDef — Decisión","E":"cdEf — Ejecución","F":"cdeF — Condición Física","cdef":"cdef — Recuperación","CDEF":"CDEF — MD (Partido)"};
-  var cdefVal = sesData.cdefSel ? (cdefLabelMap[sesData.cdefSel]||sesData.cdefSel) : "—";
+  // Leer CDEF directamente del DOM también
+  var _cdefEl = document.getElementById("ses-cdef-sel");
+  var _cdefSel = _cdefEl ? _cdefEl.value : (sesData.cdefSel||"");
+  var cdefVal = _cdefSel ? (cdefLabelMap[_cdefSel]||_cdefSel) : "—";
 
   // Colores por posición
   var posColors = {
@@ -21566,6 +21585,16 @@ function sesVerPreview(){
     tareasHTML += "</div>";
 
     tareasHTML += "</div>"; // cierre 3 columnas
+
+    // ── Link de video de la tarea (si existe) ──
+    if(t.videoLink && t.videoLink.trim()){
+      var _tvl = t.videoLink.trim();
+      tareasHTML += "<div style='border-top:2px solid "+accentColor+";background:#f8fafc;padding:5px 14px;display:flex;align-items:center;gap:8px;'>"+
+        "<span style='font-size:9px;font-weight:900;color:#64748b;letter-spacing:.12em;text-transform:uppercase;white-space:nowrap;'>🎬 VIDEO</span>"+
+        "<a href='"+escHtml(_tvl)+"' target='_blank' rel='noopener noreferrer' style='font-size:11px;font-weight:600;color:#2563eb;word-break:break-all;'>"+escHtml(_tvl)+"</a>"+
+        "</div>";
+    }
+
     tareasHTML += "</div>"; // cierre wrapper tarea
   });
 
@@ -21645,10 +21674,10 @@ function sesVerPreview(){
     "<div style='font-size:20px;font-weight:900;color:#fff;letter-spacing:.02em;'>"+mcIcon+" "+(sesData.morfociclo||"—")+"</div>"+
     "</div>"+
 
-    // Código pill
+    // Código pill — valor leído del DOM en tiempo real
     "<div style='background:#1e293b;border:2px solid "+accentColor+";border-radius:6px;padding:6px 16px;text-align:center;'>"+
     "<div style='font-size:9px;font-weight:900;color:#94a3b8;letter-spacing:.14em;text-transform:uppercase;margin-bottom:2px;'>CÓDIGO</div>"+
-    "<div style='font-size:20px;font-weight:900;color:"+accentColor+";letter-spacing:.02em;'>"+(sesData.codigo||"—")+"</div>"+
+    "<div style='font-size:20px;font-weight:900;color:#ffffff;letter-spacing:.02em;'>"+(_codigoDisplay||"—")+"</div>"+
     "</div>"+
 
     // Jugadores pill
@@ -23499,7 +23528,7 @@ function histCargarSesionSilencioso(snap){
   sesData.morfociclo   = snap.morfociclo||'';
   sesData.numJugadores = snap.numJugadores||0;
   sesData.tiempo       = snap.tiempo||snap.duracion||'';
-  sesData.codigo       = snap.cdefSel||snap.codigo||'';
+  sesData.codigo       = snap.codigo||'';
   sesData.cdefSel      = snap.cdefSel||'';
   sesData.cdefNota     = snap.cdefNota||'';
   sesData.objtacof     = snap.objtacof||'';
@@ -23528,12 +23557,18 @@ function histCargarSesionSilencioso(snap){
   sesData.jugadoresExtra   = snap.jugadoresExtra||[];
   // Tareas con imagen y zona preservadas
   sesData.tareas = (snap.tareas||[]).map(function(t){
+    // Sanitizar img: si es objeto {img:...}, extraer el string base64
+    var imgVal = t.img;
+    if(imgVal && typeof imgVal !== 'string'){
+      imgVal = (imgVal.img && typeof imgVal.img === 'string') ? imgVal.img : null;
+    }
     return {
       titulo:      t.titulo||'',
       objetivo:    t.objetivo||'',
       descripcion: t.descripcion||'',
       tiempo:      t.tiempo||'',
-      img:         t.img||null,
+      img:         imgVal||null,
+      _imgReal:    t._imgReal===true,
       zonaData:    t.zonaData||null,
       videoLink:   t.videoLink||''
     };
