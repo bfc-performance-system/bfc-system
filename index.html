@@ -21340,17 +21340,52 @@ function sesCargarActivaFb(cb){
       // Firebase no tiene sesión activa (fue eliminada correctamente).
       // ⚠️ Verificar que el localStorage local también sea de hoy — si es de otro día,
       // descartarlo para no mostrar datos viejos al abrir desde otro dispositivo.
-      if(localGuardado){
-        var fechaLocal = localGuardado.fecha || localGuardado._fecha || '';
-        if(fechaLocal && fechaLocal !== TODAY){
-          console.warn('[BFC] sesCargarActivaFb — localStorage es de otro día ('+fechaLocal+'). Descartando y abriendo sesión en blanco.');
+      // Consultar Firebase si la sesión de hoy ya fue finalizada desde otro dispositivo
+      window.fbDB.ref('bfc/sesion_finalizada_fecha').once('value', function(snapF){
+        var fechaFinalizada = snapF.val() || '';
+        if(fechaFinalizada === TODAY){
+          console.warn('[BFC] sesCargarActivaFb — Firebase indica que la sesión de hoy ya fue finalizada. Descartando localStorage y abriendo en blanco.');
           try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
+          try{ localStorage.removeItem('BFC_SES_FINALIZADA'); }catch(e){}
           sesData = null;
-          if(cb) cb(false); // false → sesInit() llamará _sesInitBlanco()
+          if(cb) cb(false);
           return;
         }
-      }
-      if(cb) cb(!!localGuardado);
+        // Sin marcador de finalización — verificar fecha del localStorage
+        if(localGuardado){
+          var fechaLocal = localGuardado.fecha || localGuardado._fecha || '';
+          if(fechaLocal && fechaLocal !== TODAY){
+            console.warn('[BFC] sesCargarActivaFb — localStorage es de otro día ('+fechaLocal+'). Descartando y abriendo sesión en blanco.');
+            try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
+            sesData = null;
+            if(cb) cb(false);
+            return;
+          }
+          // Verificar marcador local como respaldo
+          var _sesFinalzadaHoy = '';
+          try{ _sesFinalzadaHoy = localStorage.getItem('BFC_SES_FINALIZADA') || ''; }catch(e){}
+          if(_sesFinalzadaHoy === TODAY){
+            console.warn('[BFC] sesCargarActivaFb — marcador local indica sesión finalizada hoy. Descartando y abriendo en blanco.');
+            try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
+            sesData = null;
+            if(cb) cb(false);
+            return;
+          }
+        }
+        if(cb) cb(!!localGuardado);
+      }).catch(function(){
+        // Si falla la lectura del marcador, continuar con el flujo normal
+        if(localGuardado){
+          var fechaLocal = localGuardado.fecha || localGuardado._fecha || '';
+          if(fechaLocal && fechaLocal !== TODAY){
+            try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
+            sesData = null;
+            if(cb) cb(false);
+            return;
+          }
+        }
+        if(cb) cb(!!localGuardado);
+      });
       return;
     }
     // ⚠️ GUARD DE FECHA: si el nodo tiene fecha de otro día, es una sesión huérfana
@@ -21434,6 +21469,7 @@ function sesFinalizar(){
   _sesLocalTs = 0;
   _sesLastRemoteTs = 0;
   try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
+  try{ localStorage.setItem('BFC_SES_FINALIZADA', TODAY); }catch(e){}
   if(typeof renderSesion==='function') renderSesion();
   toast('✅ Sesión finalizada y guardada en historial');
   fbAuditLog('sesion','Sesión finalizada y movida al historial');
@@ -21449,6 +21485,9 @@ function sesFinalizar(){
         _removeIntentos++;
         _removeRef.remove().then(function(){
           console.log('[BFC] sesFinalizar — bfc/sesion_activa eliminado correctamente.');
+          // Escribir marcador en Firebase para que TODOS los dispositivos sepan
+          // que la sesión de hoy ya fue finalizada — así no la cargan desde localStorage
+          window.fbDB.ref('bfc/sesion_finalizada_fecha').set(TODAY).catch(function(){});
           // Desbloquear listener SOLO después de confirmar que el nodo fue eliminado,
           // luego inicializar sesión en blanco y renderizar
           window._sesFinalzandose = false;
@@ -21549,6 +21588,9 @@ function _sesInitBlanco(){
   // Limpiar cache local de sesión anterior para no contaminar la sesión nueva
   _sesLocalTs = 0;
   try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
+  try{ localStorage.removeItem('BFC_SES_FINALIZADA'); }catch(e){} // limpiar marcador local
+  // Limpiar marcador Firebase para que no bloquee carga de sesión nueva
+  if(window.fbDB){ window.fbDB.ref('bfc/sesion_finalizada_fecha').remove().catch(function(){}); }
   var plantelBase = JDB.length>0 ? JDB : PL;
   var idsActivos = plantelBase.map(function(p){return p.id;});
   sesData = {
