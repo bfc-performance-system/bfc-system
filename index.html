@@ -1273,6 +1273,8 @@ function fbEscucharFotos() {
     var fotosRemoto = snap.val();
     if (!fotosRemoto || typeof fotosRemoto !== 'object') return;
     var _localJDB = []; try{ var _r=localStorage.getItem('bfc_jdb'); if(_r) _localJDB=JSON.parse(_r)||[]; }catch(e){}
+    // Si localStorage está vacío pero JDB en memoria ya tiene jugadores, usar JDB (iOS puede limpiar localStorage)
+    if (_localJDB.length === 0 && safeArr(JDB).length > 0) _localJDB = safeArr(JDB);
     if (_localJDB.length === 0) return;
     var _cambio = false;
     _localJDB = _localJDB.map(function(j){
