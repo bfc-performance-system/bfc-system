@@ -1003,6 +1003,8 @@ function fbEscuchar() {
     }
     if (d.jdb) {
       var _localJDB=[]; try{ var _ljs=localStorage.getItem('bfc_jdb'); if(_ljs) _localJDB=JSON.parse(_ljs)||[]; }catch(e){}
+      // Si localStorage está vacío pero JDB en memoria ya tiene jugadores con fotos, usarlo como fuente local
+      if(_localJDB.length === 0 && safeArr(JDB).length > 0) _localJDB = safeArr(JDB);
       var _localJDBMap={}; _localJDB.forEach(function(j){ if(j.id) _localJDBMap[j.id]=j; });
       // Merge: datos vienen de Firebase, fotos de localStorage (Firebase no las guarda en jdb)
       var _newJDB = safeArr(d.jdb).map(function(fJ){
@@ -1022,6 +1024,8 @@ function fbEscuchar() {
     // fotos — nodo separado bfc/fotos para evitar conflicto de tamaño con jdb
     if (d.fotos && typeof d.fotos === 'object') {
       var _localJDB2=[]; try{ var _ljs2=localStorage.getItem('bfc_jdb'); if(_ljs2) _localJDB2=JSON.parse(_ljs2)||[]; }catch(e){}
+      // Si localStorage está vacío pero JDB en memoria ya tiene jugadores, usar JDB (iOS puede limpiar localStorage)
+      if(_localJDB2.length === 0 && safeArr(JDB).length > 0) _localJDB2 = safeArr(JDB);
       var _fotosCambiaron = false;
       _localJDB2 = _localJDB2.map(function(j){
         var fotoRemota = d.fotos[j.id];
