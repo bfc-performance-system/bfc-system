@@ -21159,6 +21159,9 @@ function sesEscucharFb(){
   if(!window.fbDB || _sesEscuchando) return;
   _sesEscuchando = true;
   window.fbDB.ref('bfc/sesion_activa').on('value', function(snap){
+    // ⚠️ Si estamos en proceso de finalizar sesión, ignorar TODOS los updates
+    // hasta que el remove() confirme que el nodo fue eliminado.
+    if(window._sesFinalzandose) return;
     var d = snap.val();
     if(!d) return;
     var tsRemoto = d._ts || d.ts || d.savedAt || 0;
@@ -21315,17 +21318,38 @@ function sesCargarActivaFb(cb){
     if(ls){ localGuardado = JSON.parse(ls); localTs = localGuardado._localTs || 0; }
   }catch(e){}
   // Si hay sesión en localStorage, usarla como base mientras llega Firebase
+  // ⚠️ Solo si es de hoy — si es de otro día, descartarla para no mostrar datos viejos
   if(localGuardado){
-    sesData = localGuardado;
-    // No corregir fechas futuras — se permiten sesiones planificadas para mañana
-    _sesLocalTs = localTs;
-    delete sesData._fecha;
+    var _fechaLocal = localGuardado.fecha || localGuardado._fecha || '';
+    if(_fechaLocal && _fechaLocal !== TODAY){
+      console.warn('[BFC] sesCargarActivaFb — localStorage provisional es de otro día ('+_fechaLocal+'). Descartando.');
+      try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
+      localGuardado = null;
+      localTs = 0;
+    } else {
+      sesData = localGuardado;
+      // No corregir fechas futuras — se permiten sesiones planificadas para mañana
+      _sesLocalTs = localTs;
+      delete sesData._fecha;
+    }
   }
   if(!window.fbDB){ if(cb) cb(!!localGuardado); return; }
   window.fbDB.ref('bfc/sesion_activa').once('value', function(snap){
     var d = snap.val();
     if(!d){
-      // Sin Firebase: usar lo que teníamos de localStorage
+      // Firebase no tiene sesión activa (fue eliminada correctamente).
+      // ⚠️ Verificar que el localStorage local también sea de hoy — si es de otro día,
+      // descartarlo para no mostrar datos viejos al abrir desde otro dispositivo.
+      if(localGuardado){
+        var fechaLocal = localGuardado.fecha || localGuardado._fecha || '';
+        if(fechaLocal && fechaLocal !== TODAY){
+          console.warn('[BFC] sesCargarActivaFb — localStorage es de otro día ('+fechaLocal+'). Descartando y abriendo sesión en blanco.');
+          try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
+          sesData = null;
+          if(cb) cb(false); // false → sesInit() llamará _sesInitBlanco()
+          return;
+        }
+      }
       if(cb) cb(!!localGuardado);
       return;
     }
@@ -21383,8 +21407,26 @@ window.sesFinalizarConfirm = sesFinalizarConfirm;
 // ── Finalizar sesión: pasar al historial y limpiar sesion_activa ───────
 function sesFinalizar(){
   if(!sesData){ toast('No hay sesión activa.'); return; }
+  // ⚠️ Si estamos editando una sesión histórica, NO correr el flujo de finalizar
+  // (que limpia Firebase y deja el módulo en blanco). Solo guardar en historial y volver.
+  if(sesData._editandoHistId){
+    sesSave();
+    guardarEnHistorial();
+    toast('✅ Cambios guardados en historial.');
+    // Restaurar sesión activa real si existe en Firebase
+    sesData = null;
+    _sesLocalTs = 0; _sesLastSyncTs = 0; _sesLastRemoteTs = 0;
+    _sesEscuchando = false; window._sesInitFbPendiente = false;
+    sesInit();
+    if(typeof renderSesion==='function') renderSesion();
+    if(typeof irA==='function') irA('historial');
+    return;
+  }
   sesSave();
   guardarEnHistorial();
+  // ⚠️ Bloquear el listener sesEscucharFb() durante todo el proceso de finalización
+  // para que no aplique el nodo aún existente en Firebase encima de la sesión en blanco.
+  window._sesFinalzandose = true;
   // Limpiar sesData para nueva sesión ANTES de tocar Firebase
   // para que el listener fbEscuchar() no sobreescriba HISTORIAL_DB con datos viejos
   sesData = null;
@@ -21407,26 +21449,43 @@ function sesFinalizar(){
         _removeIntentos++;
         _removeRef.remove().then(function(){
           console.log('[BFC] sesFinalizar — bfc/sesion_activa eliminado correctamente.');
+          // Desbloquear listener SOLO después de confirmar que el nodo fue eliminado,
+          // luego inicializar sesión en blanco y renderizar
+          window._sesFinalzandose = false;
+          sesData = null;
+          _sesLocalTs = 0; _sesLastSyncTs = 0; _sesLastRemoteTs = 0;
+          _sesInitBlanco();
+          if(typeof renderSesion==='function') renderSesion();
+          if(typeof irA==='function') irA('sesion');
+          toast('✅ Sesión guardada en historial. Podés iniciar una nueva sesión.');
         }).catch(function(e){
           if(_removeIntentos < 3){
             console.warn('[BFC] sesFinalizar — fallo al eliminar sesion_activa (intento '+_removeIntentos+'), reintentando…');
             setTimeout(_intentarRemove, 2000);
           } else {
             console.error('[BFC] sesFinalizar — no se pudo eliminar sesion_activa tras 3 intentos:', e && e.message);
+            // Aun así desbloquear y continuar para no dejar la UI colgada
+            window._sesFinalzandose = false;
+            sesData = null;
+            _sesLocalTs = 0; _sesLastSyncTs = 0; _sesLastRemoteTs = 0;
+            _sesInitBlanco();
+            if(typeof renderSesion==='function') renderSesion();
+            if(typeof irA==='function') irA('sesion');
+            toast('✅ Sesión guardada en historial. Podés iniciar una nueva sesión.');
           }
         });
       }
       _intentarRemove();
+    } else {
+      // Sin Firebase: desbloquear y continuar normalmente
+      window._sesFinalzandose = false;
+      sesData = null;
+      _sesLocalTs = 0; _sesLastSyncTs = 0; _sesLastRemoteTs = 0;
+      _sesInitBlanco();
+      if(typeof renderSesion==='function') renderSesion();
+      if(typeof irA==='function') irA('sesion');
+      toast('✅ Sesión guardada en historial. Podés iniciar una nueva sesión.');
     }
-    // Mostrar pantalla de nueva sesión en blanco con mensaje informativo
-    sesData = null;
-    _sesLocalTs = 0;
-    _sesLastSyncTs = 0;
-    _sesLastRemoteTs = 0;
-    _sesInitBlanco();
-    if(typeof renderSesion==='function') renderSesion();
-    if(typeof irA==='function') irA('sesion');
-    toast('✅ Sesión guardada en historial. Podés iniciar una nueva sesión.');
   }, 1500);
 }
 window.sesFinalizar = sesFinalizar;
