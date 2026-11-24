@@ -28134,6 +28134,20 @@ function catapultProcesarCSV(){
 
     // Eliminar BOM UTF-8 si existe
     if(lines[0].charCodeAt(0) === 0xFEFF) lines[0] = lines[0].slice(1);
+    // Buscar la fila de headers real — algunos CSV de Catapult tienen filas de título antes
+    var headerRowIdx = 0;
+    var _jugadorCandidatos = ['jugador','athlete','player','name'];
+    for(var _hi=0; _hi<Math.min(5,lines.length); _hi++){
+      var _htest = lines[_hi].split(sep).map(function(h){ return h.replace(/"/g,'').trim().toLowerCase(); });
+      if(_jugadorCandidatos.some(function(c){ return _htest.some(function(h){ return h.indexOf(c)>-1; }); })){
+        headerRowIdx = _hi;
+        break;
+      }
+    }
+    if(headerRowIdx > 0){
+      console.log('[BFC-GPS-CSV] Fila de títulos detectada, headers reales en línea '+headerRowIdx);
+      lines = lines.slice(headerRowIdx); // descartar filas de título
+    }
     var headers = lines[0].split(sep).map(function(h){ return h.replace(/"/g,'').trim().toLowerCase(); });
     console.log('[BFC-GPS-CSV] sep='+JSON.stringify(sep)+' headers[0..3]='+JSON.stringify(headers.slice(0,4)));
 
