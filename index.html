@@ -28073,81 +28073,39 @@ function catapultProcesarCSV(){
 
     var allLines = text.split('\n').map(function(l){ return l.trim(); });
 
-    // ── Soporte multi-sección (CSV Catapult con SECCION 1, 2, 3) ──
-    // Buscar la primera tabla con cabecera Jugador/Athlete, ignorar bloques de sección 2+
+    // ── Estrategia: leer SOLO la primera tabla del CSV ──
+    // 1. Encontrar la fila de cabecera real (la que tiene Jugador/Athlete/Player con más columnas)
+    // 2. Leer datos hasta la primera línea vacía después de la cabecera
+    // Esto ignora automáticamente todas las secciones 2, 3, 4, 5, etc.
     var lines = [];
-    var inSec1 = false;
-    var sec1HeaderFound = false;
+    var headerFound = false;
+    var _jugCands = ['jugador','athlete','player','name'];
     for(var li=0; li<allLines.length; li++){
       var ll = allLines[li];
-      if(!ll) continue;
-      // Detectar inicio de SECCION 1
-      if(!sec1HeaderFound && ll.toUpperCase().match(/SECCI[OÓ]N\s*1/)){
-        inSec1 = true; continue;
-      }
-      // Detectar inicio de SECCION 2+ → parar
-      if(sec1HeaderFound && ll.toUpperCase().match(/SECCI[OÓ]N\s*[2-9]/)) break;
-      // Detectar cabecera de datos (tiene columna Jugador/Athlete/Nombre/Tabla)
-      if(!sec1HeaderFound){
-        var llLow = ll.toLowerCase();
-        // Verificar que la línea es una cabecera real: debe contener palabras clave de columna
-        // pero NO ser una fila de datos (donde Tabla="JUGADORES" y Nombre=nombre_real)
-        // Una cabecera real tiene la palabra clave como columna header, no como valor
-        // Heurística: si la línea contiene "nombre" O "tabla" como token separado (cabecera Catapult),
-        // O si contiene "jugador/athlete/player" pero NO seguido de coma+nombre_real
-        var esHeaderNombre = llLow.indexOf('nombre')>-1 || llLow.indexOf('tabla')>-1;
-        var esHeaderJugador = (llLow.indexOf('jugador')>-1 || llLow.indexOf('athlete')>-1 || llLow.indexOf('player')>-1) && !esHeaderNombre;
-        // Si la línea contiene "nombre" (columna header del CSV Catapult), es la cabecera correcta
-        // Si solo contiene "jugador/athlete/player", verificar que no sea un valor de datos
-        // (los valores de datos en CSV Catapult tienen el formato: JUGADORES,NombreJugador,...)
-        // es decir, si "jugadores" está al inicio antes de la primera coma, es un valor, no header
-        if(esHeaderNombre){
-          sec1HeaderFound = true; lines.push(ll); continue;
+      if(!headerFound){
+        if(!ll) continue; // saltar líneas vacías antes del header
+        var _cols = ll.split(sep).map(function(h){ return h.replace(/"/g,'').trim().toLowerCase(); });
+        // Es cabecera si contiene alguna palabra clave de jugador Y tiene al menos 3 columnas
+        var _esHeader = _cols.length >= 3 && _jugCands.some(function(c){
+          return _cols.some(function(h){ return h.indexOf(c)>-1; });
+        });
+        if(_esHeader){
+          headerFound = true;
+          lines.push(ll);
         }
-        if(esHeaderJugador){
-          // Verificar que "jugador/athlete/player" no es el primer campo (valor de Tabla en CSV Catapult)
-          var primerCampo = ll.split(',')[0].replace(/"/g,'').trim().toUpperCase();
-          if(primerCampo === 'JUGADORES' || primerCampo === 'JUGADOR' || primerCampo === 'ATHLETE' || primerCampo === 'PLAYER'){
-            // Es una fila de datos, no cabecera — incluir como dato si ya encontramos header
-            if(inSec1 && !sec1HeaderFound){ continue; } // aún buscando header, saltar
-          } else {
-            sec1HeaderFound = true; lines.push(ll); continue;
-          }
-        }
-        if(!inSec1) continue;
-        continue;
+        // Si no es cabecera, seguir buscando (saltar fila de título, etc.)
+      } else {
+        // Ya tenemos cabecera — leer datos hasta línea vacía (fin de primera sección)
+        if(!ll) break; // línea vacía = fin de la primera tabla
+        // Ignorar filas de Total/Promedio
+        if(ll.match(/^(Total|Promedio|Average|Summary)/i)) continue;
+        lines.push(ll);
       }
-      // Dentro de sección 1 con cabecera ya encontrada
-      // Ignorar filas de Total/Promedio/Summary
-      if(ll.match(/^(Total|Promedio|Average|Summary)/i)) continue;
-      lines.push(ll);
-    }
-    // Fallback: si no encontró sección, usar todas las líneas no vacías
-    if(lines.length < 2){
-      lines = allLines.filter(function(l){ return l.length>0; });
-      lines = lines.filter(function(l,idx){
-        if(idx===0) return true;
-        return !l.match(/^(Total|Promedio|Average|Summary)/i);
-      });
     }
     if(lines.length < 2){ toast('❌ CSV vacío o sin datos reconocibles'); return; }
 
     // Eliminar BOM UTF-8 si existe
     if(lines[0].charCodeAt(0) === 0xFEFF) lines[0] = lines[0].slice(1);
-    // Buscar la fila de headers real — algunos CSV de Catapult tienen filas de título antes
-    var headerRowIdx = 0;
-    var _jugadorCandidatos = ['jugador','athlete','player','name'];
-    for(var _hi=0; _hi<Math.min(5,lines.length); _hi++){
-      var _htest = lines[_hi].split(sep).map(function(h){ return h.replace(/"/g,'').trim().toLowerCase(); });
-      if(_jugadorCandidatos.some(function(c){ return _htest.some(function(h){ return h.indexOf(c)>-1; }); })){
-        headerRowIdx = _hi;
-        break;
-      }
-    }
-    if(headerRowIdx > 0){
-      console.log('[BFC-GPS-CSV] Fila de títulos detectada, headers reales en línea '+headerRowIdx);
-      lines = lines.slice(headerRowIdx); // descartar filas de título
-    }
     var headers = lines[0].split(sep).map(function(h){ return h.replace(/"/g,'').trim().toLowerCase(); });
     console.log('[BFC-GPS-CSV] sep='+JSON.stringify(sep)+' headers[0..3]='+JSON.stringify(headers.slice(0,4)));
 
