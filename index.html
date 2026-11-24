@@ -8837,44 +8837,29 @@ function renderProgramacion() {
     if (_hasThisWeek) { mcActivo = mce; break; }
   }
 
-  // ── Disponibilidad real (médica + táctica) — misma jerarquía que plantillaEstado() ──
-  // Solo contar jugadores del plantel oficial (excluir invitados, a prueba y _esInvitado)
-  var _tagsNoOficiales = ['a prueba', 'invitado'];
-  var plantelOficial = plantelAll.filter(function(j) {
-    if (j._esInvitado) return false;
-    var t = (j.tag || '').toLowerCase().trim();
-    return _tagsNoOficiales.indexOf(t) < 0;
-  });
+  // ── Disponibilidad — misma lógica que renderPlantilla() para que los números coincidan ──
   var disp = { aptos: 0, dudas: 0, noDisp: 0, lesionados: 0 };
-  dispLoad();
-  plantelOficial.forEach(function(j) {
-    var jid = j.id || j._id || '';
-    // Estado médico del día de hoy
-    var recMed = dispGetEstado(jid, todayStr);
-    var estMed = recMed ? (recMed.estado || 'disponible') : 'disponible';
-    // Estados clínicos de lesión (cuentan en lesionados Y en noDisp)
-    var _lesionEstados = ['rehabilitacion','baja','readaptacion'];
-    if (_lesionEstados.indexOf(estMed) >= 0) {
-      disp.lesionados++;
-      disp.noDisp++;
-      return;
-    }
-    // Recuperación: no disponible pero no cuenta como lesionado
-    if (estMed === 'recuperacion') {
-      disp.noDisp++;
-      return;
-    }
-    if (estMed === 'restriccion') {
-      disp.dudas++;
-      return;
-    }
-    // Médicamente disponible → revisar override táctico
-    var ovTac = (typeof _plantillaDisp !== 'undefined') ? (_plantillaDisp[jid] || null) : null;
-    if (ovTac && typeof ovTac === 'object' && ovTac.estado === 'no_disponible') {
-      disp.noDisp++;
-    } else {
-      disp.aptos++;
-    }
+  // Jugadores base (mismo plantelAll ya construido arriba)
+  plantelAll.forEach(function(j){
+    var bHoy = safeArr(BIEN).some(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===todayStr; });
+    var dispEst = dispGetEstado(j.id, todayStr);
+    var tieneDisp = dispEst && dispEst.estado && dispEst.estado !== 'disponible';
+    var est = plantillaEstado(j);
+    var ovSt = _plantillaDisp[j.id]||null;
+    var tieneOvSt = ovSt && (ovSt.estado==='disponible'||ovSt.estado==='no_disponible');
+    if(est==='lesion') disp.lesionados++;
+    else if(!bHoy && !tieneOvSt && !tieneDisp) { /* sinData — no contar */ }
+    else if(est==='ok') disp.aptos++;
+    else if(est==='warn') disp.dudas++;
+    else disp.noDisp++;
+  });
+  // Jugadores manuales (a prueba / Sub-20) — igual que plantilla
+  safeArr(_plantillaManual).forEach(function(m){
+    var est = plantillaEstado(m);
+    if(est==='lesion') disp.lesionados++;
+    else if(est==='warn') disp.dudas++;
+    else if(est==='danger') disp.noDisp++;
+    else disp.aptos++;
   });
 
   // ── Nota del día ──
@@ -8961,45 +8946,42 @@ function renderProgramacion() {
   var _cardSes     = _modoManana ? sesManana : sesHoy; // sesión del día que se muestra
 
   var _sesBg2   = '#0e0e1a';
-  var _sesBord2 = _modoManana ? 'rgba(245,158,11,.35)' : 'rgba(255,255,255,.12)';
-  var _cardAccent = _modoManana ? '#f59e0b' : '#64748b';
+  var _sesBord2 = 'rgba(255,255,255,.12)'; // borde neutro siempre
+  var _cardAccent = '#94a3b8'; // color neutro para cabecera siempre
 
   // Click: solo en modo hoy sin sesión → va a sesión del día
-  // Modo mañana: nunca navega al módulo de sesión (el staff no debe tocar eso)
-  // Hoy con sesión registrada: tampoco (el botón "Ver" interno maneja la navegación)
   var _sesDivClick = (!_modoManana && !_cardSes) ? "onclick=\"irA('sesion')\" " : "";
   var _sesDivCursor = (!_modoManana && !_cardSes) ? "pointer" : "default";
   var _hoverStyle = (!_modoManana && !_cardSes) ?
-    " onmouseover=\"this.style.borderColor='rgba(255,255,255,.18)';this.style.boxShadow='0 0 0 3px rgba(255,255,255,.04)'\" onmouseout=\"this.style.borderColor='"+_sesBord2+"';this.style.boxShadow='none'\"" : "";
+    " onmouseover=\"this.style.borderColor='rgba(255,255,255,.18)';this.style.boxShadow='0 0 0 3px rgba(255,255,255,.04)'\" onmouseout=\"this.style.borderColor='rgba(255,255,255,.12)';this.style.boxShadow='none'\"" : "";
 
   h += "<div "+_sesDivClick+"style='background:"+_sesBg2+";border:1px solid "+_sesBord2+";border-radius:16px;padding:16px 18px;cursor:"+_sesDivCursor+";transition:border-color .2s,box-shadow .2s;'"+_hoverStyle+">";
 
-  // Etiqueta de cabecera — "Hoy" o "Mañana"
+  // Cabecera — siempre gris neutro, con emoji calendario
   h += "<div style='display:flex;align-items:center;gap:6px;margin-bottom:8px;'>";
   h += "<div style='font-size:9px;font-weight:800;color:"+_cardAccent+";text-transform:uppercase;letter-spacing:.10em;'>"
-    + (_modoManana ? '📅 Mañana' : 'Hoy')
+    + "📅 " + (_modoManana ? 'Mañana' : 'Hoy')
     + " · " + _cardDia + " de " + mesNombres[_cardMes] + "</div>";
-  if(_modoManana) h += "<span style='font-size:8px;font-weight:700;background:rgba(245,158,11,.18);border:1px solid rgba(245,158,11,.4);color:#fbbf24;border-radius:5px;padding:1px 6px;margin-left:auto;'>+14:00</span>";
+  if(_modoManana) h += "<span style='font-size:8px;font-weight:700;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#94a3b8;border-radius:5px;padding:1px 6px;margin-left:auto;'>+14:00</span>";
   h += "</div>";
 
-  // Código día + carga del microciclo
+  // Código día + badge carga (único color de acento) + tipo y contenido en neutro
   if (_cardMcDia) {
     var cargaC = cargaColor[(_cardMcDia.carga||'').toLowerCase()] || '#94a3b8';
     h += "<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;'>";
-    h += "<span style='font-size:20px;font-weight:900;color:"+(_modoManana?'#fcd34d':'#f1f5f9')+";letter-spacing:-.5px;'>" + (_cardMcDia.rel||'—') + "</span>";
+    h += "<span style='font-size:20px;font-weight:900;color:#f1f5f9;letter-spacing:-.5px;'>" + (_cardMcDia.rel||'—') + "</span>";
+    // Badge carga: único elemento con color semafórico
     h += "<span style='font-size:11px;font-weight:900;padding:3px 10px;border-radius:7px;background:"+cargaC+"30;border:1.5px solid "+cargaC+"88;color:"+cargaC+";text-transform:uppercase;letter-spacing:.04em;'>" + (_cardMcDia.carga||'—') + "</span>";
     h += "</div>";
     if (_cardMcDia.tipo && _cardMcDia.tipo !== 'descanso') {
-      var _tcCard = TC[(_cardMcDia.tipo||'').toLowerCase()] || TC['entrenamiento'];
-      h += "<div style='font-size:10px;font-weight:700;color:"+_tcCard.txt+";margin-bottom:6px;'>"
+      h += "<div style='font-size:10px;font-weight:700;color:#cbd5e1;margin-bottom:6px;'>"
         + (_cardMcDia.tipo||'').charAt(0).toUpperCase() + (_cardMcDia.tipo||'').slice(1)
         + (_cardMcDia.contenido ? ' · <span style="color:#475569;font-weight:600;">' + (_cardMcDia.contenido.split('\\n')[0]||'').slice(0,40) + '</span>' : '')
         + "</div>";
     }
   }
 
-  // CDEF: muestra si hay sesión registrada para el día del card (con fecha validada)
-  // _cardSesDisplay se calcula más abajo; aquí necesitamos validar también
+  // CDEF
   var _cardSesValid = _cardSes && (_cardSes.fecha || _cardSes.fechaSes || '') === _cardFecha ? _cardSes : null;
   if (_cardSesValid && _cardSesValid.cdefSel) {
     h += "<div style='margin-bottom:6px;'>" + cdefHtml(_cardSesValid.cdefSel) + "</div>";
@@ -9007,30 +8989,18 @@ function renderProgramacion() {
     h += "<div style='font-size:11px;color:#64748b;font-weight:600;margin-bottom:6px;'>Día de descanso</div>";
   }
 
-  // Alerta carga alta
-  if (_cardMcDia && (_cardMcDia.carga||'').toLowerCase() === 'muy alta') {
-    h += "<div style='margin-bottom:6px;font-size:9px;font-weight:800;color:#ef4444;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:3px 8px;'>⚠️ CARGA MUY ALTA</div>";
-  } else if (_cardMcDia && (_cardMcDia.carga||'').toLowerCase() === 'alta') {
-    h += "<div style='margin-bottom:6px;font-size:9px;font-weight:800;color:#f97316;background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.25);border-radius:6px;padding:3px 8px;'>↑ CARGA ALTA</div>";
-  }
-
-  // Estado sesión — hoy o mañana según modo
-  // En modo mañana: solo mostrar si la entrada del índice tiene fecha exactamente == _mananaStr
+  // Sub-card sesión — siempre en neutro blanco/gris
   var _cardSesDisplay = _cardSes && (_cardSes.fecha || _cardSes.fechaSes || '') === _cardFecha ? _cardSes : null;
   if (_cardSesDisplay) {
-    // Sesión ya registrada (hoy) o planificada (mañana)
-    var _sesBgB   = _modoManana ? 'rgba(245,158,11,.12)' : 'rgba(16,185,129,.15)';
-    var _sesBordB = _modoManana ? 'rgba(245,158,11,.35)' : 'rgba(16,185,129,.35)';
-    var _sesCol2  = _modoManana ? '#fcd34d'              : '#6ee7b7';
     var _sesLabel = _modoManana ? 'Sesión planificada' : 'Sesión registrada';
-    var _sesIcon  = _modoManana ? '📋' : '✅';
-    h += "<div style='display:flex;align-items:center;gap:8px;padding:8px 10px;background:"+_sesBgB+";border:1px solid "+_sesBordB+";border-radius:9px;margin-top:4px;'>";
+    var _sesIcon  = _modoManana ? '📋' : '📋';
+    h += "<div style='display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:9px;margin-top:4px;'>";
     h += "<span style='font-size:14px;'>"+_sesIcon+"</span>";
     h += "<div style='flex:1;'>";
-    h += "<div style='font-size:11px;font-weight:800;color:"+_sesCol2+";'>"+_sesLabel+"</div>";
+    h += "<div style='font-size:11px;font-weight:800;color:#e2e8f0;'>"+_sesLabel+"</div>";
     if (_cardSesDisplay.cdefSel) h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>CDEF: "+_cardSesDisplay.cdefSel+(_cardSesDisplay.duracion?' · '+_cardSesDisplay.duracion+' min':'')+"</div>";
     h += "</div>";
-    h += "<button onclick=\"event.stopPropagation();dashVerSesionHoy('"+_cardFecha+"')\" style='flex-shrink:0;background:"+(_modoManana?'rgba(245,158,11,.18)':'rgba(16,185,129,.18)')+";border:1.5px solid "+(_modoManana?'rgba(245,158,11,.5)':'rgba(16,185,129,.5)')+";color:"+_sesCol2+";border-radius:8px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:4px;'>👁 Ver</button>";
+    h += "<button onclick=\"event.stopPropagation();dashVerSesionHoy('"+_cardFecha+"')\" style='flex-shrink:0;background:rgba(255,255,255,.08);border:1.5px solid rgba(255,255,255,.18);color:#e2e8f0;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:4px;'>👁 Ver</button>";
     h += "</div>";
   } else if (!_modoManana) {
     // Hoy sin sesión
@@ -9041,7 +9011,7 @@ function renderProgramacion() {
     h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>Toca para registrar →</div>";
     h += "</div></div>";
   } else {
-    // Mañana sin sesión planificada: solo informativo, sin link ni acción
+    // Mañana sin sesión planificada
     h += "<div style='display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(100,116,139,.08);border:1px solid rgba(100,116,139,.2);border-radius:9px;margin-top:4px;'>";
     h += "<span style='font-size:14px;'>📋</span>";
     h += "<div style='flex:1;'>";
@@ -9151,8 +9121,20 @@ function renderProgramacion() {
         var sem=hayUno||avg<=2.4?'rojo':avg<4.0?'amarillo':'verde';
         if(sem==='rojo') _nRojo++; else if(sem==='amarillo') _nAmar++; else _nVerde++;
       });
-      // RPE promedio
-      var _rpeR2 = safeArr(BIEN).filter(function(b){ return b.fecha===todayStr && b.rpe_post>0; });
+      // RPE promedio — solo jugadores en campo
+      var _sesIdHoy = sesHoy && sesHoy.id ? sesHoy.id : todayStr;
+      var _gruposHoy = {}; try{ var _ghRaw=localStorage.getItem('BFC_GRUPOS_'+_sesIdHoy); if(_ghRaw) _gruposHoy=JSON.parse(_ghRaw)||{}; }catch(e){}
+      var _hayGruposHoy = Object.keys(_gruposHoy).length > 0;
+      var _rpeR2 = safeArr(BIEN).filter(function(b){
+        if(!b.fecha || b.fecha!==todayStr) return false;
+        if(!(b.rpe_post>0)) return false;
+        // Si hay grupos guardados, filtrar solo campo; si no, incluir todos
+        if(_hayGruposHoy){
+          var pid = b.pid||b.jugadorId||'';
+          return _gruposHoy[pid] === 'campo';
+        }
+        return true;
+      });
       var _rpeA2 = _rpeR2.length ? Math.round(_rpeR2.reduce(function(a,b){ return a+(b.rpe_post||0); },0)/_rpeR2.length*10)/10 : null;
       var _rpeC2 = _rpeA2===null?'#475569':(_rpeA2>=8?'#ef4444':_rpeA2>=6?'#f97316':_rpeA2>=4?'#eab308':'#22c55e');
 
@@ -9175,7 +9157,7 @@ function renderProgramacion() {
       h += "<div style='flex:1;min-width:110px;background:"+_rpeC2+"15;border:1px solid "+_rpeC2+"40;border-radius:12px;padding:12px 14px;text-align:center;'>";
       h += "<div style='font-size:28px;font-weight:900;color:"+_rpeC2+";line-height:1;'>"+(_rpeA2!==null?_rpeA2:'—')+"</div>";
       h += "<div style='font-size:8px;font-weight:800;color:"+_rpeC2+";text-transform:uppercase;letter-spacing:.07em;margin-top:4px;'>RPE prom.</div>";
-      h += "<div style='font-size:9px;color:#64748b;font-weight:600;margin-top:2px;'>"+(_rpeR2.length>0?_rpeR2.length+' reg.':'sin RPE')+"</div>";
+      h += "<div style='font-size:9px;color:#64748b;font-weight:600;margin-top:2px;'>"+(_rpeR2.length>0?_rpeR2.length+' en campo':'sin RPE')+"</div>";
       h += "</div>";
       // Bloque: conteo semáforo
       h += "<div style='flex:1;min-width:110px;background:#141424;border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:12px 14px;text-align:center;'>";
@@ -9303,8 +9285,13 @@ function renderProgramacion() {
       return tot + regsP.reduce(function(a,r){return a+(r.ua||0);},0);
     },0);
 
-    // Alertas ACWR >1.3
+    // Alertas ACWR >1.3 (solo jugadores con historial suficiente — ≥14 días con carga)
     var nAlertas = acwrList2.filter(function(v){return v>1.3;}).length;
+    // Cuántos quedaron sin ACWR calculable (historial insuficiente)
+    var nSinHistorial = plantelProg.filter(function(p){
+      var regsP = safeArr(CI_DB).filter(function(r){return r.pid===p.id||r.jugadorId===p.id;});
+      return ciACWR(regsP,todayStr).acwr===null;
+    }).length;
 
     // Sin datos: no mostrar el panel
     if(avgAcwr2===null && avgBProg===null && uaSemEq===0) return;
@@ -9357,6 +9344,7 @@ function renderProgramacion() {
     h += "<div style='font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:3px;'>Alertas ACWR</div>";
     h += "<div style='font-size:22px;font-weight:900;color:"+alertaCol+";'>"+nAlertas+"</div>";
     h += "<div style='font-size:8px;color:#64748b;font-weight:700;'>"+(nAlertas>0?'jugadores >1.3':'Sin alertas')+"</div>";
+    if(nSinHistorial>0) h += "<div style='font-size:7px;color:#334155;margin-top:3px;'>"+nSinHistorial+" sin historial</div>";
     h += "</div>";
 
     h += "</div></div></div>";
@@ -25736,24 +25724,32 @@ function calcACWR(pid){
 // Calcular UA del día para un jugador
 function ciUA(rpe, tiempo){ return Math.round(rpe * tiempo); }
 
-// ACWR (Exponentially Weighted o Simple)
+// ACWR (Simple ratio carga aguda/crónica)
+// Requiere mínimo 14 días de historial con al menos 1 registro para ser válido.
+// Sin suficiente historial el ratio es artificialmente alto (días en 0 bajan la crónica)
+// y genera falsas alertas al inicio de temporada o regreso de pausa.
 function ciACWR(registros_pid, fecha){
   var d = new Date(fecha);
   var aguda = []; var cronica = [];
+  var diasConCarga = 0; // días que tienen al menos 1 registro de UA > 0
   for(var i=0;i<28;i++){
     var f = new Date(d); f.setDate(f.getDate()-i);
     var fStr = f.toISOString().slice(0,10);
     var r = registros_pid.filter(function(x){ return x.fecha===fStr; });
     var ua = r.length ? r.reduce(function(a,b){ return a+(b.ua||0); },0) : 0;
+    if(ua>0) diasConCarga++;
     if(i<7) aguda.push(ua);
     cronica.push(ua);
   }
   var sumA = aguda.reduce(function(a,b){ return a+b; },0);
   var sumC = cronica.reduce(function(a,b){ return a+b; },0);
   var proA = sumA/7; var proC = sumC/28;
+  // Mínimo 14 días con carga registrada para que el ratio sea confiable
+  var acwrVal = (proC>0 && diasConCarga>=14) ? Math.round(proA/proC*100)/100 : null;
   return { aguda: Math.round(sumA), cronica: Math.round(sumC),
            promA: Math.round(proA), promC: Math.round(proC),
-           acwr: proC>0 ? Math.round(proA/proC*100)/100 : null };
+           diasConCarga: diasConCarga,
+           acwr: acwrVal };
 }
 
 // Monotonía y Tensión semanal
@@ -26625,47 +26621,48 @@ function ciTabJugador(plantel){
   if(diasOrden.length>1){
     h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px;'>";
     h += "<div style='font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;'>📈 Evolución UA / RPE / Wellness — últimos "+selPer+" días</div>";
-    var svgW3=620,svgH3=180,pL3=46,pR3=14,pT3=14,pB3=28;
+    var svgW3=620,svgH3=180,pL3=46,pR3=20,pT3=14,pB3=28;
     var cW3=svgW3-pL3-pR3, cH3=svgH3-pT3-pB3;
-    var n3=diasOrden.length, stepX3=n3>1?cW3/(n3-1):cW3;
+    // Padding lateral para que las barras extremas no queden cortadas en el borde
+    var _barPad3 = n3>1 ? Math.max(16, Math.floor(cW3/(n3*4))) : 0;
+    var _cW3inner = cW3 - _barPad3*2;
+    var n3=diasOrden.length, stepX3=n3>1?_cW3inner/(n3-1):_cW3inner;
     var maxUA3=200;
     diasOrden.forEach(function(d){ if(unionDias[d].ua&&unionDias[d].ua>maxUA3) maxUA3=unionDias[d].ua; });
     maxUA3=Math.ceil(maxUA3/100)*100;
 
     h += "<div style='overflow-x:auto;'><svg viewBox='0 0 "+svgW3+" "+svgH3+"' style='width:100%;max-width:"+svgW3+"px;'>";
-    // Guías — eje izquierdo para RPE/Wellness (/10), eje derecho para UA (valor absoluto)
+    // Guías — eje izquierdo escala /10 (RPE y Wellness)
     [2,4,6,8,10].forEach(function(v){
       var y3=pT3+cH3-(v/10)*cH3;
       h+="<line x1='"+pL3+"' y1='"+y3+"' x2='"+(svgW3-pR3)+"' y2='"+y3+"' stroke='rgba(255,255,255,.04)' stroke-width='1'/>";
-      // Eje izquierdo: escala /10 (RPE y Wellness)
       h+="<text x='"+(pL3-5)+"' y='"+(y3+3)+"' text-anchor='end' font-size='8' fill='#475569'>"+v+"</text>";
-      // Eje derecho: escala UA absoluta
-      var uaVal=Math.round((v/10)*maxUA3);
-      h+="<text x='"+(svgW3-pR3+5)+"' y='"+(y3+3)+"' text-anchor='start' font-size='7' fill='#f9731655'>"+uaVal+"</text>";
     });
     // Paleta unificada
     var COL_UA_J='#f97316', COL_WELL_J='#8b5cf6', COL_RPE_J='#38bdf8';
+    // Función X: posición horizontal de cada punto con padding lateral
+    function xPos3(i){ return pL3+_barPad3+(n3>1?i*stepX3:_cW3inner/2); }
     // Barras UA (naranja unificado) + etiqueta dentro de la barra
     var bW4=Math.max(8,Math.floor(stepX3*0.45));
     diasOrden.forEach(function(d,i){
       var ua=unionDias[d].ua;
       if(!ua) return;
       var scaledUA=(ua/maxUA3)*10;
-      var bH4=(scaledUA/10)*cH3, x4=pL3+i*stepX3-bW4/2, y4=pT3+cH3-bH4;
+      var bH4=(scaledUA/10)*cH3, x4=xPos3(i)-bW4/2, y4=pT3+cH3-bH4;
       h+="<rect x='"+x4+"' y='"+y4+"' width='"+bW4+"' height='"+bH4+"' rx='2' fill='"+COL_UA_J+"' opacity='.65'/>";
       // Etiqueta del valor UA dentro/sobre la barra
       var lblY = bH4>16 ? y4+bH4-5 : y4-3;
       h+="<text x='"+(x4+bW4/2)+"' y='"+lblY+"' text-anchor='middle' font-size='7' font-weight='700' fill='"+(bH4>16?'#fff':'#f97316')+"'>"+ua+"</text>";
     });
     // Línea Wellness (violeta sólida)
-    var wPts3=diasOrden.map(function(d,i){ var w=unionDias[d].well; return w!==null&&w!==undefined?{x:pL3+i*stepX3,y:pT3+cH3-(w/10)*cH3}:null; }).filter(Boolean);
+    var wPts3=diasOrden.map(function(d,i){ var w=unionDias[d].well; return w!==null&&w!==undefined?{x:xPos3(i),y:pT3+cH3-(w/10)*cH3}:null; }).filter(Boolean);
     if(wPts3.length>1) h+="<polyline fill='none' stroke='"+COL_WELL_J+"' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' points='"+wPts3.map(function(p){return p.x+','+p.y;}).join(' ')+"'/>";
     wPts3.forEach(function(p){ h+="<circle cx='"+p.x+"' cy='"+p.y+"' r='3' fill='"+COL_WELL_J+"'/>"; });
     // Línea RPE (azul cielo punteada)
-    var rPts3=diasOrden.map(function(d,i){ var r=unionDias[d].rpe; return r>0?{x:pL3+i*stepX3,y:pT3+cH3-(r/10)*cH3}:null; }).filter(Boolean);
+    var rPts3=diasOrden.map(function(d,i){ var r=unionDias[d].rpe; return r>0?{x:xPos3(i),y:pT3+cH3-(r/10)*cH3}:null; }).filter(Boolean);
     if(rPts3.length>1) h+="<polyline fill='none' stroke='"+COL_RPE_J+"' stroke-width='1.5' stroke-dasharray='3,2' stroke-linecap='round' stroke-linejoin='round' points='"+rPts3.map(function(p){return p.x+','+p.y;}).join(' ')+"'/>";
     // Etiquetas eje X
-    diasOrden.forEach(function(d,i){ if(i%Math.ceil(n3/8)===0||i===n3-1) h+="<text x='"+(pL3+i*stepX3)+"' y='"+(svgH3-4)+"' text-anchor='middle' font-size='7' fill='#475569'>"+d.slice(5)+"</text>"; });
+    diasOrden.forEach(function(d,i){ if(i%Math.ceil(n3/8)===0||i===n3-1) h+="<text x='"+xPos3(i)+"' y='"+(svgH3-4)+"' text-anchor='middle' font-size='7' fill='#475569'>"+d.slice(5)+"</text>"; });
     h += "</svg></div>";
     h += "<div style='display:flex;gap:14px;margin-top:8px;flex-wrap:wrap;'>";
     h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:14px;height:8px;background:#f97316;border-radius:2px;opacity:.8;'></div><span style='font-size:9px;color:#94a3b8;'>⚡ UA sesión (barras)</span></div>";
