@@ -26157,13 +26157,13 @@ function ciTabTendencia(plantel){
 
   // ── Barra de controles ──
   h += "<div style='display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;'>";
-  // Toggle vista (3 opciones)
+  // Toggle vista (2 opciones: Diaria y Semanas — UA se fue a tab Jugador)
+  if(tendVista==='ua') { tendVista='diaria'; window._ciTendVista='diaria'; } // migración
   h += "<div style='display:flex;border:1px solid rgba(255,255,255,.1);border-radius:8px;overflow:hidden;margin-right:4px;'>";
   h += "<button onclick='window._ciTendVista=\"diaria\";renderCargaInterna()' style='padding:6px 13px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(tendVista==='diaria'?'rgba(255,255,255,.12)':'rgba(255,255,255,.04)')+";color:"+(tendVista==='diaria'?'#fff':'#64748b')+";'>📈 Diaria</button>";
-  h += "<button onclick='window._ciTendVista=\"ua\";renderCargaInterna()' style='padding:6px 13px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(tendVista==='ua'?'rgba(255,255,255,.12)':'rgba(255,255,255,.04)')+";color:"+(tendVista==='ua'?'#fff':'#64748b')+";'>⚡ UA</button>";
   h += "<button onclick='window._ciTendVista=\"semanas\";renderCargaInterna()' style='padding:6px 13px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(tendVista==='semanas'?'rgba(255,255,255,.12)':'rgba(255,255,255,.04)')+";color:"+(tendVista==='semanas'?'#fff':'#64748b')+";'>🏆 Semanas</button>";
   h += "</div>";
-  // Período (solo vistas diaria y ua)
+  // Período (solo vista diaria)
   if(tendVista!=='semanas'){
     h += "<select onchange='window._ciTendPer=this.value;renderCargaInterna()' style='padding:7px 10px;border:1px solid var(--border-b);border-radius:8px;font-size:11px;background:var(--bg-card);color:#e2e8f0;'>";
     [{v:'7',l:'7 días'},{v:'14',l:'14 días'},{v:'30',l:'30 días'}].forEach(function(op){
@@ -26184,61 +26184,91 @@ function ciTabTendencia(plantel){
     diasArr.push(dt.toISOString().slice(0,10));
   }
 
+  // Colores unificados del sistema CI
+  var COL_UA   = '#f97316'; // naranja — Unidades Arbitrarias
+  var COL_WELL = '#8b5cf6'; // violeta — Wellness
+  var COL_RPE  = '#38bdf8'; // azul cielo — RPE
+
   // ══════════════════════════════════════════
-  // VISTA DIARIA — RPE + Wellness por día con ∆%
+  // VISTA DIARIA — UA barras + Wellness línea + RPE línea punteada
   // ══════════════════════════════════════════
   if(tendVista === 'diaria'){
-    // Construir datos por día
+    // Construir datos por día (UA equipo + RPE + Wellness)
     var dataDias = diasArr.map(function(fecha){
       var regsD = safeArr(BIEN).filter(function(b){ return b.fecha===fecha; });
       var _hgD = Object.keys(gruposDeSesionPorFecha(fecha)).length > 0;
       var base = _hgD ? regsD.filter(function(b){ return esGrupoEnFecha(b.pid||b.jugadorId, fecha, _ciGrpTend); }) : regsD;
-      if(!base.length) base = regsD; // fallback: sin grupos aún
+      if(!base.length) base = regsD;
       var rpes  = base.filter(function(b){return b.rpe_post>0;}).map(function(b){return b.rpe_post;});
       var wells = base.map(function(b){return bienScore6(b);}).filter(function(x){return x!==null;});
+      // UA: leer de CI_DB por fecha
+      var ciDia = safeArr(CI_DB).filter(function(r){ return r.fecha===fecha; });
+      var uaVals = ciDia.map(function(r){ return r.ua||0; }).filter(function(v){ return v>0; });
+      var uaProm = uaVals.length ? Math.round(uaVals.reduce(function(a,v){return a+v;},0)/uaVals.length) : null;
       return {
         fecha: fecha,
+        ua:   uaProm,
         rpe:  rpes.length  ? Math.round(rpes.reduce(function(a,v){return a+v;},0)/rpes.length*10)/10  : null,
         well: wells.length ? Math.round(wells.reduce(function(a,v){return a+v;},0)/wells.length*10)/10 : null,
         n: base.length
       };
     });
 
-    // ── Gráfica doble: barras RPE + línea Wellness ──
-    var svgW=640,svgH=160,pL=32,pR=10,pT=14,pB=28;
+    // Escala eje Y: UA puede ser 0–600+, RPE y Wellness 0–10
+    // Usamos eje izquierdo para UA (0–maxUA), eje derecho implícito para RPE/Wellness (0–10)
+    var maxUA = 0;
+    dataDias.forEach(function(d){ if(d.ua!==null && d.ua>maxUA) maxUA=d.ua; });
+    maxUA = Math.max(maxUA, 100); // mínimo 100 para que haya escala
+    var maxUAR = Math.ceil(maxUA/100)*100; // redondear al 100 más cercano
+
+    var svgW=640,svgH=175,pL=42,pR=36,pT=14,pB=28;
     var cW=svgW-pL-pR,cH=svgH-pT-pB;
-    var nD=dataDias.length, bGapD=cW/nD, bWD=Math.max(4,Math.floor(bGapD*0.55));
+    var nD=dataDias.length, bGapD=cW/nD, bWD=Math.max(5,Math.floor(bGapD*0.5));
 
     h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:14px;'>";
-    h += "<div style='font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;'>📈 RPE y Wellness — evolución diaria</div>";
+    h += "<div style='font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;'>📈 Evolución diaria del equipo</div>";
     h += "<div style='overflow-x:auto;'><svg viewBox='0 0 "+svgW+" "+svgH+"' style='width:100%;max-width:"+svgW+"px;'>";
+
+    // Líneas de cuadrícula UA (eje izquierdo)
+    [0.25,0.5,0.75,1].forEach(function(f){
+      var v=Math.round(maxUAR*f);
+      var y=pT+cH-(f)*cH;
+      h+="<line x1='"+pL+"' y1='"+y+"' x2='"+(svgW-pR)+"' y2='"+y+"' stroke='rgba(255,255,255,.05)' stroke-width='1'/>";
+      h+="<text x='"+(pL-5)+"' y='"+(y+3)+"' text-anchor='end' font-size='7.5' fill='#475569'>"+v+"</text>";
+    });
+    // Etiquetas eje derecho (RPE/Wellness escala 0–10)
     [2,4,6,8,10].forEach(function(v){
       var y=pT+cH-(v/10)*cH;
-      h+="<line x1='"+pL+"' y1='"+y+"' x2='"+(svgW-pR)+"' y2='"+y+"' stroke='rgba(255,255,255,.05)' stroke-width='1'/>";
-      h+="<text x='"+(pL-4)+"' y='"+(y+3)+"' text-anchor='end' font-size='8' fill='#475569'>"+v+"</text>";
+      h+="<text x='"+(svgW-pR+4)+"' y='"+(y+3)+"' text-anchor='start' font-size='7' fill='rgba(139,92,246,.5)'>"+v+"</text>";
     });
-    // Línea referencia wellness 7
-    var yRef2=pT+cH-(7/10)*cH;
-    h+="<line x1='"+pL+"' y1='"+yRef2+"' x2='"+(svgW-pR)+"' y2='"+yRef2+"' stroke='rgba(139,92,246,.25)' stroke-dasharray='4,3' stroke-width='1'/>";
-    // Barras RPE
+    // Título ejes
+    h+="<text x='"+(pL-30)+"' y='"+(pT+cH/2)+"' text-anchor='middle' font-size='7' fill='"+COL_UA+"' transform='rotate(-90,"+(pL-30)+","+(pT+cH/2)+")'>UA</text>";
+    h+="<text x='"+(svgW-pR+28)+"' y='"+(pT+cH/2)+"' text-anchor='middle' font-size='7' fill='"+COL_WELL+"' transform='rotate(90,"+(svgW-pR+28)+","+(pT+cH/2)+")'>RPE / Wellness</text>";
+
+    // Barras UA (naranja)
     dataDias.forEach(function(d,i){
-      if(d.rpe===null) return;
-      var cx=pL+i*bGapD+bGapD/2, bH=(d.rpe/10)*cH, y=pT+cH-bH, x=cx-bWD/2;
-      var col=d.rpe>=8?'#ef4444':d.rpe>=6?'#f59e0b':'#22c55e';
+      if(d.ua===null) return;
+      var cx=pL+i*bGapD+bGapD/2, bH=(d.ua/maxUAR)*cH, y=pT+cH-bH, x=cx-bWD/2;
       var esHoyD=(d.fecha===TODAY);
-      h+="<rect x='"+x+"' y='"+y+"' width='"+bWD+"' height='"+bH+"' rx='2' fill='"+col+"' opacity='"+(esHoyD?'.95':'.6')+"'/>";
-      // Número: dentro si barra ≥ 20px, encima si menor
-      if(bH>=18){
-        h+="<text x='"+cx+"' y='"+(y+bH/2+4)+"' text-anchor='middle' font-size='8' fill='#fff' font-weight='800'>"+d.rpe+"</text>";
+      h+="<rect x='"+x+"' y='"+y+"' width='"+bWD+"' height='"+bH+"' rx='3' fill='"+COL_UA+"' opacity='"+(esHoyD?'.95':'.65')+"'/>";
+      if(bH>=16){
+        h+="<text x='"+cx+"' y='"+(y+bH/2+4)+"' text-anchor='middle' font-size='7.5' fill='#fff' font-weight='800'>"+d.ua+"</text>";
       } else {
-        h+="<text x='"+cx+"' y='"+(y-3)+"' text-anchor='middle' font-size='8' fill='"+col+"' font-weight='700'>"+d.rpe+"</text>";
+        h+="<text x='"+cx+"' y='"+(y-3)+"' text-anchor='middle' font-size='7' fill='"+COL_UA+"' font-weight='700'>"+d.ua+"</text>";
       }
     });
-    // Línea Wellness
-    var wPts4=dataDias.map(function(d,i){ return d.well!==null?{x:pL+i*bGapD+bGapD/2,y:pT+cH-(d.well/10)*cH,v:d.well}:null; }).filter(Boolean);
-    if(wPts4.length>1) h+="<polyline fill='none' stroke='#8b5cf6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' points='"+wPts4.map(function(p){return p.x+','+p.y;}).join(' ')+"'/>";
-    wPts4.forEach(function(p){ h+="<circle cx='"+p.x+"' cy='"+p.y+"' r='3' fill='#8b5cf6'/>"; });
-    // Etiquetas eje X (cada 2 días para no saturar)
+
+    // Línea Wellness (violeta sólida) — escala derecha /10
+    var wPtsDi=dataDias.map(function(d,i){ return d.well!==null?{x:pL+i*bGapD+bGapD/2,y:pT+cH-(d.well/10)*cH,v:d.well}:null; }).filter(Boolean);
+    if(wPtsDi.length>1) h+="<polyline fill='none' stroke='"+COL_WELL+"' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' points='"+wPtsDi.map(function(p){return p.x+','+p.y;}).join(' ')+"'/>";
+    wPtsDi.forEach(function(p){ h+="<circle cx='"+p.x+"' cy='"+p.y+"' r='3' fill='"+COL_WELL+"'/>"; });
+
+    // Línea RPE (azul punteada) — escala derecha /10
+    var rPtsDi=dataDias.map(function(d,i){ return d.rpe!==null?{x:pL+i*bGapD+bGapD/2,y:pT+cH-(d.rpe/10)*cH,v:d.rpe}:null; }).filter(Boolean);
+    if(rPtsDi.length>1) h+="<polyline fill='none' stroke='"+COL_RPE+"' stroke-width='2' stroke-dasharray='5,3' stroke-linecap='round' points='"+rPtsDi.map(function(p){return p.x+','+p.y;}).join(' ')+"'/>";
+    rPtsDi.forEach(function(p){ h+="<circle cx='"+p.x+"' cy='"+p.y+"' r='2.5' fill='"+COL_RPE+"'/>"; });
+
+    // Etiquetas eje X
     dataDias.forEach(function(d,i){
       var esHoyD2=(d.fecha===TODAY);
       if(i%2===0||i===nD-1||esHoyD2){
@@ -26248,9 +26278,11 @@ function ciTabTendencia(plantel){
       }
     });
     h += "</svg></div>";
-    h += "<div style='display:flex;gap:14px;margin-top:8px;'>";
-    h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:14px;height:8px;background:#22c55e;border-radius:2px;opacity:.7;'></div><span style='font-size:9px;color:#94a3b8;'>RPE (barras)</span></div>";
-    h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:14px;height:3px;background:#8b5cf6;border-radius:2px;'></div><span style='font-size:9px;color:#94a3b8;'>Wellness (línea)</span></div>";
+    // Leyenda
+    h += "<div style='display:flex;gap:16px;margin-top:8px;flex-wrap:wrap;'>";
+    h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:14px;height:9px;background:"+COL_UA+";border-radius:2px;opacity:.8;'></div><span style='font-size:9px;color:#94a3b8;'>⚡ UA equipo (barras, eje izq.)</span></div>";
+    h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:16px;height:3px;background:"+COL_WELL+";border-radius:2px;'></div><span style='font-size:9px;color:#94a3b8;'>💜 Wellness (línea, eje der. /10)</span></div>";
+    h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:16px;height:2px;background:"+COL_RPE+";border-radius:2px;border-top:1px dashed "+COL_RPE+";opacity:.9;'></div><span style='font-size:9px;color:#94a3b8;'>🔵 RPE (punteado, eje der. /10)</span></div>";
     h += "</div></div>";
 
     // ── Tabla diaria con ∆% día a día ──
@@ -26258,17 +26290,19 @@ function ciTabTendencia(plantel){
     h += "<div style='padding:12px 16px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;'>Detalle diario</div>";
     h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;font-size:11px;'>";
     h += "<thead><tr style='background:rgba(255,255,255,.04);'>";
-    ['Fecha','RPE','∆ RPE','Wellness','∆ Well','Regs','Estado'].forEach(function(col){
+    ['Fecha','⚡ UA','∆ UA','🔵 RPE','∆ RPE','💜 Wellness','∆ Well','Estado'].forEach(function(col){
       h += "<th style='padding:8px 12px;text-align:left;font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;'>"+col+"</th>";
     });
     h += "</tr></thead><tbody>";
+    function deltaStr2(v){ if(v===null) return '—'; var c=v>10?'#ef4444':v>5?'#f59e0b':v<-10?'#22c55e':'#94a3b8'; var a=v>0?'↑':'↓'; return "<span style='color:"+c+";font-weight:700;'>"+a+(v>0?'+':'')+v+"%</span>"; }
     dataDias.slice().reverse().forEach(function(d,i,arr){
-      var prev = arr[i+1]; // día anterior en el array invertido
-      var dRpe = (d.rpe!==null&&prev&&prev.rpe!==null) ? Math.round((d.rpe-prev.rpe)/prev.rpe*100) : null;
+      var prev = arr[i+1];
+      var dUA  = (d.ua!==null&&prev&&prev.ua!==null)   ? Math.round((d.ua-prev.ua)/prev.ua*100)     : null;
+      var dRpe = (d.rpe!==null&&prev&&prev.rpe!==null)  ? Math.round((d.rpe-prev.rpe)/prev.rpe*100)   : null;
       var dWell= (d.well!==null&&prev&&prev.well!==null)? Math.round((d.well-prev.well)/prev.well*100): null;
-      var rpeCol2=d.rpe===null?'#475569':d.rpe>=8?'#ef4444':d.rpe>=6?'#f59e0b':'#22c55e';
-      var wCol2  =d.well===null?'#475569':d.well>=7?'#8b5cf6':d.well>=5?'#f59e0b':'#ef4444';
-      function deltaStr(v){ if(v===null) return '—'; var c=v>10?'#ef4444':v>5?'#f59e0b':v<-10?'#22c55e':'#94a3b8'; var a=v>0?'↑':'↓'; return "<span style='color:"+c+";font-weight:700;'>"+a+(v>0?'+':'')+v+"%</span>"; }
+      var uaCol2 = d.ua===null?'#475569':d.ua>=400?'#ef4444':d.ua>=250?'#f59e0b':'#22c55e';
+      var rpeCol2= d.rpe===null?'#475569':''+COL_RPE;
+      var wCol2  = d.well===null?'#475569':''+COL_WELL;
       var est='—',estCol='#64748b';
       if(d.rpe!==null||d.well!==null){
         if((d.rpe!==null&&d.rpe>=8)||(d.well!==null&&d.well<4)){ est='🔴 Alerta'; estCol='#ef4444'; }
@@ -26278,11 +26312,12 @@ function ciTabTendencia(plantel){
       var esHoyRow=(d.fecha===TODAY);
       h += "<tr style='border-top:1px solid var(--border);"+(esHoyRow?'background:rgba(255,255,255,.025);':'')+";'>";
       h += "<td style='padding:8px 12px;color:"+(esHoyRow?'#e2e8f0':'#94a3b8')+";font-weight:"+(esHoyRow?'800':'400')+";white-space:nowrap;'>"+d.fecha+(esHoyRow?" <span style='font-size:8px;color:#818cf8;'>(hoy)</span>":"")+"</td>";
+      h += "<td style='padding:8px 12px;font-weight:800;color:"+uaCol2+";'>"+(d.ua!==null?d.ua:'—')+"</td>";
+      h += "<td style='padding:8px 12px;'>"+deltaStr2(dUA)+"</td>";
       h += "<td style='padding:8px 12px;font-weight:800;color:"+rpeCol2+";'>"+(d.rpe!==null?d.rpe:'—')+"</td>";
-      h += "<td style='padding:8px 12px;'>"+deltaStr(dRpe)+"</td>";
+      h += "<td style='padding:8px 12px;'>"+deltaStr2(dRpe)+"</td>";
       h += "<td style='padding:8px 12px;font-weight:800;color:"+wCol2+";'>"+(d.well!==null?d.well:'—')+"</td>";
-      h += "<td style='padding:8px 12px;'>"+deltaStr(dWell)+"</td>";
-      h += "<td style='padding:8px 12px;color:#64748b;'>"+d.n+"</td>";
+      h += "<td style='padding:8px 12px;'>"+deltaStr2(dWell)+"</td>";
       h += "<td style='padding:8px 12px;color:"+estCol+";font-weight:700;'>"+est+"</td>";
       h += "</tr>";
     });
@@ -26557,8 +26592,8 @@ function ciTabJugador(plantel){
 
   h += "<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-bottom:16px;'>";
   var kJ2=[
-    {l:'UA promedio',    v:avgUAJ2!==null?avgUAJ2:'—',    c:'#818cf8', i:'⚡', s:ciRegs2.filter(function(r){return r.ua>0;}).length+' sesiones'},
-    {l:'RPE promedio',   v:avgRpeJ2!==null?avgRpeJ2:'—',  c:'#ef4444', i:'💢', s:'últimos '+selPer+'d'},
+    {l:'UA promedio',    v:avgUAJ2!==null?avgUAJ2:'—',    c:'#f97316', i:'⚡', s:ciRegs2.filter(function(r){return r.ua>0;}).length+' sesiones'},
+    {l:'RPE promedio',   v:avgRpeJ2!==null?avgRpeJ2:'—',  c:'#38bdf8', i:'🔵', s:'últimos '+selPer+'d'},
     {l:'Wellness prom',  v:avgWellJ2!==null?avgWellJ2:'—',c:'#8b5cf6', i:'💜', s:'últimos '+selPer+'d'},
     {l:'RPE máximo',     v:maxRpeJ2!==null?maxRpeJ2:'—',  c:'#dc2626', i:'🔺', s:'en '+selPer+' días'},
     {l:'CMJ último',     v:cmjUlt2!==null?cmjUlt2+'cm':'—',c:'#06b6d4',i:'🦵', s:cmjRegs2.length+' mediciones'},
@@ -26595,30 +26630,31 @@ function ciTabJugador(plantel){
       h+="<line x1='"+pL3+"' y1='"+y3+"' x2='"+(svgW3-pR3)+"' y2='"+y3+"' stroke='rgba(255,255,255,.04)' stroke-width='1'/>";
       h+="<text x='"+(pL3-4)+"' y='"+(y3+3)+"' text-anchor='end' font-size='8' fill='#475569'>"+v+"</text>";
     });
-    // Barras UA (escaladas a 10)
+    // Paleta unificada
+    var COL_UA_J='#f97316', COL_WELL_J='#8b5cf6', COL_RPE_J='#38bdf8';
+    // Barras UA (naranja unificado)
     var bW4=Math.max(5,Math.floor(stepX3*0.45));
     diasOrden.forEach(function(d,i){
       var ua=unionDias[d].ua;
       if(!ua) return;
       var scaledUA=(ua/maxUA3)*10;
       var bH4=(scaledUA/10)*cH3, x4=pL3+i*stepX3-bW4/2, y4=pT3+cH3-bH4;
-      var bc4=ua>=400?'#ef4444':ua>=250?'#f59e0b':'#22c55e';
-      h+="<rect x='"+x4+"' y='"+y4+"' width='"+bW4+"' height='"+bH4+"' rx='2' fill='"+bc4+"' opacity='.55'/>";
+      h+="<rect x='"+x4+"' y='"+y4+"' width='"+bW4+"' height='"+bH4+"' rx='2' fill='"+COL_UA_J+"' opacity='.65'/>";
     });
-    // Línea Wellness
+    // Línea Wellness (violeta sólida)
     var wPts3=diasOrden.map(function(d,i){ var w=unionDias[d].well; return w!==null&&w!==undefined?{x:pL3+i*stepX3,y:pT3+cH3-(w/10)*cH3}:null; }).filter(Boolean);
-    if(wPts3.length>1) h+="<polyline fill='none' stroke='#8b5cf6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' points='"+wPts3.map(function(p){return p.x+','+p.y;}).join(' ')+"'/>";
-    wPts3.forEach(function(p){ h+="<circle cx='"+p.x+"' cy='"+p.y+"' r='3' fill='#8b5cf6'/>"; });
-    // Línea RPE
+    if(wPts3.length>1) h+="<polyline fill='none' stroke='"+COL_WELL_J+"' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' points='"+wPts3.map(function(p){return p.x+','+p.y;}).join(' ')+"'/>";
+    wPts3.forEach(function(p){ h+="<circle cx='"+p.x+"' cy='"+p.y+"' r='3' fill='"+COL_WELL_J+"'/>"; });
+    // Línea RPE (azul cielo punteada)
     var rPts3=diasOrden.map(function(d,i){ var r=unionDias[d].rpe; return r>0?{x:pL3+i*stepX3,y:pT3+cH3-(r/10)*cH3}:null; }).filter(Boolean);
-    if(rPts3.length>1) h+="<polyline fill='none' stroke='#f97316' stroke-width='1.5' stroke-dasharray='3,2' stroke-linecap='round' stroke-linejoin='round' points='"+rPts3.map(function(p){return p.x+','+p.y;}).join(' ')+"'/>";
+    if(rPts3.length>1) h+="<polyline fill='none' stroke='"+COL_RPE_J+"' stroke-width='1.5' stroke-dasharray='3,2' stroke-linecap='round' stroke-linejoin='round' points='"+rPts3.map(function(p){return p.x+','+p.y;}).join(' ')+"'/>";
     // Etiquetas eje X
     diasOrden.forEach(function(d,i){ if(i%Math.ceil(n3/8)===0||i===n3-1) h+="<text x='"+(pL3+i*stepX3)+"' y='"+(svgH3-4)+"' text-anchor='middle' font-size='7' fill='#475569'>"+d.slice(5)+"</text>"; });
     h += "</svg></div>";
     h += "<div style='display:flex;gap:14px;margin-top:8px;flex-wrap:wrap;'>";
-    h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:14px;height:8px;background:#22c55e;border-radius:2px;opacity:.7;'></div><span style='font-size:9px;color:#94a3b8;'>UA sesión (barras)</span></div>";
-    h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:14px;height:3px;background:#8b5cf6;border-radius:2px;'></div><span style='font-size:9px;color:#94a3b8;'>Wellness</span></div>";
-    h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:14px;height:2px;background:#f97316;border-radius:2px;'></div><span style='font-size:9px;color:#94a3b8;'>RPE (punteado)</span></div>";
+    h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:14px;height:8px;background:#f97316;border-radius:2px;opacity:.8;'></div><span style='font-size:9px;color:#94a3b8;'>⚡ UA sesión (barras)</span></div>";
+    h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:14px;height:3px;background:#8b5cf6;border-radius:2px;'></div><span style='font-size:9px;color:#94a3b8;'>💜 Wellness</span></div>";
+    h += "<div style='display:flex;align-items:center;gap:5px;'><div style='width:14px;height:2px;background:#38bdf8;border-radius:2px;'></div><span style='font-size:9px;color:#94a3b8;'>🔵 RPE (punteado)</span></div>";
     h += "</div></div>";
   }
 
@@ -27002,6 +27038,11 @@ function ciTabSemanas(plantel){
     var _baseRegs = regsWCampo.length ? regsWCampo : regsW;
     var rpes=_baseRegs.filter(function(b){ return b.rpe_post>0; }).map(function(b){return b.rpe_post;});
     var wells=_baseRegs.map(function(b){ return bienScore6(b); }).filter(function(x){return x!==null;});
+    // UA semana: promedio de CI_DB en ese rango
+    var ciSem = safeArr(CI_DB).filter(function(r){ return r.fecha>=d1s && r.fecha<=d2s && (r.ua||0)>0; });
+    if(selMode==='jugador') ciSem = ciSem.filter(function(r){ return (r.pid===selJug||r.jugadorId===selJug); });
+    var uaValsS = ciSem.map(function(r){ return r.ua||0; });
+    var uaPromS = uaValsS.length ? Math.round(uaValsS.reduce(function(a,v){return a+v;},0)/uaValsS.length) : null;
     var dimKeys=[{k:'sueno',inv:false},{k:'dolor',inv:true},{k:'fatiga',inv:true},{k:'estres',inv:true},{k:'disposicion',inv:false}];
     var dimScores={};
     dimKeys.forEach(function(dk){
@@ -27017,6 +27058,7 @@ function ciTabSemanas(plantel){
     var label = sw===0?'Esta sem':(sw===1?'Sem pasada':'S-'+sw);
     semanas.push({
       label:label, d1s:d1s, d2s:d2s,
+      ua:   uaPromS,
       rpe:  rpes.length  ? Math.round(rpes.reduce(function(a,b){return a+b;},0)/rpes.length*10)/10  : null,
       well: wells.length ? Math.round(wells.reduce(function(a,b){return a+b;},0)/wells.length*10)/10 : null,
       n:    Math.max(rpes.length, wells.length),
@@ -27024,65 +27066,103 @@ function ciTabSemanas(plantel){
     });
   }
 
-  var svgW=600, svgH=140, padL=30, padR=10, padT=10, padB=28;
+  // Colores unificados (mismo sistema)
+  var SEM_COL_UA   = '#f97316';
+  var SEM_COL_WELL = '#8b5cf6';
+  var SEM_COL_RPE  = '#38bdf8';
+
+  // Escala: UA puede ser grande, RPE y Wellness van en /10
+  var maxUASem = 100;
+  semanas.forEach(function(s){ if(s.ua!==null && s.ua>maxUASem) maxUASem=s.ua; });
+  var maxUASemR = Math.ceil(maxUASem/100)*100;
+
+  var svgW=640, svgH=160, padL=38, padR=36, padT=12, padB=28;
   var cW=svgW-padL-padR, cH=svgH-padT-padB;
-  var grpW=Math.floor(cW/semanas.length*0.8), bW=Math.floor(grpW/2)-1, bGap=cW/semanas.length;
+  var grpW=Math.floor(cW/semanas.length*0.78), bW=Math.floor(grpW/3)-1, bGap=cW/semanas.length;
 
   h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px;'>";
-  h += "<div style='font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;'>Comparativa por semana</div>";
-  h += "<div style='display:flex;gap:12px;margin-bottom:12px;font-size:9px;'>";
-  h += "<span style='display:flex;align-items:center;gap:4px;color:#fca5a5;'><span style='width:10px;height:10px;border-radius:2px;background:#ef4444;display:inline-block;'></span>RPE</span>";
-  h += "<span style='display:flex;align-items:center;gap:4px;color:#c4b5fd;'><span style='width:10px;height:10px;border-radius:2px;background:#8b5cf6;display:inline-block;'></span>Wellness</span>";
+  h += "<div style='font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;'>Comparativa por semana</div>";
+  // Leyenda
+  h += "<div style='display:flex;gap:14px;margin-bottom:12px;font-size:9px;flex-wrap:wrap;'>";
+  h += "<span style='display:flex;align-items:center;gap:4px;color:#fdba74;'><span style='width:10px;height:10px;border-radius:2px;background:"+SEM_COL_UA+";display:inline-block;opacity:.85;'></span>⚡ UA (eje izq.)</span>";
+  h += "<span style='display:flex;align-items:center;gap:4px;color:#c4b5fd;'><span style='width:10px;height:10px;border-radius:2px;background:"+SEM_COL_WELL+";display:inline-block;opacity:.85;'></span>💜 Wellness (/10, eje der.)</span>";
+  h += "<span style='display:flex;align-items:center;gap:4px;color:#7dd3fc;'><span style='width:10px;height:10px;border-radius:2px;background:"+SEM_COL_RPE+";display:inline-block;opacity:.85;'></span>🔵 RPE (/10, eje der.)</span>";
   h += "</div>";
   h += "<div style='overflow-x:auto;'><svg viewBox='0 0 "+svgW+" "+svgH+"' style='width:100%;max-width:"+svgW+"px;'>";
+  // Grid y eje izq (UA)
+  [0.25,0.5,0.75,1].forEach(function(f){
+    var v=Math.round(maxUASemR*f);
+    var y=padT+cH-f*cH;
+    h+="<line x1='"+padL+"' y1='"+y+"' x2='"+(svgW-padR)+"' y2='"+y+"' stroke='rgba(255,255,255,.05)' stroke-width='1'/>";
+    h+="<text x='"+(padL-5)+"' y='"+(y+3)+"' text-anchor='end' font-size='7' fill='rgba(249,115,22,.5)'>"+v+"</text>";
+  });
+  // Eje der (/10)
   [2,4,6,8,10].forEach(function(v){
     var y=padT+cH-(v/10)*cH;
-    h+="<line x1='"+padL+"' y1='"+y+"' x2='"+(svgW-padR)+"' y2='"+y+"' stroke='rgba(255,255,255,.06)' stroke-width='1'/>";
-    h+="<text x='"+(padL-4)+"' y='"+(y+3)+"' text-anchor='end' font-size='8' fill='#475569'>"+v+"</text>";
+    h+="<text x='"+(svgW-padR+4)+"' y='"+(y+3)+"' text-anchor='start' font-size='7' fill='rgba(139,92,246,.45)'>"+v+"</text>";
   });
+  // Barras (UA naranja, RPE azul, Wellness violeta) por semana
   semanas.forEach(function(s,i){
     var xBase=padL+i*bGap+(bGap-grpW)/2;
-    if(s.rpe!==null){
-      var bH2=(s.rpe/10)*cH, y=padT+cH-bH2;
-      var col=s.rpe>=8?'#ef4444':s.rpe>=6?'#f59e0b':'#22c55e';
-      h+="<rect x='"+xBase+"' y='"+y+"' width='"+bW+"' height='"+bH2+"' rx='2' fill='"+col+"' opacity='.85'/>";
-      h+="<text x='"+(xBase+bW/2)+"' y='"+(y-2)+"' text-anchor='middle' font-size='7' fill='"+col+"' font-weight='700'>"+s.rpe+"</text>";
+    // Barra UA
+    if(s.ua!==null){
+      var bHua=(s.ua/maxUASemR)*cH, yua=padT+cH-bHua;
+      h+="<rect x='"+xBase+"' y='"+yua+"' width='"+bW+"' height='"+bHua+"' rx='2' fill='"+SEM_COL_UA+"' opacity='.82'/>";
+      if(bHua>=12) h+="<text x='"+(xBase+bW/2)+"' y='"+(yua+bHua/2+3)+"' text-anchor='middle' font-size='6.5' fill='#fff' font-weight='800'>"+s.ua+"</text>";
+      else h+="<text x='"+(xBase+bW/2)+"' y='"+(yua-2)+"' text-anchor='middle' font-size='6' fill='"+SEM_COL_UA+"' font-weight='700'>"+s.ua+"</text>";
     }
+    // Barra RPE
+    if(s.rpe!==null){
+      var xRpe=xBase+bW+1;
+      var bHrpe=(s.rpe/10)*cH, yrpe=padT+cH-bHrpe;
+      h+="<rect x='"+xRpe+"' y='"+yrpe+"' width='"+bW+"' height='"+bHrpe+"' rx='2' fill='"+SEM_COL_RPE+"' opacity='.82'/>";
+      if(bHrpe>=12) h+="<text x='"+(xRpe+bW/2)+"' y='"+(yrpe+bHrpe/2+3)+"' text-anchor='middle' font-size='6.5' fill='#fff' font-weight='800'>"+s.rpe+"</text>";
+      else h+="<text x='"+(xRpe+bW/2)+"' y='"+(yrpe-2)+"' text-anchor='middle' font-size='6' fill='"+SEM_COL_RPE+"' font-weight='700'>"+s.rpe+"</text>";
+    }
+    // Barra Wellness
     if(s.well!==null){
-      var xW2=xBase+bW+2;
+      var xW2=xBase+bW*2+2;
       var bH3=(s.well/10)*cH, y2=padT+cH-bH3;
-      var col2=s.well>=7?'#8b5cf6':s.well>=5?'#f59e0b':'#ef4444';
-      h+="<rect x='"+xW2+"' y='"+y2+"' width='"+bW+"' height='"+bH3+"' rx='2' fill='"+col2+"' opacity='.85'/>";
-      h+="<text x='"+(xW2+bW/2)+"' y='"+(y2-2)+"' text-anchor='middle' font-size='7' fill='"+col2+"' font-weight='700'>"+s.well+"</text>";
+      h+="<rect x='"+xW2+"' y='"+y2+"' width='"+bW+"' height='"+bH3+"' rx='2' fill='"+SEM_COL_WELL+"' opacity='.82'/>";
+      if(bH3>=12) h+="<text x='"+(xW2+bW/2)+"' y='"+(y2+bH3/2+3)+"' text-anchor='middle' font-size='6.5' fill='#fff' font-weight='800'>"+s.well+"</text>";
+      else h+="<text x='"+(xW2+bW/2)+"' y='"+(y2-2)+"' text-anchor='middle' font-size='6' fill='"+SEM_COL_WELL+"' font-weight='700'>"+s.well+"</text>";
     }
     h+="<text x='"+(xBase+grpW/2)+"' y='"+(svgH-5)+"' text-anchor='middle' font-size='7' fill='#64748b'>"+s.label.replace('Sem pasada','S-1')+"</text>";
   });
   h += "</svg></div></div>";
 
+  // Tabla detalle por semana con variación %
+  function dStr(v){ if(v===null) return '—'; var c=v>15?'#ef4444':v>5?'#f59e0b':v<-15?'#22c55e':'#94a3b8'; var a=v>0?'↑':'↓'; return "<span style='color:"+c+";font-weight:700;font-size:10px;'>"+a+(v>0?'+':'')+v+"%</span>"; }
   h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;overflow:hidden;'>";
   h += "<table style='width:100%;border-collapse:collapse;font-size:11px;'>";
   h += "<thead><tr style='background:rgba(255,255,255,.04);'>";
-  ['Semana','Rango','RPE prom','Wellness','Regs','Dim. crítica','Estado'].forEach(function(col){
-    h += "<th style='padding:9px 12px;text-align:left;font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;'>"+col+"</th>";
+  ['Semana','Rango','⚡ UA','∆','🔵 RPE','∆','💜 Well','∆','Estado'].forEach(function(col){
+    h += "<th style='padding:8px 10px;text-align:left;font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;white-space:nowrap;'>"+col+"</th>";
   });
   h += "</tr></thead><tbody>";
-  semanas.slice().reverse().forEach(function(s){
-    if(!s.n) return; // ocultar semanas sin datos
+  var semRev = semanas.slice().reverse();
+  semRev.forEach(function(s,i){
+    if(!s.n && s.ua===null) return;
+    var prev = semRev[i+1];
+    var dUA  = (s.ua!==null&&prev&&prev.ua!==null)   ? Math.round((s.ua-prev.ua)/prev.ua*100)     : null;
+    var dRpe = (s.rpe!==null&&prev&&prev.rpe!==null)  ? Math.round((s.rpe-prev.rpe)/prev.rpe*100)   : null;
+    var dWell= (s.well!==null&&prev&&prev.well!==null)? Math.round((s.well-prev.well)/prev.well*100): null;
     var est,estCol;
-    if(s.rpe!==null&&s.rpe>=8||(s.well!==null&&s.well<4)){ est='🔴 Alerta'; estCol='#ef4444'; }
-    else if(s.rpe!==null&&s.rpe>=6||(s.well!==null&&s.well<7)){ est='🟡 Precaución'; estCol='#f59e0b'; }
-    else if(s.n){ est='🟢 OK'; estCol='#22c55e'; }
+    if((s.rpe!==null&&s.rpe>=8)||(s.well!==null&&s.well<4)){ est='🔴 Alerta'; estCol='#ef4444'; }
+    else if((s.rpe!==null&&s.rpe>=6)||(s.well!==null&&s.well<7)){ est='🟡 Precaución'; estCol='#f59e0b'; }
+    else if(s.n||s.ua){ est='🟢 OK'; estCol='#22c55e'; }
     else { est='—'; estCol='#64748b'; }
-    var rpeC2=s.rpe!==null?(s.rpe>=8?'#fca5a5':s.rpe>=6?'#fcd34d':'#86efac'):'#475569';
-    var wC2=s.well!==null?(s.well>=7?'#c4b5fd':s.well>=5?'#fcd34d':'#fca5a5'):'#475569';
+    var uaCol=s.ua===null?'#475569':s.ua>=400?'#ef4444':s.ua>=250?'#f59e0b':'#22c55e';
     h += "<tr style='border-top:1px solid var(--border);'>";
-    h += "<td style='padding:9px 12px;font-weight:700;color:#e2e8f0;'>"+s.label+"</td>";
-    h += "<td style='padding:9px 12px;color:#475569;font-size:9px;'>"+s.d1s.slice(5)+" / "+s.d2s.slice(5)+"</td>";
-    h += "<td style='padding:9px 12px;color:"+rpeC2+";font-weight:700;'>"+(s.rpe!==null?s.rpe:'—')+"</td>";
-    h += "<td style='padding:9px 12px;color:"+wC2+";font-weight:700;'>"+(s.well!==null?s.well:'—')+"</td>";
-    h += "<td style='padding:9px 12px;color:#94a3b8;'>"+s.n+"</td>";
-    h += "<td style='padding:9px 12px;color:#f59e0b;font-size:10px;'>"+s.dimCrit+"</td>";
-    h += "<td style='padding:9px 12px;color:"+estCol+";font-weight:700;'>"+est+"</td>";
+    h += "<td style='padding:8px 10px;font-weight:700;color:#e2e8f0;white-space:nowrap;'>"+s.label+"</td>";
+    h += "<td style='padding:8px 10px;color:#475569;font-size:9px;white-space:nowrap;'>"+s.d1s.slice(5)+" / "+s.d2s.slice(5)+"</td>";
+    h += "<td style='padding:8px 10px;font-weight:800;color:"+uaCol+";'>"+(s.ua!==null?s.ua:'—')+"</td>";
+    h += "<td style='padding:8px 10px;'>"+dStr(dUA)+"</td>";
+    h += "<td style='padding:8px 10px;font-weight:800;color:"+SEM_COL_RPE+";'>"+(s.rpe!==null?s.rpe:'—')+"</td>";
+    h += "<td style='padding:8px 10px;'>"+dStr(dRpe)+"</td>";
+    h += "<td style='padding:8px 10px;font-weight:800;color:"+SEM_COL_WELL+";'>"+(s.well!==null?s.well:'—')+"</td>";
+    h += "<td style='padding:8px 10px;'>"+dStr(dWell)+"</td>";
+    h += "<td style='padding:8px 10px;color:"+estCol+";font-weight:700;white-space:nowrap;'>"+est+"</td>";
     h += "</tr>";
   });
   h += "</tbody></table></div>";
