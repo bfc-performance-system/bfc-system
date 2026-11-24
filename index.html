@@ -1019,6 +1019,14 @@ function fbEscuchar() {
         JDB = _newJDB;
         try{ localStorage.setItem('bfc_jdb', _jdbLocalSinFotos(JDB)); }catch(e){}
         rerender = true;
+        // Si ya tenemos fotos en Firebase pero JDB acaba de llegar (timing en iPad/iOS),
+        // re-inyectar fotos ahora que JDB ya tiene jugadores
+        if(window.fbDB && typeof window._bfcFotosCache === 'object' && window._bfcFotosCache){
+          var _cacheF = window._bfcFotosCache;
+          var _inj = false;
+          JDB = JDB.map(function(j){ var f=_cacheF[j.id]; if(f && f!==j.foto){j.foto=f;_inj=true;} return j; });
+          if(_inj){ try{ localStorage.setItem('bfc_jdb',_jdbLocalSinFotos(JDB)); }catch(e){} console.log('[BFC-FOTO] Fotos re-inyectadas desde cache tras carga de JDB'); }
+        }
       }
     }
     // fotos — nodo separado bfc/fotos para evitar conflicto de tamaño con jdb
@@ -1276,10 +1284,15 @@ function fbEscucharFotos() {
   fbDB.ref('bfc/fotos').on('value', function(snap) {
     var fotosRemoto = snap.val();
     if (!fotosRemoto || typeof fotosRemoto !== 'object') return;
+    // Guardar cache global de fotos — para re-inyectar si JDB llega después (timing en iPad/iOS)
+    window._bfcFotosCache = fotosRemoto;
     var _localJDB = []; try{ var _r=localStorage.getItem('bfc_jdb'); if(_r) _localJDB=JSON.parse(_r)||[]; }catch(e){}
     // Si localStorage está vacío pero JDB en memoria ya tiene jugadores, usar JDB (iOS puede limpiar localStorage)
     if (_localJDB.length === 0 && safeArr(JDB).length > 0) _localJDB = safeArr(JDB);
-    if (_localJDB.length === 0) return;
+    if (_localJDB.length === 0) {
+      console.warn('[BFC-FOTO] fbEscucharFotos: JDB aún vacío, fotos guardadas en cache para cuando lleguen los jugadores');
+      return;
+    }
     var _cambio = false;
     _localJDB = _localJDB.map(function(j){
       var fotoRemota = fotosRemoto[j.id];
@@ -14990,6 +15003,7 @@ function kioskoGuardarRpe(){
   // Sin GPS → UA = RPE × (tiempo_sesión + sala_grupo)
   // Con GPS → UA = RPE × (tiempo_GPS_jugador + sala_grupo)
   var _tiempoBase = _sinGPS ? _tiempoSesionSinGPS : _tiempoGpsJug;
+  var _tiempoExtra = 0; // reservado para tiempo adicional (sobrecarga, sala extra, etc.)
   var _tiempoTotal = _tiempoBase + _tiempoSalaGrupo;
 
   if(_tiempoTotal > 0) {
