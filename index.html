@@ -26287,6 +26287,8 @@ function ciTabIndividualCI(plantel){
   var selPer   = window._ciIndPer  || '30';
   var vistaInd = window._ciIndVista || 'posicion'; // 'posicion' | 'jugador'
   // Macro-grupos seleccionados (hasta 2) — array de keys
+  // Solo inicializar si nunca se ha definido (undefined/null), no si está vacío []
+  if(window._ciIndGrupos === undefined || window._ciIndGrupos === null) window._ciIndGrupos = ['porteros'];
   if(!Array.isArray(window._ciIndGrupos)) window._ciIndGrupos = ['porteros'];
   var selGrupos = window._ciIndGrupos;
   var h = '';
