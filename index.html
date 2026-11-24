@@ -24261,9 +24261,10 @@ function guardarEnHistorial(){
 }
 
 function histEditarSesion(id){
-  histLoad();
+  // ⚠️ NO llamar histLoad() — HISTORIAL_DB ya tiene el historial completo desde Firebase.
+  // histLoad() lo reemplazaría con solo las 15 del localStorage.
   var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
-  if(!snap){ toast('⚠️ Sesión no encontrada'); return; }
+  if(!snap){ toast('⚠️ Sesión no encontrada en historial'); return; }
   var _mHtml = "<div style='padding:20px 24px;max-width:380px;text-align:center;'>"
     + "<div style='font-size:34px;margin-bottom:10px;'>&#9999;&#65039;</div>"
     + "<div style='color:#f1f5f9;font-weight:800;font-size:14px;margin-bottom:6px;'>Editar sesi&#243;n del historial</div>"
@@ -24276,9 +24277,11 @@ function histEditarSesion(id){
   showModal(_mHtml);
 }
 function _histEditarOk(id){
-  histLoad();
+  // ⚠️ NO llamar histLoad() aquí — HISTORIAL_DB ya está en memoria con el historial completo
+  // desde Firebase. histLoad() sobreescribiría con solo las 15 últimas del localStorage,
+  // perdiendo sesiones más antiguas y causando que find(id) retorne undefined.
   var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
-  if(!snap){ toast('⚠️ Sesión no encontrada'); return; }
+  if(!snap){ toast('⚠️ Sesión no encontrada en historial'); return; }
 
   // ── Intentar recuperar fotos desde Firebase antes de cargar para editar ──
   var _tieneFotasLocal = (snap.tareas||[]).some(function(t){
@@ -24449,9 +24452,9 @@ function histUsarPlantilla(id){
     +"</div></div>");
 }
 function _histUsarPlantillaOk(id){
-  histLoad();
+  // ⚠️ NO llamar histLoad() — HISTORIAL_DB ya tiene el historial completo desde Firebase.
   var snap = HISTORIAL_DB.find(function(s){ return s.id===id; });
-  if(!snap){ toast('⚠️ Sesión no encontrada'); return; }
+  if(!snap){ toast('⚠️ Sesión no encontrada en historial'); return; }
 
   // ── Fotos en Firebase: descargar antes de copiar ─────────────────────────
   var _tieneFotasLocal = (snap.tareas||[]).some(function(t){
@@ -24575,6 +24578,12 @@ function histVerPDF(id){
   // Función interna que carga y abre la sesión en el preview
   function _abrirSnap(s){
     if(!sesData) _sesInitBlanco();
+    // ── FIX: guardar sesData actual antes de cargar el snap histórico ──
+    // El listener de Firebase puede dispararse en cualquier momento y pisar sesData.
+    // Guardamos una copia profunda y la restauramos después del preview para que
+    // la sesión activa real no quede reemplazada por el snap histórico.
+    var _sesDataBackup = null;
+    try { _sesDataBackup = JSON.parse(JSON.stringify(sesData)); } catch(e){}
     histCargarSesionSilencioso(s);
     window._sesVerDesdeHistorial = true;
     // Guardar fotos del snap en variable global temporal — inmune a condiciones de carrera
@@ -24586,6 +24595,19 @@ function histVerPDF(id){
       sesVerPreview();
       window._histPreviewFotos = null;
       window._sesVerDesdeHistorial = false;
+      // ── Restaurar sesData original para que la sesión activa no quede pisada ──
+      if(_sesDataBackup){
+        try {
+          // Proteger contra race con Firebase: solo restaurar si Firebase no llegó ya
+          // con algo más nuevo (comparar _ts)
+          var backupTs = _sesDataBackup._ts || _sesDataBackup._localTs || 0;
+          var actualTs  = sesData._ts       || sesData._localTs       || 0;
+          // Si Firebase pisó sesData con algo más nuevo durante el preview, NO restaurar
+          if(actualTs <= backupTs){
+            sesData = _sesDataBackup;
+          }
+        } catch(e){}
+      }
     }, 50);
   }
 
