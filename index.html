@@ -10670,6 +10670,232 @@ function dashVerSesionHoy(fechaISO){
 }
 window.dashVerSesionHoy = dashVerSesionHoy;
 
+// ════════════════════════════════════════════════════════════════════════════
+// TAB DASHBOARD: SEMANA CI+CE
+// Muestra: panel carga semanal (7 días) + disociación CI/CE destacada arriba
+// No toca ninguna función de cálculo existente — solo lectura de datos
+// ════════════════════════════════════════════════════════════════════════════
+function _dbTabSemanaCICE(plantelAll) {
+  var h = '';
+
+  // ── HEADER ──────────────────────────────────────────────────────────────
+  h += "<div style='margin-bottom:16px;padding:14px 18px;background:linear-gradient(135deg,rgba(99,102,241,.08),rgba(139,92,246,.05));border:1px solid rgba(99,102,241,.2);border-radius:14px;'>";
+  h += "<div style='font-size:11px;font-weight:800;color:#818cf8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;'>📅 Semana CI+CE — Integración Carga Interna + Externa</div>";
+  h += "<div style='font-size:11px;color:var(--text-2);line-height:1.6;'>Señal clave: <strong style='color:#ef4444;'>RPE↑ + GPS↓ = fatiga oculta</strong> &nbsp;·&nbsp; <strong style='color:#22c55e;'>RPE↓ + GPS estable = mejora de forma</strong> &nbsp;·&nbsp; <strong style='color:#818cf8;'>Eficiencia = más metros con menos esfuerzo percibido</strong></div>";
+  h += "</div>";
+
+  // ── DISOCIACIÓN CI/CE — PRIMERA Y DESTACADA ──────────────────────────────
+  // Reusa la lógica de disociación del tab Carga pero la pone primero y más visible
+  try {
+    var TODAY2 = (typeof TODAY !== 'undefined') ? TODAY : new Date().toISOString().slice(0,10);
+    var d7s = (function(){ var x=new Date(TODAY2+'T00:00:00'); x.setDate(x.getDate()-6); return x.toISOString().slice(0,10); })();
+    var dGPSU = (typeof gpsCargoFiltrado==='function') ? gpsCargoFiltrado() : (typeof safeArr==='function' ? safeArr(CARGA) : (CARGA||[]));
+    var ciDB2 = (typeof safeArr==='function') ? safeArr(CI_DB) : (CI_DB||[]);
+
+    // Calcular UA semanal y GPS semanal por jugador
+    var disocRows = [];
+    plantelAll.forEach(function(p){
+      var uaSem = ciDB2.filter(function(r){ return (r.pid||r.jugadorId)===p.id && r.fecha>=d7s; })
+                       .reduce(function(a,r){ return a+(parseFloat(r.ua)||parseFloat(r.rpe||0)*parseFloat(r.tiempo||r.duracion||0));},0);
+      var gpsRegs = dGPSU.filter(function(g){ return (g.pid||g.jugadorId)===p.id && g.fecha>=d7s; });
+      var distSem = gpsRegs.reduce(function(a,g){ return a+(parseFloat(g.distancia)||0);},0);
+      var hsrSem  = gpsRegs.reduce(function(a,g){ return a+(parseFloat(g.hsr)||0);},0);
+      var sprSem  = gpsRegs.reduce(function(a,g){ return a+(parseFloat(g.sprints)||parseFloat(g.sprint)||0);},0);
+      var accSem  = gpsRegs.reduce(function(a,g){ return a+(parseFloat(g.acc)||0);},0);
+      var decSem  = gpsRegs.reduce(function(a,g){ return a+(parseFloat(g.dcc)||0);},0);
+      var nSes    = gpsRegs.length;
+      // EffIndex: metros GPS por unidad de carga interna (CE÷CI)
+      var effIdx  = (uaSem > 0 && distSem > 0) ? Math.round(distSem / uaSem * 10) / 10 : null;
+      if(uaSem > 0 || distSem > 0) {
+        disocRows.push({p:p, uaSem:uaSem, distSem:distSem, hsrSem:hsrSem, sprSem:sprSem, accSem:accSem, decSem:decSem, nSes:nSes, effIdx:effIdx});
+      }
+    });
+
+    if(disocRows.length) {
+      var maxUA3  = Math.max.apply(null, disocRows.map(function(x){return x.uaSem;}))||1;
+      var maxD3   = Math.max.apply(null, disocRows.map(function(x){return x.distSem;}))||1;
+      var maxEff  = Math.max.apply(null, disocRows.filter(function(x){return x.effIdx!==null;}).map(function(x){return x.effIdx;}))||1;
+
+      h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:16px;'>";
+      h += "<div style='font-size:12px;font-weight:800;color:var(--text-1);margin-bottom:4px;'>⚡ DISOCIACIÓN CARGA INTERNA vs EXTERNA — Esta semana</div>";
+      h += "<div style='font-size:10px;color:var(--text-3);margin-bottom:14px;'>Comparación normalizada RPE×t vs Distancia GPS · <span style='color:#ef4444;font-weight:700;'>RPE↑GPS↓=fatiga oculta</span> · <span style='color:#3b82f6;font-weight:700;'>GPS↑RPE↓=subestimación</span> · <span style='color:#a78bfa;font-weight:700;'>EffIdx=m GPS÷UA (↑=mejora forma)</span></div>";
+      h += "<div style='overflow-x:auto;'>";
+      h += "<table style='width:100%;border-collapse:collapse;font-size:11px;'>";
+      h += "<thead><tr style='border-bottom:2px solid var(--border);'>";
+      h += "<th style='text-align:left;padding:7px 10px;color:var(--text-3);font-size:10px;font-weight:800;'>Jugador</th>";
+      h += "<th style='text-align:right;padding:7px 8px;color:var(--text-3);font-size:10px;font-weight:800;'>UA (CI)</th>";
+      h += "<th style='text-align:right;padding:7px 8px;color:var(--text-3);font-size:10px;font-weight:800;'>Dist GPS</th>";
+      h += "<th style='text-align:right;padding:7px 8px;color:var(--text-3);font-size:10px;font-weight:800;'>HSR (m)</th>";
+      h += "<th style='text-align:right;padding:7px 8px;color:var(--text-3);font-size:10px;font-weight:800;'>Sprint (m)</th>";
+      h += "<th style='text-align:right;padding:7px 8px;color:var(--text-3);font-size:10px;font-weight:800;'>Acc</th>";
+      h += "<th style='text-align:right;padding:7px 8px;color:var(--text-3);font-size:10px;font-weight:800;'>Dec</th>";
+      h += "<th style='text-align:center;padding:7px 8px;color:#a78bfa;font-size:10px;font-weight:800;'>EffIdx</th>";
+      h += "<th style='text-align:left;padding:7px 8px;color:var(--text-3);font-size:10px;font-weight:800;min-width:120px;'>CI vs CE</th>";
+      h += "<th style='text-align:left;padding:7px 8px;color:var(--text-3);font-size:10px;font-weight:800;'>Señal</th>";
+      h += "</tr></thead><tbody>";
+
+      disocRows.forEach(function(d2, ii) {
+        var rowBg = ii%2===0?'transparent':'rgba(255,255,255,.018)';
+        var nm2 = ((d2.p.apellido||d2.p.nombre||'').toUpperCase()).slice(0,16);
+        var pctUA = Math.round(d2.uaSem/maxUA3*100);
+        var pctD  = Math.round(d2.distSem/maxD3*100);
+        var diff  = pctUA - pctD;
+        var senalColor='#9ca3af'; var senalLabel='Normal'; var senalBg='rgba(156,163,175,.1)';
+        if(diff>30){ senalColor='#ef4444'; senalLabel='⚠ RPE↑GPS↓'; senalBg='rgba(239,68,68,.1)'; }
+        else if(diff<-30){ senalColor='#3b82f6'; senalLabel='📊 GPS↑RPE↓'; senalBg='rgba(59,130,246,.1)'; }
+        else if(Math.abs(diff)<=10){ senalColor='#22c55e'; senalLabel='✓ Acoplado'; senalBg='rgba(34,197,94,.08)'; }
+        else { senalColor='#eab308'; senalLabel='~ Leve desacople'; senalBg='rgba(234,179,8,.08)'; }
+
+        // EffIndex color
+        var effColor='#9ca3af'; var effLabel='—';
+        if(d2.effIdx!==null){
+          var effPct = d2.effIdx/maxEff;
+          effColor = effPct>0.75?'#22c55e':effPct>0.4?'#eab308':'#f87171';
+          effLabel = d2.effIdx.toFixed(1);
+        }
+
+        h += "<tr style='background:"+rowBg+";border-bottom:1px solid var(--border);'>";
+        h += "<td style='padding:8px 10px;font-weight:700;color:var(--text-1);font-size:11px;'>"+nm2+"</td>";
+        h += "<td style='padding:8px 8px;text-align:right;color:#a78bfa;font-weight:700;'>"+(d2.uaSem>0?Math.round(d2.uaSem):'—')+"</td>";
+        h += "<td style='padding:8px 8px;text-align:right;color:#818cf8;font-weight:700;'>"+(d2.distSem>0?Math.round(d2.distSem).toLocaleString()+'m':'—')+"</td>";
+        h += "<td style='padding:8px 8px;text-align:right;color:#f97316;'>"+(d2.hsrSem>0?Math.round(d2.hsrSem)+'m':'—')+"</td>";
+        h += "<td style='padding:8px 8px;text-align:right;color:#ef4444;'>"+(d2.sprSem>0?Math.round(d2.sprSem)+'m':'—')+"</td>";
+        h += "<td style='padding:8px 8px;text-align:right;color:var(--text-2);'>"+(d2.accSem>0?Math.round(d2.accSem):'—')+"</td>";
+        h += "<td style='padding:8px 8px;text-align:right;color:var(--text-2);'>"+(d2.decSem>0?Math.round(d2.decSem):'—')+"</td>";
+        h += "<td style='padding:8px 8px;text-align:center;font-weight:900;font-size:13px;color:"+effColor+";'>"+effLabel+"</td>";
+        // Barra comparativa CI vs CE
+        h += "<td style='padding:8px 8px;'>";
+        h += "<div style='display:flex;align-items:center;gap:3px;height:14px;'>";
+        h += "<div style='height:8px;width:"+Math.max(2,Math.round(pctUA*0.7))+"px;background:#a78bfa;border-radius:2px;' title='CI: "+Math.round(d2.uaSem)+" UA'></div>";
+        h += "<div style='height:8px;width:"+Math.max(2,Math.round(pctD*0.7))+"px;background:#818cf8;border-radius:2px;' title='CE: "+Math.round(d2.distSem)+"m'></div>";
+        h += "</div></td>";
+        h += "<td style='padding:8px 8px;'><span style='font-size:10px;font-weight:700;color:"+senalColor+";background:"+senalBg+";padding:3px 8px;border-radius:10px;white-space:nowrap;'>"+senalLabel+"</span></td>";
+        h += "</tr>";
+      });
+
+      h += "</tbody></table></div>";
+      h += "<div style='padding:10px 14px;border-top:1px solid var(--border);font-size:9px;color:var(--text-3);'>EffIdx = Dist. GPS (m) ÷ UA (RPE×min) · Referencia: Buchheit &amp; Lacome, Aspetar 2018 · Semáforo EffIdx: 🟢 top 25% plantel · 🟡 medio · 🔴 bajo</div>";
+      h += "</div>";
+    } else {
+      h += "<div style='text-align:center;padding:32px;color:var(--text-3);font-size:12px;'>No hay datos de carga interna o GPS en los últimos 7 días.</div>";
+    }
+  } catch(e) {
+    h += "<div style='padding:16px;color:#f87171;font-size:11px;'>Error al calcular disociación: "+e.message+"</div>";
+  }
+
+  // ── ACWR-GPS ALTA INTENSIDAD (HSR + SPRINT) ─────────────────────────────
+  try {
+    var TODAY3 = (typeof TODAY !== 'undefined') ? TODAY : new Date().toISOString().slice(0,10);
+    var dGPSU2 = (typeof gpsCargoFiltrado==='function') ? gpsCargoFiltrado() : (typeof safeArr==='function' ? safeArr(CARGA) : (CARGA||[]));
+
+    // Helper: sumar variable GPS de un jugador entre fechas (inclusive)
+    function _sumGpsVar(pid, varKey, d0, d1) {
+      return dGPSU2.filter(function(r){
+        var rid = r.pid||r.jugadorId;
+        return rid===pid && r.fecha>=d0 && r.fecha<=d1;
+      }).reduce(function(a,r){ return a+(parseFloat(r[varKey])||0); }, 0);
+    }
+
+    // Calcular fechas para ventanas ACWR
+    var _acwrD = new Date(TODAY3+'T00:00:00');
+    var _d7a   = (function(){ var x=new Date(_acwrD); x.setDate(x.getDate()-6);  return x.toISOString().slice(0,10); })();
+    var _d28a  = (function(){ var x=new Date(_acwrD); x.setDate(x.getDate()-27); return x.toISOString().slice(0,10); })();
+
+    // Para cada jugador: aguda (7d) + crónica (promedio 4 semanas = total 28d / 4)
+    var acwrGpsRows = [];
+    plantelAll.forEach(function(p){
+      var hsrAg  = _sumGpsVar(p.id,'hsr',_d7a,TODAY3);
+      var sprAg  = _sumGpsVar(p.id,'sprints',_d7a,TODAY3);
+      // Crónica: promedio de las 4 semanas
+      var hsr28  = _sumGpsVar(p.id,'hsr',_d28a,TODAY3);
+      var spr28  = _sumGpsVar(p.id,'sprints',_d28a,TODAY3);
+      var hsrCr  = hsr28/4;
+      var sprCr  = spr28/4;
+      var acwrHsr = hsrCr>0 ? Math.round(hsrAg/hsrCr*100)/100 : null;
+      var acwrSpr = sprCr>0 ? Math.round(sprAg/sprCr*100)/100 : null;
+      if(hsrAg>0||sprAg>0||hsr28>0||spr28>0){
+        acwrGpsRows.push({p:p, hsrAg:hsrAg, sprAg:sprAg, hsrCr:hsrCr, sprCr:sprCr, acwrHsr:acwrHsr, acwrSpr:acwrSpr});
+      }
+    });
+
+    if(acwrGpsRows.length){
+      // Función color ACWR para zonas de Gabbett
+      function _acwrGpsColor(v){
+        if(v===null) return {col:'#9ca3af',lbl:'—',bg:'transparent'};
+        if(v<0.8)  return {col:'#60a5fa',lbl:'↓ Bajo',bg:'rgba(96,165,250,.1)'};
+        if(v<=1.3) return {col:'#22c55e',lbl:'✓ Óptimo',bg:'rgba(34,197,94,.1)'};
+        if(v<=1.5) return {col:'#eab308',lbl:'⚡ Precaución',bg:'rgba(234,179,8,.1)'};
+        return {col:'#ef4444',lbl:'⚠ Riesgo',bg:'rgba(239,68,68,.1)'};
+      }
+
+      h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:16px;'>";
+      h += "<div style='font-size:12px;font-weight:800;color:var(--text-1);margin-bottom:4px;'>🔴 ACWR-GPS ALTA INTENSIDAD — HSR + Sprint</div>";
+      h += "<div style='font-size:10px;color:var(--text-3);margin-bottom:14px;'>Ratio carga aguda (7d) ÷ crónica (media 4 semanas) · Zonas Gabbett: <span style='color:#22c55e;'>0.8–1.3 ✓</span> · <span style='color:#eab308;'>1.3–1.5 ⚡</span> · <span style='color:#ef4444;'>&gt;1.5 ⚠</span></div>";
+
+      h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;font-size:11px;'>";
+      h += "<thead><tr style='border-bottom:2px solid var(--border);'>";
+      h += "<th style='text-align:left;padding:7px 10px;color:var(--text-3);font-size:10px;font-weight:800;'>Jugador</th>";
+      h += "<th style='text-align:right;padding:7px 10px;color:#f97316;font-size:10px;font-weight:800;'>HSR 7d (m)</th>";
+      h += "<th style='text-align:right;padding:7px 10px;color:var(--text-3);font-size:10px;font-weight:800;'>HSR media/sem</th>";
+      h += "<th style='text-align:center;padding:7px 10px;color:#f97316;font-size:10px;font-weight:800;'>ACWR-HSR</th>";
+      h += "<th style='text-align:right;padding:7px 10px;color:#ef4444;font-size:10px;font-weight:800;'>Sprint 7d (m)</th>";
+      h += "<th style='text-align:right;padding:7px 10px;color:var(--text-3);font-size:10px;font-weight:800;'>Sprint media/sem</th>";
+      h += "<th style='text-align:center;padding:7px 10px;color:#ef4444;font-size:10px;font-weight:800;'>ACWR-Sprint</th>";
+      h += "<th style='text-align:left;padding:7px 10px;color:var(--text-3);font-size:10px;font-weight:800;'>Estado</th>";
+      h += "</tr></thead><tbody>";
+
+      acwrGpsRows.forEach(function(row, ri){
+        var rowBg = ri%2===0?'transparent':'rgba(255,255,255,.018)';
+        var nm3 = ((row.p.apellido||row.p.nombre||'').toUpperCase()).slice(0,16);
+        var chsr = _acwrGpsColor(row.acwrHsr);
+        var cspr = _acwrGpsColor(row.acwrSpr);
+        // Estado general: peor de los dos
+        var maxV = Math.max(row.acwrHsr!==null?row.acwrHsr:0, row.acwrSpr!==null?row.acwrSpr:0);
+        var est3 = _acwrGpsColor(maxV>0?maxV:null);
+
+        h += "<tr style='background:"+rowBg+";border-bottom:1px solid var(--border);'>";
+        h += "<td style='padding:8px 10px;font-weight:700;color:var(--text-1);font-size:11px;'>"+nm3+"</td>";
+        h += "<td style='padding:8px 10px;text-align:right;color:#f97316;font-weight:700;'>"+(row.hsrAg>0?Math.round(row.hsrAg).toLocaleString():'—')+"</td>";
+        h += "<td style='padding:8px 10px;text-align:right;color:var(--text-2);'>"+(row.hsrCr>0?Math.round(row.hsrCr).toLocaleString():'—')+"</td>";
+        h += "<td style='padding:8px 10px;text-align:center;'>";
+        if(row.acwrHsr!==null){
+          h += "<span style='font-weight:900;font-size:13px;color:"+chsr.col+";background:"+chsr.bg+";padding:3px 10px;border-radius:10px;'>"+row.acwrHsr.toFixed(2)+"</span>";
+        } else {
+          h += "<span style='color:#4b5563;'>—</span>";
+        }
+        h += "</td>";
+        h += "<td style='padding:8px 10px;text-align:right;color:#ef4444;font-weight:700;'>"+(row.sprAg>0?Math.round(row.sprAg).toLocaleString():'—')+"</td>";
+        h += "<td style='padding:8px 10px;text-align:right;color:var(--text-2);'>"+(row.sprCr>0?Math.round(row.sprCr).toLocaleString():'—')+"</td>";
+        h += "<td style='padding:8px 10px;text-align:center;'>";
+        if(row.acwrSpr!==null){
+          h += "<span style='font-weight:900;font-size:13px;color:"+cspr.col+";background:"+cspr.bg+";padding:3px 10px;border-radius:10px;'>"+row.acwrSpr.toFixed(2)+"</span>";
+        } else {
+          h += "<span style='color:#4b5563;'>—</span>";
+        }
+        h += "</td>";
+        h += "<td style='padding:8px 10px;'><span style='font-size:10px;font-weight:700;color:"+est3.col+";'>"+est3.lbl+"</span></td>";
+        h += "</tr>";
+      });
+
+      h += "</tbody></table></div>";
+      h += "<div style='padding:10px 14px;border-top:1px solid var(--border);font-size:9px;color:var(--text-3);'>ACWR-GPS = Carga Aguda 7d ÷ Carga Crónica (media 4 semanas) · Gabbett TJ (2016) BJSM · STATSports · Solo alta intensidad: HSR (>19.8km/h) + Sprint (>25.2km/h)</div>";
+      h += "</div>";
+    }
+  } catch(e) {}
+
+  // ── PANEL CARGA SEMANAL COMPLETO (7 días, GPS + CI + Wellness + ACWR) ──
+  try {
+    h += "<div style='margin-bottom:8px;'>";
+    h += "<div style='font-size:12px;font-weight:800;color:var(--text-1);margin-bottom:12px;padding:0 2px;'>📊 Panel Carga Semanal — GPS + Carga Interna + Wellness + ACWR (últimos 7 días)</div>";
+    h += _renderPanelCargaSemanal(plantelAll);
+    h += "</div>";
+  } catch(e) {
+    h += "<div style='padding:16px;color:#f87171;font-size:11px;'>Error al renderizar panel semanal: "+e.message+"</div>";
+  }
+
+  return h;
+}
+
 function renderDashboard() {
   ciLoad(); dispLoad();
   var plantelAll = JDB.length>0 ? JDB : PL;
@@ -10691,6 +10917,7 @@ function renderDashboard() {
   // ── TABS ──
   var dbTabs=[
     {k:'resumen',l:'📊 Equipo'},
+    {k:'semana',l:'📅 Semana CI+CE'},
     {k:'carga',l:'⚡ Carga & ACWR'},
     {k:'individual',l:'👤 Individual'},
     {k:'alertas',l:'🚨 Alertas'}
@@ -10703,6 +10930,7 @@ function renderDashboard() {
   h += "</div>";
 
   if(tabAct==='resumen')   h += _dbTabResumen(plantelAll);
+  if(tabAct==='semana')    h += _dbTabSemanaCICE(plantelAll);
   if(tabAct==='carga')     h += _dbTabCarga(plantelAll);
   if(tabAct==='individual') h += _dbTabIndividual(plantelAll);
   if(tabAct==='alertas')   h += _dbTabAlertas(plantelAll);
@@ -10888,6 +11116,12 @@ function _dbTabCarga(plantelAll){
     h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:40px;text-align:center;color:var(--text-3);font-size:13px;'>Sin datos de carga interna disponibles.<br><br><button onclick=\"irA('cargainterna')\" style='background:#ef4444;color:#fff;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-weight:700;'>→ Registrar Carga Interna</button></div>";
     return h;
   }
+
+  // ── BANNER → TAB SEMANA CI+CE ────────────────────────────────────────────
+  h += "<div style='margin-bottom:16px;padding:11px 16px;background:rgba(99,102,241,.07);border:1px solid rgba(99,102,241,.22);border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;'>";
+  h += "<div style='font-size:11px;color:#818cf8;'><strong style='color:var(--text-1);'>💡 Señal CI/CE + EffIndex</strong> &nbsp;—&nbsp; La integración carga interna vs externa (disociación, Índice de Eficiencia y HSR/Sprint) está en el nuevo tab <strong>📅 Semana CI+CE</strong></div>";
+  h += "<button onclick='window._dbTab=\"semana\";renderDashboard();' style='padding:6px 14px;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.35);border-radius:8px;color:#818cf8;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>Ver Semana CI+CE →</button>";
+  h += "</div>";
 
   // ── CHART: ACWR POR JUGADOR ──────────────────────────────────────────────
   h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px;'>";
@@ -11203,6 +11437,37 @@ function _dbTabIndividual(plantelAll){
     h += "<div style='font-size:9px;color:var(--text-3);'>"+est.neuro.raw.val.toFixed(1)+"cm</div>";
     h += "</div>";
   }
+  // ── EffIndex KPI en header ──
+  try {
+    var _d7Ef = new Date(TODAY+'T00:00:00'); _d7Ef.setDate(_d7Ef.getDate()-6);
+    var _d7EfStr = _d7Ef.toISOString().slice(0,10);
+    var _d14Ef = new Date(TODAY+'T00:00:00'); _d14Ef.setDate(_d14Ef.getDate()-13);
+    var _d14EfStr = _d14Ef.toISOString().slice(0,10);
+    // Semana actual (últimos 7 días)
+    var _uaSemEf = safeArr(CI_DB).filter(function(r){return (r.pid===selPid||r.jugadorId===selPid)&&r.fecha>=_d7EfStr&&r.fecha<=TODAY;}).reduce(function(a,r){return a+(r.ua||0);},0);
+    var _cargaEf = gpsCargoFiltrado ? gpsCargoFiltrado() : safeArr(CARGA);
+    var _distSemEf = _cargaEf.filter(function(r){return (r.pid===selPid||r.jugadorId===selPid)&&r.fecha>=_d7EfStr&&r.fecha<=TODAY;}).reduce(function(a,r){return a+(parseFloat(r.distancia||r.gps_distancia||0));},0);
+    // Semana anterior (días 8–14)
+    var _uaSemEfAnt = safeArr(CI_DB).filter(function(r){return (r.pid===selPid||r.jugadorId===selPid)&&r.fecha>=_d14EfStr&&r.fecha<_d7EfStr;}).reduce(function(a,r){return a+(r.ua||0);},0);
+    var _distSemEfAnt = _cargaEf.filter(function(r){return (r.pid===selPid||r.jugadorId===selPid)&&r.fecha>=_d14EfStr&&r.fecha<_d7EfStr;}).reduce(function(a,r){return a+(parseFloat(r.distancia||r.gps_distancia||0));},0);
+    var _effIdx = (_uaSemEf>0 && _distSemEf>0) ? (_distSemEf/_uaSemEf) : null;
+    var _effIdxAnt = (_uaSemEfAnt>0 && _distSemEfAnt>0) ? (_distSemEfAnt/_uaSemEfAnt) : null;
+    var _effArrow = '';
+    var _effArrowCol = '#9ca3af';
+    if(_effIdx!==null && _effIdxAnt!==null){
+      var _effDiff = _effIdx - _effIdxAnt;
+      if(_effDiff>0.05){ _effArrow='↑'; _effArrowCol='#22c55e'; }
+      else if(_effDiff<-0.05){ _effArrow='↓'; _effArrowCol='#ef4444'; }
+      else { _effArrow='→'; _effArrowCol='#eab308'; }
+    }
+    if(_effIdx!==null){
+      h += "<div style='text-align:center;padding:0 16px;border-left:1px solid var(--border);'>";
+      h += "<div style='font-size:22px;font-weight:900;color:#a78bfa'>"+_effIdx.toFixed(1)+" <span style='font-size:16px;color:"+_effArrowCol+";'>"+_effArrow+"</span></div>";
+      h += "<div style='font-size:9px;color:var(--text-3);font-weight:700;'>EFF INDEX</div>";
+      h += "<div style='font-size:9px;color:var(--text-3);'>m·GPS/UA</div>";
+      h += "</div>";
+    }
+  } catch(e){}
   h += "</div>";
 
   // ── CHART ACWR + UA 8 SEMANAS ──
@@ -11279,6 +11544,69 @@ function _dbTabIndividual(plantelAll){
     h += "<div style='color:var(--text-3);font-size:12px;padding:20px 0;text-align:center;'>Insuficientes datos de ACWR para graficar.</div>";
   }
   h += "</div></div>";
+
+  // ── EFFINDEX LONGITUDINAL — 8 SEMANAS ──
+  try {
+    var _effSems = [];
+    var _cargaEfL = gpsCargoFiltrado ? gpsCargoFiltrado() : safeArr(CARGA);
+    for(var _esw=7;_esw>=0;_esw--){
+      var _ed0 = new Date(TODAY+'T00:00:00'); _ed0.setDate(_ed0.getDate()-(_esw*7+6));
+      var _ed1 = new Date(TODAY+'T00:00:00'); _ed1.setDate(_ed1.getDate()-_esw*7);
+      var _ed0s = _ed0.toISOString().slice(0,10);
+      var _ed1s = _ed1.toISOString().slice(0,10);
+      var _uaW = safeArr(CI_DB).filter(function(r){return (r.pid===selPid||r.jugadorId===selPid)&&r.fecha>=_ed0s&&r.fecha<=_ed1s;}).reduce(function(a,r){return a+(r.ua||0);},0);
+      var _distW = _cargaEfL.filter(function(r){return (r.pid===selPid||r.jugadorId===selPid)&&r.fecha>=_ed0s&&r.fecha<=_ed1s;}).reduce(function(a,r){return a+(parseFloat(r.distancia||r.gps_distancia||0));},0);
+      var _eiW = (_uaW>0 && _distW>0) ? (_distW/_uaW) : null;
+      _effSems.push({label:'S'+(8-_esw), ei:_eiW});
+    }
+    var _effHasDat = _effSems.some(function(s){return s.ei!==null;});
+    if(_effHasDat){
+      h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px;'>";
+      h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;'>";
+      h += "<div style='font-size:12px;font-weight:700;color:var(--text-2);'>EFF INDEX (CE÷CI) — 8 SEMANAS</div>";
+      h += "<div style='font-size:10px;color:#9ca3af;'>↑ Ganando forma &nbsp;|&nbsp; ↓ Acumulando fatiga</div>";
+      h += "</div>";
+      var _spWE=360,_spHE=120;
+      var _eiVals = _effSems.map(function(s){return s.ei;}).filter(function(v){return v!==null;});
+      var _eiMin = Math.max(0, Math.min.apply(null,_eiVals)*0.85);
+      var _eiMax = Math.max.apply(null,_eiVals)*1.15||1;
+      var _scE = (_spHE-10)/(_eiMax-_eiMin)||1;
+      var _bwE = Math.floor((_spWE-30)/8)-3;
+      h += "<svg viewBox='0 0 "+_spWE+" "+(_spHE+30)+"' style='width:100%;font-family:inherit;'>";
+      // Línea media referencia
+      var _eiMed = _eiVals.reduce(function(a,v){return a+v;},0)/(_eiVals.length||1);
+      var _yMed = _spHE - Math.round((_eiMed-_eiMin)*_scE);
+      h += "<line x1='0' y1='"+_yMed+"' x2='"+_spWE+"' y2='"+_yMed+"' stroke='#a78bfa' stroke-width='0.5' stroke-dasharray='3,3' opacity='0.5'/>";
+      h += "<text x='2' y='"+(_yMed-2)+"' font-size='7' fill='#a78bfa' opacity='0.7'>media</text>";
+      // Puntos y líneas
+      var _eiPts = [];
+      var _eiXs = _effSems.map(function(s,si){return 15+si*(_bwE+3)+_bwE/2;});
+      _effSems.forEach(function(s,si){
+        if(s.ei===null) return;
+        var _yE = _spHE - Math.round((s.ei-_eiMin)*_scE);
+        _eiPts.push(_eiXs[si]+','+_yE);
+      });
+      if(_eiPts.length>=2){
+        h += "<polyline points='"+_eiPts.join(' ')+"' fill='none' stroke='#a78bfa' stroke-width='2' stroke-linejoin='round'/>";
+      }
+      _effSems.forEach(function(s,si){
+        if(s.ei===null){
+          h += "<text x='"+_eiXs[si]+"' y='"+(_spHE+10)+"' font-size='8' fill='#4b5563' text-anchor='middle'>"+s.label+"</text>";
+          return;
+        }
+        var _yE2 = _spHE - Math.round((s.ei-_eiMin)*_scE);
+        var _prevEi = si>0?_effSems[si-1].ei:null;
+        var _eiCol2 = '#a78bfa';
+        if(_prevEi!==null){ _eiCol2 = s.ei>=_prevEi ? '#22c55e' : '#ef4444'; }
+        h += "<circle cx='"+_eiXs[si]+"' cy='"+_yE2+"' r='4' fill='"+_eiCol2+"' stroke='#1a1a1a' stroke-width='1'/>";
+        h += "<text x='"+_eiXs[si]+"' y='"+(_yE2-6)+"' font-size='7' fill='"+_eiCol2+"' text-anchor='middle' font-weight='800'>"+s.ei.toFixed(1)+"</text>";
+        h += "<text x='"+_eiXs[si]+"' y='"+(_spHE+10)+"' font-size='8' fill='#9ca3af' text-anchor='middle'>"+s.label+"</text>";
+      });
+      h += "</svg>";
+      h += "<div style='font-size:9px;color:#6b7280;margin-top:6px;'>Buchheit & Lacome (2018) · Aspetar · m GPS ÷ Unidades Arbitrarias CI</div>";
+      h += "</div>";
+    }
+  } catch(e){}
 
   // ── BIENESTAR LONGITUDINAL ──
   var bLast14 = bHoyJ.slice(-14);
@@ -12572,6 +12900,72 @@ function renderGPSActividad(){
   h += "</tr>";
   h += "</tbody></table></div></div>";
 
+  // ── PERFIL COMPETITIVO % ─────────────────────────────────────────────────
+  try {
+    var _todosCarga = safeArr(CARGA);
+    var _plantelPC = JDB.length>0 ? JDB : PL;
+    // Sesiones tipo partido históricas (excluir fecha actual)
+    var _partHist = _todosCarga.filter(function(c){
+      var t=(c.tipo||c.tipoEvt||'').toLowerCase();
+      return (t==='partido'||t==='amistoso') && c.fecha !== fechaSel;
+    });
+    // Variables a mostrar en perfil competitivo
+    var _pcVars = [{k:'distancia',l:'Distancia',u:'m'},{k:'hsr',l:'HSR',u:'m'},{k:'sprints',l:'Sprint',u:'m'},{k:'acc',l:'Acc',u:'ef'},{k:'dcc',l:'Dec',u:'ef'},{k:'playerLoad',l:'PlayerLoad',u:'UA'}];
+    // Calcular promedio por jugador por variable
+    var _hasProfile = false;
+    var _perfMap = {};
+    _plantelPC.forEach(function(p){
+      var _regsP = _partHist.filter(function(c){return c.pid===p.id||c.jugadorId===p.id;});
+      if(!_regsP.length) return;
+      _perfMap[p.id] = {};
+      _pcVars.forEach(function(v){
+        var sum = _regsP.reduce(function(a,r){return a+(parseFloat(r[v.k])||0);},0);
+        _perfMap[p.id][v.k] = sum / _regsP.length;
+      });
+      _hasProfile = true;
+    });
+
+    if(_hasProfile && sesionFiltrada.length) {
+      h += "<div style='background:var(--bg-card,#111827);border:1px solid var(--border,#374151);border-radius:14px;padding:18px;margin-top:20px;'>";
+      h += "<div style='font-size:12px;font-weight:800;color:var(--text-1,#f1f5f9);margin-bottom:4px;'>🏟 PERFIL COMPETITIVO — % vs Promedio Partido</div>";
+      h += "<div style='font-size:10px;color:#9ca3af;margin-bottom:14px;'>Cada variable como % del promedio histórico del jugador en partidos · <span style='color:#22c55e;'>≥90% ✓</span> · <span style='color:#eab308;'>70–90% ~</span> · <span style='color:#ef4444;'>&lt;70% ↓</span></div>";
+      h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;font-size:11px;'>";
+      h += "<thead><tr style='border-bottom:2px solid var(--border,#374151);'>";
+      h += "<th style='text-align:left;padding:7px 10px;color:#9ca3af;font-size:10px;'>Jugador</th>";
+      _pcVars.forEach(function(v){
+        h += "<th style='text-align:center;padding:7px 8px;color:#9ca3af;font-size:10px;'>"+v.l+"</th>";
+      });
+      h += "</tr></thead><tbody>";
+      sesionFiltrada.forEach(function(reg, ri){
+        var jug = _plantelPC.find(function(p){return p.id===reg.pid||p.id===reg.jugadorId;});
+        var nm = jug ? ((jug.apellido||jug.nombre||'').toUpperCase()).slice(0,14) : reg.pid;
+        var prof = _perfMap[reg.pid||reg.jugadorId];
+        var rowBg = ri%2===0?'transparent':'rgba(255,255,255,.018)';
+        h += "<tr style='background:"+rowBg+";border-bottom:1px solid var(--border,#374151);'>";
+        h += "<td style='padding:8px 10px;font-weight:700;color:var(--text-1,#f1f5f9);'>"+nm+"</td>";
+        _pcVars.forEach(function(v){
+          var val = parseFloat(reg[v.k])||0;
+          if(!prof || !prof[v.k] || prof[v.k]<=0){
+            h += "<td style='padding:8px 8px;text-align:center;color:#4b5563;font-size:10px;'>—</td>";
+            return;
+          }
+          var pct = Math.round(val/prof[v.k]*100);
+          var col = pct>=90?'#22c55e':pct>=70?'#eab308':'#ef4444';
+          var bg2 = pct>=90?'rgba(34,197,94,.08)':pct>=70?'rgba(234,179,8,.08)':'rgba(239,68,68,.08)';
+          h += "<td style='padding:8px 8px;text-align:center;'>";
+          h += "<span style='font-weight:800;font-size:12px;color:"+col+";background:"+bg2+";padding:2px 7px;border-radius:8px;'>"+pct+"%</span>";
+          h += "</td>";
+        });
+        h += "</tr>";
+      });
+      h += "</tbody></table></div>";
+      h += "<div style='padding:10px 14px;border-top:1px solid var(--border,#374151);font-size:9px;color:#6b7280;margin-top:4px;'>Perfil basado en "+_partHist.length+" registro(s) histórico(s) de partido/amistoso · HSR >19.8 km/h · Sprint >25.2 km/h (Catapult)</div>";
+      h += "</div>";
+    } else if(!_hasProfile && sesionFiltrada.length) {
+      h += "<div style='margin-top:16px;padding:12px 16px;background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.18);border-radius:12px;font-size:11px;color:#818cf8;'>🏟 <strong>Perfil competitivo</strong> — disponible cuando haya datos históricos de partidos registrados en GPS.</div>";
+    }
+  } catch(e) {}
+
   return h;
 }
 
@@ -12922,6 +13316,88 @@ function renderGPSSemanal(){
     });
     h += "</tr>";
     h += "</tbody></table></div></div>";
+  }
+
+  // ── TABLA Δ% SEMANA A SEMANA — ALTA INTENSIDAD (Gabbett 2016) ────────────
+  // Compara semana actual vs semana anterior por jugador en variables de riesgo
+  // Semáforo: ≤10% verde · 10–20% amarillo · >20% rojo (Gabbett NSCA 2024)
+  try {
+    var hiVars = [
+      {k:'hsr',    label:'HSR',    icon:'🏃', color:'#f97316', umbrAm:10, umbrRj:15},
+      {k:'sprints',label:'Sprint', icon:'💨', color:'#ef4444', umbrAm:10, umbrRj:15},
+      {k:'acc',    label:'Acc',    icon:'↗',  color:'#8b5cf6', umbrAm:15, umbrRj:25},
+      {k:'dcc',    label:'Dec',    icon:'↘',  color:'#ec4899', umbrAm:15, umbrRj:20},
+      {k:'distancia',label:'Dist', icon:'📏', color:'#818cf8', umbrAm:10, umbrRj:20}
+    ];
+
+    // Calcular totales semana actual y anterior por jugador
+    var deltaRows = [];
+    plantelSem.forEach(function(p){
+      var pid = p.id;
+      var row = {p:p, vars:{}};
+      var hasData = false;
+      hiVars.forEach(function(v){
+        var actVals = cargaFil.filter(function(c){ return (c.pid||c.jugadorId)===pid && semanaActual.includes(c.fecha); });
+        var antVals = semanaAnterior.length ? cargaFil.filter(function(c){ return (c.pid||c.jugadorId)===pid && semanaAnterior.includes(c.fecha); }) : [];
+        var sumAct = actVals.reduce(function(a,c){ return a+(parseFloat(c[v.k])||0);},0);
+        var sumAnt = antVals.reduce(function(a,c){ return a+(parseFloat(c[v.k])||0);},0);
+        var delta2 = (sumAnt>0 && sumAct>0) ? Math.round((sumAct-sumAnt)/sumAnt*100) : null;
+        row.vars[v.k] = {sumAct:sumAct, sumAnt:sumAnt, delta:delta2};
+        if(sumAct>0) hasData=true;
+      });
+      if(hasData) deltaRows.push(row);
+    });
+
+    if(deltaRows.length && semanaAnterior.length) {
+      h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;overflow:hidden;margin-top:14px;'>";
+      h += "<div style='padding:12px 16px;border-bottom:1px solid "+DS.border+";background:rgba(239,68,68,.04);'>";
+      h += "<div style='font-size:12px;font-weight:800;color:"+DS.text1+";'>⚠ Cambio % Semana a Semana — Variables de Alta Intensidad</div>";
+      h += "<div style='font-size:10px;color:"+DS.text3+";margin-top:3px;'>Semana actual vs semana anterior · <span style='color:#22c55e;font-weight:700;'>🟢 ≤10% seguro</span> · <span style='color:#eab308;font-weight:700;'>🟡 10–20% precaución</span> · <span style='color:#ef4444;font-weight:700;'>🔴 &gt;20% riesgo lesión</span> · Ref: Gabbett (NSCA 2024)</div>";
+      h += "</div>";
+      h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;font-size:11px;'>";
+      h += "<thead><tr style='background:"+DS.bg1+";'>";
+      h += "<th style='padding:8px 12px;text-align:left;font-size:9px;font-weight:800;color:"+DS.text3+";letter-spacing:.05em;'>JUGADOR</th>";
+      hiVars.forEach(function(v){
+        h += "<th style='padding:8px 10px;text-align:center;font-size:9px;font-weight:800;color:"+v.color+";'>"+v.icon+" "+v.label+"</th>";
+      });
+      h += "<th style='padding:8px 10px;text-align:center;font-size:9px;font-weight:800;color:"+DS.text3+";'>Estado</th>";
+      h += "</tr></thead><tbody>";
+
+      deltaRows.forEach(function(row, ri){
+        var rowBg2 = ri%2===0?'transparent':'rgba(255,255,255,.018)';
+        var nm3 = (row.p.apellido||row.p.nombre||'').toUpperCase().slice(0,16);
+        var maxAlerta = 0; // 0=ok 1=am 2=rj
+        h += "<tr style='background:"+rowBg2+";border-bottom:1px solid "+DS.border+";'>";
+        h += "<td style='padding:8px 12px;font-weight:700;color:"+DS.text1+";'>"+nm3+"</td>";
+        hiVars.forEach(function(v){
+          var d3 = row.vars[v.k];
+          var cell = '—';
+          var cellColor = DS.text3;
+          var cellBg = 'transparent';
+          if(d3.delta !== null){
+            var abs = Math.abs(d3.delta);
+            if(abs > v.umbrRj){ cellColor='#f87171'; cellBg='rgba(239,68,68,.1)'; cell=(d3.delta>0?'🔴 +':'🔴 ')+d3.delta+'%'; maxAlerta=Math.max(maxAlerta,2); }
+            else if(abs > v.umbrAm){ cellColor='#eab308'; cellBg='rgba(234,179,8,.08)'; cell=(d3.delta>0?'🟡 +':'🟡 ')+d3.delta+'%'; maxAlerta=Math.max(maxAlerta,1); }
+            else { cellColor='#22c55e'; cellBg='rgba(34,197,94,.07)'; cell=(d3.delta>0?'🟢 +':'🟢 ')+d3.delta+'%'; }
+          } else if(d3.sumAct>0){
+            cell='NEW'; cellColor='#818cf8'; cellBg='rgba(129,140,248,.08)';
+          }
+          h += "<td style='padding:8px 10px;text-align:center;font-weight:700;color:"+cellColor+";background:"+cellBg+";white-space:nowrap;'>"+cell+"</td>";
+        });
+        // Estado general del jugador esta semana
+        var estLabel = maxAlerta===2?'<span style="color:#f87171;">⚠ RIESGO</span>':maxAlerta===1?'<span style="color:#eab308;">⚡ PRECAUCIÓN</span>':'<span style="color:#22c55e;">✓ OK</span>';
+        h += "<td style='padding:8px 10px;text-align:center;font-size:11px;font-weight:800;'>"+estLabel+"</td>";
+        h += "</tr>";
+      });
+
+      h += "</tbody></table></div>";
+      h += "<div style='padding:9px 14px;border-top:1px solid "+DS.border+";font-size:9px;color:"+DS.text3+";'>Umbral HSR/Sprint: precaución >10%, riesgo >15% · Umbral Acc/Dec: precaución >15%, riesgo >20% · Referencia: Gabbett 2016 BJSM, Saberisani 2025 Frontiers</div>";
+      h += "</div>";
+    } else if(deltaRows.length && !semanaAnterior.length) {
+      h += "<div style='margin-top:14px;padding:12px 16px;background:"+DS.bg1+";border:1px dashed "+DS.border+";border-radius:12px;font-size:11px;color:"+DS.text3+";'>📊 Tabla Δ% disponible cuando haya datos de al menos 2 semanas consecutivas.</div>";
+    }
+  } catch(e) {
+    // Error silencioso — no rompe el resto de la vista
   }
 
   h += "</div>";
@@ -13618,6 +14094,87 @@ function renderGPSPartido(){
     });
     h += "</tbody></table></div></div>";
   }
+
+  // ── PERFIL COMPETITIVO % — PARTIDO ──────────────────────────────────────
+  try {
+    var _todosCargaP = safeArr(CARGA);
+    var _plantelPCP = JDB.length>0 ? JDB : PL;
+    // Usar ses1 como fecha de referencia (partido principal seleccionado)
+    var _fechaRefP = (typeof ses1 !== 'undefined') ? ses1 : '';
+    // Sesiones tipo partido históricas de FECHAS ANTERIORES a la seleccionada
+    var _partHistP = _todosCargaP.filter(function(c){
+      var t=(c.tipo||c.tipoEvt||'').toLowerCase();
+      return (t==='partido'||t==='amistoso') && _fechaRefP && c.fecha < _fechaRefP;
+    });
+    // Variables de partido
+    var _pcVarsP = [{k:'distancia',l:'Distancia',u:'m'},{k:'hsr',l:'HSR',u:'m'},{k:'sprints',l:'Sprint',u:'m'},{k:'acc',l:'Acc',u:'ef'},{k:'dcc',l:'Dec',u:'ef'},{k:'playerLoad',l:'PlayerLoad',u:'UA'},{k:'vmax',l:'Vmax',u:'km/h'}];
+    // Calcular promedio histórico por jugador
+    var _hasProfileP = false;
+    var _perfMapP = {};
+    _plantelPCP.forEach(function(p){
+      var _regsP2 = _partHistP.filter(function(c){return c.pid===p.id||c.jugadorId===p.id;});
+      if(!_regsP2.length) return;
+      _perfMapP[p.id] = {_n: _regsP2.length};
+      _pcVarsP.forEach(function(v){
+        var sum = _regsP2.reduce(function(a,r){return a+(parseFloat(r[v.k])||0);},0);
+        _perfMapP[p.id][v.k] = sum / _regsP2.length;
+      });
+      _hasProfileP = true;
+    });
+    // Registros del partido seleccionado (ses1)
+    var _regPartSel = _todosCargaP.filter(function(c){
+      var t=(c.tipo||c.tipoEvt||'').toLowerCase();
+      return (t==='partido'||t==='amistoso') && _fechaRefP && c.fecha===_fechaRefP;
+    });
+
+    if(_hasProfileP && _regPartSel.length) {
+      h += "<div style='background:var(--bg-card,#111827);border:1px solid var(--border,#374151);border-radius:14px;padding:18px;margin-top:20px;'>";
+      h += "<div style='font-size:12px;font-weight:800;color:var(--text-1,#f1f5f9);margin-bottom:4px;'>🏟 PERFIL COMPETITIVO — % vs Historial de Partidos</div>";
+      h += "<div style='font-size:10px;color:#9ca3af;margin-bottom:14px;'>Partido seleccionado vs promedio histórico personal · <span style='color:#22c55e;'>≥90% ✓</span> · <span style='color:#eab308;'>70–90% ~</span> · <span style='color:#ef4444;'>&lt;70% ↓</span></div>";
+      h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;font-size:11px;'>";
+      h += "<thead><tr style='border-bottom:2px solid var(--border,#374151);'>";
+      h += "<th style='text-align:left;padding:7px 10px;color:#9ca3af;font-size:10px;'>Jugador</th>";
+      _pcVarsP.forEach(function(v){
+        h += "<th style='text-align:center;padding:7px 8px;color:#9ca3af;font-size:10px;'>"+v.l+"</th>";
+      });
+      h += "<th style='text-align:center;padding:7px 8px;color:#9ca3af;font-size:10px;'>Partidos</th>";
+      h += "</tr></thead><tbody>";
+      _regPartSel.forEach(function(reg, ri){
+        var jug = _plantelPCP.find(function(p){return p.id===reg.pid||p.id===reg.jugadorId;});
+        var nm = jug ? ((jug.apellido||jug.nombre||'').toUpperCase()).slice(0,14) : reg.pid;
+        var prof = _perfMapP[reg.pid||reg.jugadorId];
+        var rowBg = ri%2===0?'transparent':'rgba(255,255,255,.018)';
+        h += "<tr style='background:"+rowBg+";border-bottom:1px solid var(--border,#374151);'>";
+        h += "<td style='padding:8px 10px;font-weight:700;color:var(--text-1,#f1f5f9);'>"+nm+"</td>";
+        _pcVarsP.forEach(function(v){
+          var val = parseFloat(reg[v.k])||0;
+          if(!prof || !prof[v.k] || prof[v.k]<=0){
+            h += "<td style='padding:8px 8px;text-align:center;'>";
+            h += "<div style='font-size:11px;color:var(--text-1,#f1f5f9);'>"+formatGPSVal(v.k,val)+"</div>";
+            h += "<div style='font-size:9px;color:#4b5563;'>sin hist.</div>";
+            h += "</td>";
+            return;
+          }
+          var pct = Math.round(val/prof[v.k]*100);
+          var col = pct>=90?'#22c55e':pct>=70?'#eab308':'#ef4444';
+          var bg2 = pct>=90?'rgba(34,197,94,.08)':pct>=70?'rgba(234,179,8,.08)':'rgba(239,68,68,.08)';
+          h += "<td style='padding:8px 8px;text-align:center;'>";
+          h += "<div style='font-size:11px;font-weight:700;color:var(--text-1,#f1f5f9);'>"+formatGPSVal(v.k,val)+"</div>";
+          h += "<span style='font-size:10px;font-weight:800;color:"+col+";background:"+bg2+";padding:1px 6px;border-radius:6px;'>"+pct+"%</span>";
+          h += "</td>";
+        });
+        // Nro de partidos en historial
+        var nPart = prof ? (prof._n||0) : 0;
+        h += "<td style='padding:8px 8px;text-align:center;font-size:10px;color:#9ca3af;'>"+nPart+"</td>";
+        h += "</tr>";
+      });
+      h += "</tbody></table></div>";
+      h += "<div style='padding:10px 14px;border-top:1px solid var(--border,#374151);font-size:9px;color:#6b7280;margin-top:4px;'>Perfil basado en partidos anteriores a esta fecha · HSR >19.8 km/h · Sprint >25.2 km/h (Catapult / STATSports)</div>";
+      h += "</div>";
+    } else if(!_hasProfileP && _regPartSel.length) {
+      h += "<div style='margin-top:16px;padding:12px 16px;background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.18);border-radius:12px;font-size:11px;color:#818cf8;'>🏟 <strong>Perfil competitivo</strong> — disponible cuando haya partidos anteriores registrados en GPS para comparar.</div>";
+    }
+  } catch(e) {}
 
   return h;
 }
