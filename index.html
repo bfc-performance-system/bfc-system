@@ -21317,75 +21317,32 @@ function sesCargarActivaFb(cb){
     var ls = localStorage.getItem('BFC_SES_LOCAL');
     if(ls){ localGuardado = JSON.parse(ls); localTs = localGuardado._localTs || 0; }
   }catch(e){}
-  // Si hay sesión en localStorage, usarla como base mientras llega Firebase
-  // ⚠️ Solo si es de hoy — si es de otro día, descartarla para no mostrar datos viejos
-  if(localGuardado){
-    var _fechaLocal = localGuardado.fecha || localGuardado._fecha || '';
-    if(_fechaLocal && _fechaLocal !== TODAY){
-      console.warn('[BFC] sesCargarActivaFb — localStorage provisional es de otro día ('+_fechaLocal+'). Descartando.');
-      try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
-      localGuardado = null;
-      localTs = 0;
-    } else {
-      sesData = localGuardado;
-      // No corregir fechas futuras — se permiten sesiones planificadas para mañana
-      _sesLocalTs = localTs;
-      delete sesData._fecha;
+  // NO cargar localStorage de forma provisional antes de que Firebase responda.
+  // Firebase es la fuente de verdad: si dice null, no hay sesión activa aunque haya datos locales.
+  // El localStorage se usa solo como respaldo de imágenes y merge cuando Firebase confirma sesión activa.
+  if(!window.fbDB){
+    // Sin Firebase: usar localStorage solo si es de hoy
+    if(localGuardado){
+      var _fechaLocalSinFb = localGuardado.fecha || localGuardado._fecha || '';
+      if(_fechaLocalSinFb && _fechaLocalSinFb !== TODAY){
+        try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
+        sesData = null;
+      }
     }
+    if(cb) cb(!!sesData);
+    return;
   }
-  if(!window.fbDB){ if(cb) cb(!!localGuardado); return; }
   window.fbDB.ref('bfc/sesion_activa').once('value', function(snap){
     var d = snap.val();
     if(!d){
-      // Firebase no tiene sesión activa (fue eliminada correctamente).
-      // ⚠️ Verificar que el localStorage local también sea de hoy — si es de otro día,
-      // descartarlo para no mostrar datos viejos al abrir desde otro dispositivo.
-      // Consultar Firebase si la sesión de hoy ya fue finalizada desde otro dispositivo
-      window.fbDB.ref('bfc/sesion_finalizada_fecha').once('value', function(snapF){
-        var fechaFinalizada = snapF.val() || '';
-        if(fechaFinalizada === TODAY){
-          console.warn('[BFC] sesCargarActivaFb — Firebase indica que la sesión de hoy ya fue finalizada. Descartando localStorage y abriendo en blanco.');
-          try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
-          try{ localStorage.removeItem('BFC_SES_FINALIZADA'); }catch(e){}
-          sesData = null;
-          if(cb) cb(false);
-          return;
-        }
-        // Sin marcador de finalización — verificar fecha del localStorage
-        if(localGuardado){
-          var fechaLocal = localGuardado.fecha || localGuardado._fecha || '';
-          if(fechaLocal && fechaLocal !== TODAY){
-            console.warn('[BFC] sesCargarActivaFb — localStorage es de otro día ('+fechaLocal+'). Descartando y abriendo sesión en blanco.');
-            try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
-            sesData = null;
-            if(cb) cb(false);
-            return;
-          }
-          // Verificar marcador local como respaldo
-          var _sesFinalzadaHoy = '';
-          try{ _sesFinalzadaHoy = localStorage.getItem('BFC_SES_FINALIZADA') || ''; }catch(e){}
-          if(_sesFinalzadaHoy === TODAY){
-            console.warn('[BFC] sesCargarActivaFb — marcador local indica sesión finalizada hoy. Descartando y abriendo en blanco.');
-            try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
-            sesData = null;
-            if(cb) cb(false);
-            return;
-          }
-        }
-        if(cb) cb(!!localGuardado);
-      }).catch(function(){
-        // Si falla la lectura del marcador, continuar con el flujo normal
-        if(localGuardado){
-          var fechaLocal = localGuardado.fecha || localGuardado._fecha || '';
-          if(fechaLocal && fechaLocal !== TODAY){
-            try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
-            sesData = null;
-            if(cb) cb(false);
-            return;
-          }
-        }
-        if(cb) cb(!!localGuardado);
-      });
+      // Firebase devuelve null = NO hay sesión activa.
+      // La fuente de verdad es Firebase: descartar localStorage y abrir en blanco.
+      // (El localStorage puede tener datos de una sesión ya finalizada desde otro dispositivo.)
+      console.log('[BFC] sesCargarActivaFb — Firebase sin sesion_activa. Abriendo en blanco.');
+      try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
+      try{ localStorage.removeItem('BFC_SES_FINALIZADA'); }catch(e){}
+      sesData = null;
+      if(cb) cb(false);
       return;
     }
     // ⚠️ GUARD DE FECHA: si el nodo tiene fecha de otro día, es una sesión huérfana
