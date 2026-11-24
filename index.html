@@ -7161,28 +7161,22 @@ function renderJornada(){
     h += jornadaEvaluacionPRE(plantelAll, fechaEfectiva);
 
   } else if(paso==='rpe'){
-    // ── Mini-panel configuración UA antes del Kiosko POST ──────
-    var _jTeVal = parseInt(window._ciTiempoExtra)||0;
+    // ── Info modo UA (configurado en Paso 5 GPS) ──────
     var _jSinGPS = window._ciSinGPS || false;
-    h += "<div style='background:rgba(99,102,241,.07);border:1px solid rgba(99,102,241,.18);border-radius:12px;padding:11px 16px;margin-bottom:12px;'>";
-    h += "<div style='font-size:10px;font-weight:800;color:#818cf8;margin-bottom:8px;letter-spacing:.04em;'>⚡ CONFIGURAR UA ANTES DE ACTIVAR KIOSKO</div>";
-    h += "<div style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;'>";
-    // Toggle GPS
-    h += "<div style='display:flex;border:1px solid rgba(255,255,255,.12);border-radius:7px;overflow:hidden;'>";
-    h += "<button onclick='window._ciSinGPS=false;window._ciTiempoExtra=0;renderJornada();' style='padding:5px 12px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(_jSinGPS?'rgba(255,255,255,.04)':'rgba(99,102,241,.3)')+";color:"+(_jSinGPS?'#64748b':'#a5b4fc')+";'>📡 Con GPS</button>";
-    h += "<button onclick='window._ciSinGPS=true;renderJornada();' style='padding:5px 12px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(_jSinGPS?'rgba(124,58,237,.3)':'rgba(255,255,255,.04)')+";color:"+(_jSinGPS?'#c084fc':'#64748b')+";'>🚫 Sin GPS</button>";
+    var _jTiempoSes = parseInt(window._ciTiempoExtra)||0;
+    h += "<div style='background:rgba(99,102,241,.07);border:1px solid rgba(99,102,241,.18);border-radius:12px;padding:10px 16px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;'>";
+    h += "<span style='font-size:11px;font-weight:800;color:#818cf8;'>⚡ Modo UA:</span>";
+    if(_jSinGPS){
+      h += "<span style='font-size:11px;color:#c084fc;font-weight:700;'>🚫 Sin GPS";
+      if(_jTiempoSes>0) h += " — "+_jTiempoSes+" min sesión";
+      h += "</span>";
+      h += "<span style='font-size:10px;color:#475569;'>+ tiempo sala por grupo (Paso 6)</span>";
+    } else {
+      h += "<span style='font-size:11px;color:#818cf8;font-weight:700;'>📡 Con GPS</span>";
+      h += "<span style='font-size:10px;color:#475569;'>tiempo GPS individual + tiempo sala por grupo (Paso 6)</span>";
+    }
+    h += "<a href='#' onclick='window._jornadaPaso=\"gps\";renderJornada();return false;' style='font-size:10px;color:#6366f1;font-weight:700;margin-left:auto;'>✏️ Cambiar en Paso 5</a>";
     h += "</div>";
-    // Input tiempo
-    h += "<div style='display:flex;align-items:center;gap:5px;'>";
-    h += "<span style='font-size:10px;color:#64748b;'>"+(_jSinGPS?'Tiempo sesión:':'Tiempo sala/pre:')+"</span>";
-    h += "<input type='number' min='0' max='240' value='"+_jTeVal+"' onchange='window._ciTiempoExtra=parseInt(this.value)||0;' style='width:55px;padding:4px 8px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:rgba(255,255,255,.06);color:#e2e8f0;font-size:12px;font-weight:700;text-align:center;'>";
-    h += "<span style='font-size:10px;color:#64748b;'>min</span>";
-    h += "</div>";
-    // Resumen fórmula
-    if(_jSinGPS && _jTeVal>0) h += "<span style='font-size:10px;color:#c084fc;background:rgba(124,58,237,.12);border-radius:5px;padding:3px 8px;'>UA = RPE × "+_jTeVal+" min</span>";
-    else if(_jTeVal>0)         h += "<span style='font-size:10px;color:#fbbf24;background:rgba(245,158,11,.1);border-radius:5px;padding:3px 8px;'>UA = RPE × (GPS + "+_jTeVal+" min)</span>";
-    else                        h += "<span style='font-size:10px;color:#475569;'>UA = RPE × tiempo GPS (estándar)</span>";
-    h += "</div></div>";
 
     h += "<div style='display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;'>";
     h += "<button onclick='kioskoActivarPOST()' style='padding:8px 18px;border-radius:99px;border:none;background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;font-size:11px;font-weight:800;cursor:pointer;box-shadow:0 2px 12px rgba(249,115,22,.4);'>🏋️ Activar Kiosko POST</button>";
@@ -7192,9 +7186,49 @@ function renderJornada(){
     h += bienKioskoInline(plantelAll);
 
   } else if(paso==='gps'){
-    h += ciTabCatapult(plantelAll, fechaEfectiva);
-    if(gpsHoy.length>0){
-      h += "<div style='margin-top:12px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:12px;padding:12px 16px;font-size:12px;color:#4ade80;'>✅ "+gpsHoy.length+" filas GPS ya importadas para esta sesión. <a href='#' onclick='window._ccTab=\"gps\";irA(\"controlcargas\");return false;' style='color:#4ade80;font-weight:700;'>Ver análisis completo →</a></div>";
+    // ── Toggle Con GPS / Sin GPS ────────────────────────────────
+    var _gpsSinGPS = window._ciSinGPS || false;
+    var _gpsTiempoSes = parseInt(window._ciTiempoExtra)||0;
+    h += "<div style='background:rgba(99,102,241,.07);border:1px solid rgba(99,102,241,.18);border-radius:14px;padding:14px 18px;margin-bottom:16px;'>";
+    h += "<div style='font-size:10px;font-weight:800;color:#818cf8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;'>📡 Modo de carga</div>";
+    h += "<div style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;'>";
+    // Toggle
+    h += "<div style='display:flex;border:1px solid rgba(255,255,255,.12);border-radius:9px;overflow:hidden;'>";
+    h += "<button onclick='window._ciSinGPS=false;window._ciTiempoExtra=0;renderJornada();' style='padding:7px 16px;border:none;cursor:pointer;font-size:11px;font-weight:800;background:"+(_gpsSinGPS?'rgba(255,255,255,.04)':'rgba(99,102,241,.35)')+";color:"+(_gpsSinGPS?'#64748b':'#a5b4fc')+";'>📡 Con GPS</button>";
+    h += "<button onclick='window._ciSinGPS=true;renderJornada();' style='padding:7px 16px;border:none;cursor:pointer;font-size:11px;font-weight:800;background:"+(_gpsSinGPS?'rgba(124,58,237,.35)':'rgba(255,255,255,.04)')+";color:"+(_gpsSinGPS?'#c084fc':'#64748b')+";'>🚫 Sin GPS</button>";
+    h += "</div>";
+    // Tiempo sesión (solo visible si Sin GPS)
+    if(_gpsSinGPS){
+      h += "<div style='display:flex;align-items:center;gap:7px;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.25);border-radius:9px;padding:7px 12px;'>";
+      h += "<span style='font-size:11px;color:#c084fc;font-weight:700;'>⏱ Tiempo total sesión (min):</span>";
+      h += "<input type='number' min='0' max='300' value='"+_gpsTiempoSes+"' onchange='window._ciTiempoExtra=parseInt(this.value)||0;' style='width:60px;padding:4px 8px;border:1px solid rgba(124,58,237,.4);border-radius:7px;background:rgba(124,58,237,.12);color:#e2e8f0;font-size:14px;font-weight:800;text-align:center;'>";
+      h += "<span style='font-size:10px;color:#94a3b8;'>min</span>";
+      h += "</div>";
+      // Resumen fórmula Sin GPS
+      h += "<span style='font-size:10px;color:#c084fc;background:rgba(124,58,237,.12);border-radius:7px;padding:4px 10px;'>";
+      if(_gpsTiempoSes>0) h += "UA = RPE × ("+_gpsTiempoSes+" + sala grupo)";
+      else                 h += "UA = RPE × tiempo sesión";
+      h += "</span>";
+    } else {
+      // Resumen fórmula Con GPS
+      h += "<span style='font-size:10px;color:#818cf8;background:rgba(99,102,241,.1);border-radius:7px;padding:4px 10px;'>UA = RPE × (GPS + sala grupo)</span>";
+    }
+    h += "</div></div>";
+
+    // ── Contenido según modo ────────────────────────────────────
+    if(!_gpsSinGPS){
+      // Con GPS: mostrar importador Catapult normal
+      h += ciTabCatapult(plantelAll, fechaEfectiva);
+      if(gpsHoy.length>0){
+        h += "<div style='margin-top:12px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:12px;padding:12px 16px;font-size:12px;color:#4ade80;'>✅ "+gpsHoy.length+" filas GPS ya importadas para esta sesión. <a href='#' onclick='window._ccTab=\"gps\";irA(\"controlcargas\");return false;' style='color:#4ade80;font-weight:700;'>Ver análisis completo →</a></div>";
+      }
+    } else {
+      // Sin GPS: mensaje informativo
+      h += "<div style='background:rgba(124,58,237,.07);border:1px solid rgba(124,58,237,.2);border-radius:12px;padding:16px 20px;text-align:center;'>";
+      h += "<div style='font-size:28px;margin-bottom:8px;'>🚫📡</div>";
+      h += "<div style='font-size:13px;font-weight:800;color:#c084fc;margin-bottom:6px;'>Sesión sin GPS</div>";
+      h += "<div style='font-size:11px;color:#64748b;line-height:1.6;'>Ingresa el tiempo total de la sesión arriba.<br>En el Paso 6 (Grupos) puedes configurar el tiempo de sala por grupo.</div>";
+      h += "</div>";
     }
 
   } else if(paso==='grupos'){
@@ -14886,12 +14920,45 @@ function kioskoGuardarRpe(){
       if(_seHoy && _seHoy.tiempo) _tiempoSes = parseInt(_seHoy.tiempo) || 0;
     } catch(e) {}
   }
-  // Tiempo extra (sala/pre-campo o sesión sin GPS) configurado por el cuerpo técnico
-  var _tiempoExtra = parseInt(window._ciTiempoExtra)||0;
+  // Tiempo campo GPS del jugador (si existe dato individual de GPS)
   var _sinGPS = window._ciSinGPS || false;
-  // Modo sin GPS: usar tiempoExtra como tiempo total; tiempo GPS = 0
-  var _tiempoBase = _sinGPS ? 0 : _tiempoSes;
-  var _tiempoTotal = _sinGPS ? _tiempoExtra : (_tiempoSes + _tiempoExtra);
+  var _tiempoSesionSinGPS = parseInt(window._ciTiempoExtra)||0; // tiempo total sesión cuando Sin GPS
+
+  // Tiempo sala por grupo del jugador — leer desde BFC_TIEMPOS_<sesId>
+  var _tiempoSalaGrupo = 0;
+  if(_sesIdRpe) {
+    try {
+      var _tiemposKey2 = 'BFC_TIEMPOS_' + _sesIdRpe;
+      var _tiemposObj = JSON.parse(localStorage.getItem(_tiemposKey2)||'{}') || {};
+      // Leer grupo del jugador desde BFC_GRUPOS_<sesId>
+      var _gruposKey2 = 'BFC_GRUPOS_' + _sesIdRpe;
+      var _gruposObj = JSON.parse(localStorage.getItem(_gruposKey2)||'{}') || {};
+      var _grupoJug = _gruposObj[_kioskoJugId] || 'campo';
+      var _gymVal = parseInt(_tiemposObj['gym_'+_grupoJug]) || 0;
+      _tiempoSalaGrupo = _gymVal;
+    } catch(e) {}
+  }
+
+  // Tiempo GPS del jugador (desde BFC_GPS_CAT — minutos de campo)
+  var _tiempoGpsJug = 0;
+  if(!_sinGPS) {
+    try {
+      var _gpsAll = JSON.parse(localStorage.getItem('BFC_GPS_CAT')||'[]') || [];
+      var _fechaGps = (_sesIdRpe && window._jornadaSesionActiva && window._jornadaSesionActiva.fecha) ? window._jornadaSesionActiva.fecha : TODAY;
+      var _gpsRec = safeArr(_gpsAll).find(function(r){
+        return (r.pid===_kioskoJugId||r.jugadorId===_kioskoJugId) && r.fecha===_fechaGps && (_sesIdRpe ? r.sesId===_sesIdRpe : true);
+      });
+      if(_gpsRec && _gpsRec.tiempo) _tiempoGpsJug = parseInt(_gpsRec.tiempo)||0;
+      // Si no hay GPS individual, usar el tiempo de sesión (sesData)
+      if(!_tiempoGpsJug) _tiempoGpsJug = _tiempoSes;
+    } catch(e) { _tiempoGpsJug = _tiempoSes; }
+  }
+
+  // Fórmula final:
+  // Sin GPS → UA = RPE × (tiempo_sesión + sala_grupo)
+  // Con GPS → UA = RPE × (tiempo_GPS_jugador + sala_grupo)
+  var _tiempoBase = _sinGPS ? _tiempoSesionSinGPS : _tiempoGpsJug;
+  var _tiempoTotal = _tiempoBase + _tiempoSalaGrupo;
 
   if(_tiempoTotal > 0) {
     var _ua = ciUA(_kioskoRpe, _tiempoTotal);
@@ -14903,10 +14970,8 @@ function kioskoGuardarRpe(){
       return !(!r.sesId && r.fecha===_fechaCI);
     });
     var _notaUA = _sinGPS
-      ? 'Sin GPS: RPE Kiosko × '+_tiempoExtra+' min sesión'
-      : (_tiempoExtra>0
-          ? 'RPE Kiosko × ('+_tiempoBase+' min GPS + '+_tiempoExtra+' min sala)'
-          : 'Auto: RPE Kiosko × duración sesión');
+      ? 'Sin GPS: RPE Kiosko × (' + _tiempoSesionSinGPS + ' min sesión' + (_tiempoSalaGrupo>0 ? ' + ' + _tiempoSalaGrupo + ' min sala' : '') + ')'
+      : ('RPE Kiosko × (' + _tiempoBase + ' min GPS' + (_tiempoSalaGrupo>0 ? ' + ' + _tiempoSalaGrupo + ' min sala' : '') + ')');
     CI_DB.push({
       id: 'ci_kiosko_'+Date.now()+'_'+_kioskoJugId,
       pid: _kioskoJugId,
@@ -25865,57 +25930,6 @@ function ciTabHoy(plantel){
   if(!fechasDisp.includes(hoy)) hoy = fechasDisp[0];
 
   var h = '';
-
-  // ── Panel configuración de sesión (tiempoExtra / sin GPS) ────────────
-  var _teVal = window._ciTiempoExtra || 0;
-  var _noGPS = window._ciSinGPS || false;
-  var _cfgOpen = window._ciCfgOpen || false;
-  // Resumen compacto de la fórmula activa para el botón
-  var _cfgLabel = _noGPS ? ('🚫 Sin GPS · ' + (_teVal||'?') + ' min') : (_teVal > 0 ? ('⚡ GPS + ' + _teVal + ' min sala') : '📡 Con GPS');
-  h += "<div style='margin-bottom:16px;'>";
-  h += "<button onclick='window._ciCfgOpen=!(window._ciCfgOpen||false);renderCargaInterna()' style='display:flex;align-items:center;gap:8px;padding:7px 14px;border:1px solid rgba(99,102,241,.25);border-radius:10px;background:rgba(99,102,241,.07);color:#818cf8;font-size:10px;font-weight:700;cursor:pointer;'>";
-  h += "<span>⚡ Config UA</span><span style='color:#64748b;font-weight:500;'>"+_cfgLabel+"</span><span style='font-size:9px;color:#475569;'>" + (_cfgOpen ? '▲' : '▼') + "</span>";
-  h += "</button>";
-  h += "<div id='ci-config-sesion' style='display:" + (_cfgOpen ? 'block' : 'none') + ";background:rgba(99,102,241,.07);border:1px solid rgba(99,102,241,.2);border-radius:0 0 14px 14px;padding:14px 18px;margin-top:-1px;border-top:none;'>";
-  h += "<div style='display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;'>";
-
-  // Toggle GPS / Sin GPS
-  h += "<div style='display:flex;flex-direction:column;gap:4px;'>";
-  h += "<div style='font-size:9px;font-weight:800;color:#888;letter-spacing:.06em;text-transform:uppercase;'>GPS</div>";
-  h += "<div style='display:flex;border:1px solid rgba(255,255,255,.12);border-radius:8px;overflow:hidden;'>";
-  h += "<button onclick='window._ciSinGPS=false;window._ciTiempoExtra=0;document.getElementById(\"ci-te-wrap\").style.display=\"flex\";document.getElementById(\"ci-nogps-wrap\").style.display=\"none\";var el=document.getElementById(\"ci-te-input\");if(el)el.value=\"0\";' style='padding:6px 14px;border:none;cursor:pointer;font-size:11px;font-weight:700;background:"+(_noGPS?'rgba(255,255,255,.05)':'rgba(99,102,241,.35)')+";color:"+(_noGPS?'#64748b':'#a5b4fc')+";'>📡 Con GPS</button>";
-  h += "<button onclick='window._ciSinGPS=true;document.getElementById(\"ci-te-wrap\").style.display=\"none\";document.getElementById(\"ci-nogps-wrap\").style.display=\"flex\";' style='padding:6px 14px;border:none;cursor:pointer;font-size:11px;font-weight:700;background:"+(_noGPS?'rgba(124,58,237,.35)':'rgba(255,255,255,.05)')+";color:"+(_noGPS?'#c084fc':'#64748b')+";'>🚫 Sin GPS</button>";
-  h += "</div></div>";
-
-  // Campo tiempoExtra (sala/pre) — visible solo con GPS
-  h += "<div id='ci-te-wrap' style='display:"+(_noGPS?'none':'flex')+";flex-direction:column;gap:4px;'>";
-  h += "<div style='font-size:9px;font-weight:800;color:#888;letter-spacing:.06em;text-transform:uppercase;'>Tiempo sala / pre-campo <span style='color:#f59e0b;'>(grupal)</span></div>";
-  h += "<div style='display:flex;align-items:center;gap:6px;'>";
-  h += "<input id='ci-te-input' type='number' min='0' max='120' value='"+_teVal+"' onchange='window._ciTiempoExtra=parseInt(this.value)||0;' style='width:70px;padding:6px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:rgba(255,255,255,.06);color:#e2e8f0;font-size:13px;font-weight:700;text-align:center;'>";
-  h += "<span style='font-size:11px;color:#64748b;'>min · UA += RPE × este tiempo</span>";
-  h += "</div></div>";
-
-  // Campo tiempo sesión sin GPS — visible solo sin GPS
-  h += "<div id='ci-nogps-wrap' style='display:"+(_noGPS?'flex':'none')+";flex-direction:column;gap:4px;'>";
-  h += "<div style='font-size:9px;font-weight:800;color:#888;letter-spacing:.06em;text-transform:uppercase;'>Tiempo total sesión <span style='color:#c084fc;'>(grupal)</span></div>";
-  h += "<div style='display:flex;align-items:center;gap:6px;'>";
-  h += "<input id='ci-nogps-input' type='number' min='0' max='240' value='"+_teVal+"' onchange='window._ciTiempoExtra=parseInt(this.value)||0;' style='width:70px;padding:6px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:rgba(255,255,255,.06);color:#e2e8f0;font-size:13px;font-weight:700;text-align:center;'>";
-  h += "<span style='font-size:11px;color:#64748b;'>min · UA = RPE × este tiempo (sin GPS)</span>";
-  h += "</div></div>";
-
-  // Resumen fórmula activa
-  if(_noGPS){
-    h += "<div style='padding:6px 12px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.2);border-radius:8px;font-size:10px;color:#c084fc;align-self:flex-end;'>";
-    h += "🚫 Sin GPS → <b>UA = RPE × "+(_teVal||'?')+" min sesión</b></div>";
-  } else if(_teVal > 0){
-    h += "<div style='padding:6px 12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);border-radius:8px;font-size:10px;color:#fbbf24;align-self:flex-end;'>";
-    h += "⚡ UA = RPE × (GPS + "+_teVal+" min sala)</div>";
-  } else {
-    h += "<div style='padding:6px 12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;font-size:10px;color:#475569;align-self:flex-end;'>";
-    h += "📡 UA = RPE × tiempo GPS (modo estándar)</div>";
-  }
-
-  h += "</div></div>"; // fin panel config
 
   // ── Selector de fecha + grupo ────────────────────────────────
   h += "<div style='display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;'>";
