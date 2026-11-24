@@ -21399,6 +21399,15 @@ function sesSubirImgFb(tareaIdx, dataUrl, fileName){
       sesSave();
       // Forzar sync inmediato a Firebase (sin esperar debounce)
       _sesSyncFbInmediato();
+      // 📸 Subir también al nodo permanente bfc/fotos_sesion/{sesId}
+      // Esto garantiza que la foto quede guardada aunque se cierre el browser antes de finalizar la sesión
+      var _sesIdActual = sesData._sesId || sesData._editandoHistId || null;
+      if(window.fbDB && _sesIdActual){
+        console.log('[BFC-FOTO] Subiendo foto tarea '+tareaIdx+' al nodo permanente fotos_sesion/'+_sesIdActual);
+        fbGuardarFotosSesion(_sesIdActual, sesData.tareas);
+      } else {
+        console.warn('[BFC-FOTO] No se pudo subir al nodo permanente: fbDB='+!!window.fbDB+' sesId='+_sesIdActual);
+      }
     }
   };
   img.onerror = function(){ _sesImgPending = Math.max(0, _sesImgPending - 1); };
