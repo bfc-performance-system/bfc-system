@@ -24765,7 +24765,9 @@ function histCargarSesionSilencioso(snap){
 }
 
 function renderHistorial(){
-  histLoad();
+  // ⚠️ NO llamar histLoad() — HISTORIAL_DB ya tiene el historial completo desde Firebase.
+  // histLoad() lo reemplazaría con solo las 15 últimas del localStorage, causando que
+  // histVerPDF / histEditarSesion no encuentren sesiones más antiguas y muestren contenido erróneo.
   var el = document.getElementById('page-historial');
   if(!el) return;
 
