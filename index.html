@@ -913,6 +913,7 @@ function jornadaPublicarActiva(ses){
     sesId: ses.id,
     fecha: ses.fecha,
     nombre: ses.nombre||'',
+    cdefSel: ses.cdefSel || (typeof sesData!=='undefined'?sesData.cdefSel||'':''),
     ts: Date.now()
   }).catch(function(e){ console.warn('[BFC] jornadaPublicarActiva err:', e.message); });
 }
@@ -940,6 +941,8 @@ function fbEscucharJornadaSesionActiva(){
       if(ses){
         // Si ya tenemos esta misma sesión activa, no hacer nada
         if(window._jornadaSesionActiva && window._jornadaSesionActiva.id===ses.id) return;
+        // Enriquecer con cdefSel desde Firebase si el objeto local no lo tiene
+        if(!ses.cdefSel && d.cdefSel) ses.cdefSel = d.cdefSel;
         window._jornadaSesionActiva = ses;
         console.log('[BFC-SYNC] jornada_sesion_activa sincronizada: '+ses.nombre+' ('+ses.fecha+')');
         // Refrescar pantalla si está en Jornada
@@ -20936,6 +20939,10 @@ function sesSave(){
   var cdefSelEl = document.getElementById("ses-cdef-sel");
   sesData.cdefSel  = cdefSelEl ? cdefSelEl.value : (sesData.cdefSel||"");
   sesData.cdefNota = document.getElementById("ses-cdef-nota") ? gEl("ses-cdef-nota") : (sesData.cdefNota||"");
+  // Propagar cdefSel a _jornadaSesionActiva para que todos los dispositivos lo reciban
+  if(sesData.cdefSel && window._jornadaSesionActiva && !window._jornadaSesionActiva.cdefSel){
+    window._jornadaSesionActiva.cdefSel = sesData.cdefSel;
+  }
   // Tareas — fallback al valor actual de sesData si el DOM no está visible
   sesData.tareas.forEach(function(t,i){
     t.titulo      = document.getElementById("ses-tt-"+i)   ? (gEl("ses-tt-"+i)  ||t.titulo)       : t.titulo;
@@ -21911,9 +21918,11 @@ function sesVerPreview(){
 
   var cdefLetterMap = {"C":"Cdef","CD":"CDef","D":"CDef","E":"cdEf","F":"cdeF","cdef":"cdef","CDEF":"CDEF"};
   var cdefLabelMap  = {"C":"Cdef — Creación","CD":"CDef — Decisión","D":"CDef — Decisión","E":"cdEf — Ejecución","F":"cdeF — Condición Física","cdef":"cdef — Recuperación","CDEF":"CDEF — MD (Partido)"};
-  // Leer CDEF directamente del DOM también
+  // Leer CDEF: DOM si disponible, luego sesData, luego _jornadaSesionActiva (sincronizado desde Firebase)
   var _cdefEl = document.getElementById("ses-cdef-sel");
-  var _cdefSel = _cdefEl ? _cdefEl.value : (sesData.cdefSel||"");
+  var _cdefDom = _cdefEl ? (_cdefEl.value||"") : "";
+  var _cdefActiva = (window._jornadaSesionActiva && window._jornadaSesionActiva.cdefSel) ? window._jornadaSesionActiva.cdefSel : "";
+  var _cdefSel = _cdefDom || (sesData.cdefSel||"") || _cdefActiva || (sesData.codigo||"");
   var cdefVal = _cdefSel ? (cdefLabelMap[_cdefSel]||_cdefSel) : "—";
 
   // Colores por posición
