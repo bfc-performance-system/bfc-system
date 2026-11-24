@@ -25804,39 +25804,40 @@ function renderCargaInterna(){
   if(!el) return;
   var plantel = JDB.length>0?JDB:PL;
 
-  var tabAct = window._ciTab||'resumen';
+  // Migrar tab keys antiguos a los nuevos
+  if(window._ciTab==='resumen')    window._ciTab='hoy';
+  if(window._ciTab==='individual') window._ciTab='jugador';
+  if(window._ciTab==='semanas')    window._ciTab='tendencia';
+  var tabAct = window._ciTab||'hoy';
 
   var h = "<div style='padding:20px;max-width:1100px;'>";
 
   // ── HEADER ──────────────────────────────────────────────────
   h += "<div class='ph' style='margin-bottom:0;'>"
-    + "<div><div class='ph-title'>🔴 Carga Interna</div>"
+    + "<div><div class='ph-title'>⚡ Carga Interna</div>"
     + "<div class='ph-sub'>RPE · Wellness · CMJ — Percepción subjetiva y estado neuromuscular</div></div></div>";
 
-  // ── TABS ────────────────────────────────────────────────────
+  // ── TABS (4 tabs, activa = blanco) ──────────────────────────
   var ciTabs = [
-    {k:'resumen',      l:'📊 Resumen hoy'},
+    {k:'hoy',          l:'📊 Hoy'},
     {k:'tendencia',    l:'📈 Tendencia'},
-    {k:'individual',   l:'👤 Individual'},
-    {k:'evaluaciones', l:'🦵 Evaluaciones'},
-    {k:'semanas',      l:'🏆 Semanas'}
+    {k:'jugador',      l:'👤 Jugador'},
+    {k:'evaluaciones', l:'🦵 Evaluaciones'}
   ];
   h += "<div style='display:flex;gap:2px;background:rgba(255,255,255,.06);border-radius:14px;padding:4px;margin-bottom:18px;flex-wrap:wrap;'>";
   ciTabs.forEach(function(t){
     var a = tabAct===t.k;
     h += '<button onclick="window._ciTab=\''+t.k+'\';renderCargaInterna()" style="'
-      + 'flex:1;min-width:90px;padding:9px 6px;border:none;border-radius:10px;cursor:pointer;font-size:11px;'
-      + 'font-weight:'+(a?'800':'500')+';background:'+(a?'rgba(239,68,68,.85)':'transparent')
+      + 'flex:1;min-width:80px;padding:9px 6px;border:'+(a?'1px solid rgba(255,255,255,.25)':'none')+';border-radius:10px;cursor:pointer;font-size:11px;'
+      + 'font-weight:'+(a?'800':'500')+';background:'+(a?'rgba(255,255,255,.12)':'transparent')
       + ';color:'+(a?'#fff':'#64748b')+';transition:all .15s;">'+t.l+'</button>';
   });
   h += "</div>";
 
-  if(tabAct==='resumen')      h += ciTabResumen(plantel);
+  if(tabAct==='hoy')          h += ciTabHoy(plantel);
   if(tabAct==='tendencia')    h += ciTabTendencia(plantel);
-  if(tabAct==='individual')   h += ciTabIndividualCI(plantel);
-  if(tabAct==='historial')    h += ciTabHistorialCI(plantel);
+  if(tabAct==='jugador')      h += ciTabJugador(plantel);
   if(tabAct==='evaluaciones') h += ciTabEvaluaciones(plantel);
-  if(tabAct==='semanas')      h += ciTabSemanas(plantel);
 
   h += "</div>";
   el.innerHTML = h;
@@ -25852,8 +25853,8 @@ function hexToRgb(hex){
   return parseInt(r,16)+','+parseInt(g,16)+','+parseInt(b,16);
 }
 
-// ── TAB 1: RESUMEN HOY ───────────────────────────────────────────
-function ciTabResumen(plantel){
+// ── TAB 1: HOY ───────────────────────────────────────────────────
+function ciTabHoy(plantel){
   ciLoad();
 
   // Fechas con datos disponibles (RPE o wellness)
@@ -26125,7 +26126,7 @@ function ciDetalleJugador(pid){
   if(avg7!==null) m += "<div style='margin-top:8px;font-size:10px;color:#64748b;text-align:right;'>Promedio 7d: <b style='color:"+_col(avg7)+";'>"+avg7+"/10</b></div>";
   m += "</div>";
   m += "<div style='padding:12px 20px;display:flex;gap:8px;'>";
-  m += "<button onclick='closeModal();window._ciTab=\"individual\";window._ciJugSel=\""+pid+"\";renderCargaInterna()' style='flex:1;padding:10px;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.4);border-radius:10px;color:#a5b4fc;font-size:11px;font-weight:800;cursor:pointer;'>&#128202; Ver historial completo</button>";
+  m += "<button onclick='closeModal();window._ciTab=\"jugador\";window._ciIndVista=\"jugador\";window._ciJugSel=\""+pid+"\";renderCargaInterna()' style='flex:1;padding:10px;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.4);border-radius:10px;color:#a5b4fc;font-size:11px;font-weight:800;cursor:pointer;'>&#128202; Ver detalle completo</button>";
   m += "<button onclick='closeModal()' style='padding:10px 16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:10px;color:#64748b;font-size:11px;font-weight:700;cursor:pointer;'>Cerrar</button>";
   m += "</div></div>";
   showModal(m);
@@ -26137,22 +26138,25 @@ window.ciDetalleJugador = ciDetalleJugador;
 function ciTabTendencia(plantel){
   var h = '';
   var _ciGrpTend = window._ciGrupoFil || 'campo';
-  var tendVista  = window._ciTendVista || 'diaria'; // 'diaria' | 'ua'
+  var tendVista  = window._ciTendVista || 'diaria'; // 'diaria' | 'ua' | 'semanas'
   var tendPer    = window._ciTendPer   || '14';
 
   // ── Barra de controles ──
   h += "<div style='display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;'>";
-  // Toggle vista
+  // Toggle vista (3 opciones)
   h += "<div style='display:flex;border:1px solid rgba(255,255,255,.1);border-radius:8px;overflow:hidden;margin-right:4px;'>";
-  h += "<button onclick='window._ciTendVista=\"diaria\";renderCargaInterna()' style='padding:6px 13px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(tendVista==='diaria'?'rgba(99,102,241,.35)':'rgba(255,255,255,.04)')+";color:"+(tendVista==='diaria'?'#a5b4fc':'#64748b')+";'>📈 Diaria</button>";
-  h += "<button onclick='window._ciTendVista=\"ua\";renderCargaInterna()' style='padding:6px 13px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(tendVista==='ua'?'rgba(99,102,241,.35)':'rgba(255,255,255,.04)')+";color:"+(tendVista==='ua'?'#a5b4fc':'#64748b')+";'>⚡ UA / Historial</button>";
+  h += "<button onclick='window._ciTendVista=\"diaria\";renderCargaInterna()' style='padding:6px 13px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(tendVista==='diaria'?'rgba(255,255,255,.12)':'rgba(255,255,255,.04)')+";color:"+(tendVista==='diaria'?'#fff':'#64748b')+";'>📈 Diaria</button>";
+  h += "<button onclick='window._ciTendVista=\"ua\";renderCargaInterna()' style='padding:6px 13px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(tendVista==='ua'?'rgba(255,255,255,.12)':'rgba(255,255,255,.04)')+";color:"+(tendVista==='ua'?'#fff':'#64748b')+";'>⚡ UA</button>";
+  h += "<button onclick='window._ciTendVista=\"semanas\";renderCargaInterna()' style='padding:6px 13px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(tendVista==='semanas'?'rgba(255,255,255,.12)':'rgba(255,255,255,.04)')+";color:"+(tendVista==='semanas'?'#fff':'#64748b')+";'>🏆 Semanas</button>";
   h += "</div>";
-  // Período
-  h += "<select onchange='window._ciTendPer=this.value;renderCargaInterna()' style='padding:7px 10px;border:1px solid var(--border-b);border-radius:8px;font-size:11px;background:var(--bg-card);color:#e2e8f0;'>";
-  [{v:'7',l:'7 días'},{v:'14',l:'14 días'},{v:'30',l:'30 días'}].forEach(function(op){
-    h += "<option value='"+op.v+"'"+(tendPer===op.v?' selected':'')+">"+op.l+"</option>";
-  });
-  h += "</select>";
+  // Período (solo vistas diaria y ua)
+  if(tendVista!=='semanas'){
+    h += "<select onchange='window._ciTendPer=this.value;renderCargaInterna()' style='padding:7px 10px;border:1px solid var(--border-b);border-radius:8px;font-size:11px;background:var(--bg-card);color:#e2e8f0;'>";
+    [{v:'7',l:'7 días'},{v:'14',l:'14 días'},{v:'30',l:'30 días'}].forEach(function(op){
+      h += "<option value='"+op.v+"'"+(tendPer===op.v?' selected':'')+">"+op.l+"</option>";
+    });
+    h += "</select>";
+  }
   // Grupo (solo vista diaria)
   if(tendVista==='diaria'){
     h += htmlSelectorGrupo('_ciGrupoFil', 'renderCargaInterna', _ciGrpTend);
@@ -26273,16 +26277,23 @@ function ciTabTendencia(plantel){
   }
 
   // ══════════════════════════════════════════
+  // VISTA SEMANAS — comparativa semanal integrada
+  // ══════════════════════════════════════════
+  if(tendVista === 'semanas'){
+    h += ciTabSemanas(plantel);
+    return h;
+  }
+
+  // ══════════════════════════════════════════
   // VISTA UA / HISTORIAL — barras UA por jugador
-  // (esta vista llama directamente a ciTabHistorialCI con el período seleccionado)
   // ══════════════════════════════════════════
   window._ciHisFiltPer = tendPer;
   h += ciTabHistorialCI(plantel);
   return h;
 }
 
-// ── TAB 3: INDIVIDUAL ────────────────────────────────────────────
-function ciTabIndividualCI(plantel){
+// ── TAB 3: JUGADOR ───────────────────────────────────────────────
+function ciTabJugador(plantel){
   var selId    = window._ciJugSel  || '';
   var selPer   = window._ciIndPer  || '30';
   var vistaInd = window._ciIndVista || 'posicion'; // 'posicion' | 'jugador'
@@ -26368,8 +26379,8 @@ function ciTabIndividualCI(plantel){
   h += "<div style='display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;'>";
   // Toggle vista
   h += "<div style='display:flex;border:1px solid rgba(255,255,255,.1);border-radius:8px;overflow:hidden;margin-right:4px;'>";
-  h += "<button onclick='window._ciIndVista=\"posicion\";window._ciJugSel=\"\";renderCargaInterna()' style='padding:6px 13px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(vistaInd==='posicion'?'rgba(99,102,241,.35)':'rgba(255,255,255,.04)')+";color:"+(vistaInd==='posicion'?'#a5b4fc':'#64748b')+";'>👥 Por posición</button>";
-  h += "<button onclick='window._ciIndVista=\"jugador\";renderCargaInterna()' style='padding:6px 13px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(vistaInd==='jugador'?'rgba(99,102,241,.35)':'rgba(255,255,255,.04)')+";color:"+(vistaInd==='jugador'?'#a5b4fc':'#64748b')+";'>👤 Jugador</button>";
+  h += "<button onclick='window._ciIndVista=\"posicion\";window._ciJugSel=\"\";renderCargaInterna()' style='padding:6px 13px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(vistaInd==='posicion'?'rgba(255,255,255,.12)':'rgba(255,255,255,.04)')+";color:"+(vistaInd==='posicion'?'#fff':'#64748b')+";'>👥 Por posición</button>";
+  h += "<button onclick='window._ciIndVista=\"jugador\";renderCargaInterna()' style='padding:6px 13px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(vistaInd==='jugador'?'rgba(255,255,255,.12)':'rgba(255,255,255,.04)')+";color:"+(vistaInd==='jugador'?'#fff':'#64748b')+";'>👤 Jugador</button>";
   h += "</div>";
   // Período
   h += "<select onchange='window._ciIndPer=this.value;renderCargaInterna()' style='padding:7px 10px;border:1px solid var(--border-b);border-radius:8px;font-size:11px;background:var(--bg-card);color:#e2e8f0;'>";
@@ -26447,7 +26458,7 @@ function ciTabIndividualCI(plantel){
         var rpeCol = rpeAvg===null?'#475569':rpeAvg>=8?'#ef4444':rpeAvg>=6?'#f59e0b':'#22c55e';
         var wCol   = wellAvg===null?'#475569':wellAvg>=7?'#22c55e':wellAvg>=4?'#f59e0b':'#ef4444';
 
-        h += "<div onclick='window._ciIndVista=\"jugador\";window._ciJugSel=\""+pid+"\";renderCargaInterna()' style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px;cursor:pointer;transition:border-color .15s;' onmouseover='this.style.borderColor=\""+mg.color+"\"' onmouseout='this.style.borderColor=\"rgba(255,255,255,.08)\"'>";
+        h += "<div onclick='window._ciTab=\"jugador\";window._ciIndVista=\"jugador\";window._ciJugSel=\""+pid+"\";renderCargaInterna()' style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px;cursor:pointer;transition:border-color .15s;' onmouseover='this.style.borderColor=\""+mg.color+"\"' onmouseout='this.style.borderColor=\"rgba(255,255,255,.08)\"'>";
         h += "<div style='font-size:12px;font-weight:800;color:#e2e8f0;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>"+escHtml(nom)+"</div>";
         if(posEsp) h += "<div style='font-size:9px;color:#64748b;margin-bottom:9px;'>"+escHtml(posEsp)+"</div>";
 
@@ -26508,7 +26519,7 @@ function ciTabIndividualCI(plantel){
 
   // Volver a posición
   h += "<div style='margin-bottom:12px;'>";
-  h += "<button onclick='window._ciIndVista=\"posicion\";window._ciJugSel=\"\";renderCargaInterna()' style='background:transparent;border:1px solid rgba(255,255,255,.12);color:#64748b;border-radius:8px;padding:5px 12px;font-size:11px;cursor:pointer;'>← Volver a posiciones</button>";
+  h += "<button onclick='window._ciIndVista=\"posicion\";window._ciJugSel=\"\";window._ciTab=\"jugador\";renderCargaInterna()' style='background:transparent;border:1px solid rgba(255,255,255,.12);color:#64748b;border-radius:8px;padding:5px 12px;font-size:11px;cursor:pointer;'>← Volver a posiciones</button>";
   h += "<span style='font-size:13px;font-weight:800;color:#e2e8f0;margin-left:14px;'>"+escHtml(nom2)+"</span>";
   if(pos2) h += "<span style='font-size:10px;color:#64748b;background:rgba(255,255,255,.05);border-radius:5px;padding:2px 8px;margin-left:8px;'>"+escHtml(pos2)+"</span>";
   h += "</div>";
@@ -26642,8 +26653,8 @@ function ciTabHistorialCI(plantel){
   h += "<div style='display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;'>";
   // Toggle vista
   h += "<div style='display:flex;border:1px solid rgba(255,255,255,.1);border-radius:8px;overflow:hidden;margin-right:4px;'>";
-  h += "<button onclick='window._ciHisVista=\"visual\";renderCargaInterna()' style='padding:6px 12px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(vistaHis==='visual'?'rgba(99,102,241,.35)':'rgba(255,255,255,.04)')+";color:"+(vistaHis==='visual'?'#a5b4fc':'#64748b')+";'>📊 Visual</button>";
-  h += "<button onclick='window._ciHisVista=\"tabla\";renderCargaInterna()' style='padding:6px 12px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(vistaHis==='tabla'?'rgba(99,102,241,.35)':'rgba(255,255,255,.04)')+";color:"+(vistaHis==='tabla'?'#a5b4fc':'#64748b')+";'>📋 Tabla</button>";
+  h += "<button onclick='window._ciHisVista=\"visual\";renderCargaInterna()' style='padding:6px 12px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(vistaHis==='visual'?'rgba(255,255,255,.12)':'rgba(255,255,255,.04)')+";color:"+(vistaHis==='visual'?'#fff':'#64748b')+";'>📊 Visual</button>";
+  h += "<button onclick='window._ciHisVista=\"tabla\";renderCargaInterna()' style='padding:6px 12px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:"+(vistaHis==='tabla'?'rgba(255,255,255,.12)':'rgba(255,255,255,.04)')+";color:"+(vistaHis==='tabla'?'#fff':'#64748b')+";'>📋 Tabla</button>";
   h += "</div>";
   // Filtro período
   h += "<select onchange='window._ciHisFiltPer=this.value;renderCargaInterna()' style='padding:7px 10px;border:1px solid var(--border-b);border-radius:8px;font-size:11px;background:var(--bg-card);color:#e2e8f0;'>";
@@ -26943,8 +26954,8 @@ function ciTabSemanas(plantel){
   var _ciGrpSem = window._ciGrupoFil || 'campo';
   h += "<div style='display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;'>";
   h += "<div style='display:flex;border:1px solid rgba(255,255,255,.12);border-radius:10px;overflow:hidden;'>";
-  h += "<button onclick='window._ciSemMode=\"equipo\";renderCargaInterna()' style='padding:8px 16px;border:none;cursor:pointer;font-size:11px;font-weight:700;background:"+(selMode==='equipo'?'rgba(239,68,68,.35)':'rgba(255,255,255,.04)')+";color:"+(selMode==='equipo'?'#fca5a5':'#64748b')+";'>👥 Equipo</button>";
-  h += "<button onclick='window._ciSemMode=\"jugador\";renderCargaInterna()' style='padding:8px 16px;border:none;cursor:pointer;font-size:11px;font-weight:700;background:"+(selMode==='jugador'?'rgba(239,68,68,.35)':'rgba(255,255,255,.04)')+";color:"+(selMode==='jugador'?'#fca5a5':'#64748b')+";'>👤 Jugador</button>";
+  h += "<button onclick='window._ciSemMode=\"equipo\";renderCargaInterna()' style='padding:8px 16px;border:none;cursor:pointer;font-size:11px;font-weight:700;background:"+(selMode==='equipo'?'rgba(255,255,255,.12)':'rgba(255,255,255,.04)')+";color:"+(selMode==='equipo'?'#fff':'#64748b')+";'>👥 Equipo</button>";
+  h += "<button onclick='window._ciSemMode=\"jugador\";renderCargaInterna()' style='padding:8px 16px;border:none;cursor:pointer;font-size:11px;font-weight:700;background:"+(selMode==='jugador'?'rgba(255,255,255,.12)':'rgba(255,255,255,.04)')+";color:"+(selMode==='jugador'?'#fff':'#64748b')+";'>👤 Jugador</button>";
   h += "</div>";
   if(selMode==='jugador'){
     h += "<select onchange='window._ciSemJug=this.value;renderCargaInterna()' style='padding:8px 14px;border:1px solid var(--border-b);border-radius:10px;font-size:12px;font-weight:700;background:var(--bg-card);color:#e2e8f0;'>";
