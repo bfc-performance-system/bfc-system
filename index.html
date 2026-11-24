@@ -26405,7 +26405,7 @@ function ciTabJugador(plantel){
 
   // Helper toggle grupo (máx 2) — llama función global para evitar conflicto de comillas
   function toggleGrupoJS(k){
-    return "ciToggleGrupo('"+k+"')";
+    return 'ciToggleGrupo("'+k+'")';
   }
 
   // Rango de fechas
@@ -26625,7 +26625,7 @@ function ciTabJugador(plantel){
   if(diasOrden.length>1){
     h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px;'>";
     h += "<div style='font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;'>📈 Evolución UA / RPE / Wellness — últimos "+selPer+" días</div>";
-    var svgW3=620,svgH3=170,pL3=36,pR3=10,pT3=14,pB3=28;
+    var svgW3=620,svgH3=180,pL3=46,pR3=14,pT3=14,pB3=28;
     var cW3=svgW3-pL3-pR3, cH3=svgH3-pT3-pB3;
     var n3=diasOrden.length, stepX3=n3>1?cW3/(n3-1):cW3;
     var maxUA3=200;
@@ -26633,22 +26633,29 @@ function ciTabJugador(plantel){
     maxUA3=Math.ceil(maxUA3/100)*100;
 
     h += "<div style='overflow-x:auto;'><svg viewBox='0 0 "+svgW3+" "+svgH3+"' style='width:100%;max-width:"+svgW3+"px;'>";
-    // Guías
+    // Guías — eje izquierdo para RPE/Wellness (/10), eje derecho para UA (valor absoluto)
     [2,4,6,8,10].forEach(function(v){
       var y3=pT3+cH3-(v/10)*cH3;
       h+="<line x1='"+pL3+"' y1='"+y3+"' x2='"+(svgW3-pR3)+"' y2='"+y3+"' stroke='rgba(255,255,255,.04)' stroke-width='1'/>";
-      h+="<text x='"+(pL3-4)+"' y='"+(y3+3)+"' text-anchor='end' font-size='8' fill='#475569'>"+v+"</text>";
+      // Eje izquierdo: escala /10 (RPE y Wellness)
+      h+="<text x='"+(pL3-5)+"' y='"+(y3+3)+"' text-anchor='end' font-size='8' fill='#475569'>"+v+"</text>";
+      // Eje derecho: escala UA absoluta
+      var uaVal=Math.round((v/10)*maxUA3);
+      h+="<text x='"+(svgW3-pR3+5)+"' y='"+(y3+3)+"' text-anchor='start' font-size='7' fill='#f9731655'>"+uaVal+"</text>";
     });
     // Paleta unificada
     var COL_UA_J='#f97316', COL_WELL_J='#8b5cf6', COL_RPE_J='#38bdf8';
-    // Barras UA (naranja unificado)
-    var bW4=Math.max(5,Math.floor(stepX3*0.45));
+    // Barras UA (naranja unificado) + etiqueta dentro de la barra
+    var bW4=Math.max(8,Math.floor(stepX3*0.45));
     diasOrden.forEach(function(d,i){
       var ua=unionDias[d].ua;
       if(!ua) return;
       var scaledUA=(ua/maxUA3)*10;
       var bH4=(scaledUA/10)*cH3, x4=pL3+i*stepX3-bW4/2, y4=pT3+cH3-bH4;
       h+="<rect x='"+x4+"' y='"+y4+"' width='"+bW4+"' height='"+bH4+"' rx='2' fill='"+COL_UA_J+"' opacity='.65'/>";
+      // Etiqueta del valor UA dentro/sobre la barra
+      var lblY = bH4>16 ? y4+bH4-5 : y4-3;
+      h+="<text x='"+(x4+bW4/2)+"' y='"+lblY+"' text-anchor='middle' font-size='7' font-weight='700' fill='"+(bH4>16?'#fff':'#f97316')+"'>"+ua+"</text>";
     });
     // Línea Wellness (violeta sólida)
     var wPts3=diasOrden.map(function(d,i){ var w=unionDias[d].well; return w!==null&&w!==undefined?{x:pL3+i*stepX3,y:pT3+cH3-(w/10)*cH3}:null; }).filter(Boolean);
