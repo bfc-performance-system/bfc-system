@@ -21201,6 +21201,16 @@ function sesEscucharFb(){
     // Solo aplicar datos más nuevos que los que ya aplicamos
     if(tsRemoto <= _sesLastRemoteTs) return;
 
+    // ⚠️ GUARD DE FECHA: si el update remoto es de otro día, ignorarlo.
+    // Protege contra el caso en que un dispositivo (ej: iPad) no cerró bien la sesión
+    // anterior y sube datos viejos a bfc/sesion_activa con un timestamp alto.
+    var fechaRemota = d._fecha || d.fecha || '';
+    if(fechaRemota && fechaRemota !== TODAY){
+      console.warn('[BFC] sesEscucharFb — ignorando update remoto de otro día ('+fechaRemota+' vs hoy '+TODAY+'). Eliminando nodo huérfano.');
+      window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
+      return;
+    }
+
     // ── Antes de aplicar: leer campos del DOM para no perder texto en edición ──
     // (el usuario puede estar escribiendo en un textarea cuando llega el update)
     if(sesData && typeof sesSave === 'function'){
@@ -21319,6 +21329,16 @@ function sesCargarActivaFb(cb){
       if(cb) cb(!!localGuardado);
       return;
     }
+    // ⚠️ GUARD DE FECHA: si el nodo tiene fecha de otro día, es una sesión huérfana
+    // (el remove() de sesFinalizar() falló silenciosamente por error de red).
+    // Limpiar el nodo y no aplicar sus datos para no contaminar la sesión de hoy.
+    var fechaRemota = d._fecha || d.fecha || '';
+    if(fechaRemota && fechaRemota !== TODAY){
+      console.warn('[BFC] sesCargarActivaFb — nodo sesion_activa es de otro día ('+fechaRemota+' vs hoy '+TODAY+'). Eliminando nodo huérfano.');
+      window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
+      if(cb) cb(!!localGuardado);
+      return;
+    }
     var tsRemoto = d._ts || 0;
     // Si no tenemos sesión local, o Firebase es más reciente: aplicar Firebase
     if(tsRemoto > localTs || !localGuardado){
@@ -21379,7 +21399,24 @@ function sesFinalizar(){
   // de bfc/historial llegue a Firebase primero y el listener no lo sobreescriba
   setTimeout(function(){
     if(window.fbDB){
-      window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
+      // Intentar eliminar con reintento: si falla por red, reintentar 2 veces más
+      // para evitar que quede un nodo huérfano que contamine la sesión del día siguiente.
+      var _removeRef = window.fbDB.ref('bfc/sesion_activa');
+      var _removeIntentos = 0;
+      function _intentarRemove(){
+        _removeIntentos++;
+        _removeRef.remove().then(function(){
+          console.log('[BFC] sesFinalizar — bfc/sesion_activa eliminado correctamente.');
+        }).catch(function(e){
+          if(_removeIntentos < 3){
+            console.warn('[BFC] sesFinalizar — fallo al eliminar sesion_activa (intento '+_removeIntentos+'), reintentando…');
+            setTimeout(_intentarRemove, 2000);
+          } else {
+            console.error('[BFC] sesFinalizar — no se pudo eliminar sesion_activa tras 3 intentos:', e && e.message);
+          }
+        });
+      }
+      _intentarRemove();
     }
     // Mostrar pantalla de nueva sesión en blanco con mensaje informativo
     sesData = null;
