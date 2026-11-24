@@ -8965,13 +8965,18 @@ function renderProgramacion() {
   if(_modoManana) h += "<span style='font-size:8px;font-weight:700;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#94a3b8;border-radius:5px;padding:1px 6px;margin-left:auto;'>+14:00</span>";
   h += "</div>";
 
-  // Código día + badge carga (único color de acento) + tipo y contenido en neutro
+  // Código día + badge carga + CDEF (todo en una sola fila)
+  var _cardSesValid = _cardSes && (_cardSes.fecha || _cardSes.fechaSes || '') === _cardFecha ? _cardSes : null;
   if (_cardMcDia) {
     var cargaC = cargaColor[(_cardMcDia.carga||'').toLowerCase()] || '#94a3b8';
-    h += "<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;'>";
+    h += "<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;'>";
     h += "<span style='font-size:20px;font-weight:900;color:#f1f5f9;letter-spacing:-.5px;'>" + (_cardMcDia.rel||'—') + "</span>";
     // Badge carga: único elemento con color semafórico
     h += "<span style='font-size:11px;font-weight:900;padding:3px 10px;border-radius:7px;background:"+cargaC+"30;border:1.5px solid "+cargaC+"88;color:"+cargaC+";text-transform:uppercase;letter-spacing:.04em;'>" + (_cardMcDia.carga||'—') + "</span>";
+    // CDEF en la misma fila, gris neutro
+    if (_cardSesValid && _cardSesValid.cdefSel) {
+      h += "<span style='margin-left:2px;'>" + cdefHtml(_cardSesValid.cdefSel) + "</span>";
+    }
     h += "</div>";
     if (_cardMcDia.tipo && _cardMcDia.tipo !== 'descanso') {
       h += "<div style='font-size:10px;font-weight:700;color:#cbd5e1;margin-bottom:6px;'>"
@@ -8981,11 +8986,8 @@ function renderProgramacion() {
     }
   }
 
-  // CDEF
-  var _cardSesValid = _cardSes && (_cardSes.fecha || _cardSes.fechaSes || '') === _cardFecha ? _cardSes : null;
-  if (_cardSesValid && _cardSesValid.cdefSel) {
-    h += "<div style='margin-bottom:6px;'>" + cdefHtml(_cardSesValid.cdefSel) + "</div>";
-  } else if (_cardMcDia && _cardMcDia.tipo === 'descanso') {
+  // Día de descanso (solo si no hay sesión)
+  if (!_cardSesValid && _cardMcDia && _cardMcDia.tipo === 'descanso') {
     h += "<div style='font-size:11px;color:#64748b;font-weight:600;margin-bottom:6px;'>Día de descanso</div>";
   }
 
@@ -8998,7 +9000,6 @@ function renderProgramacion() {
     h += "<span style='font-size:14px;'>"+_sesIcon+"</span>";
     h += "<div style='flex:1;'>";
     h += "<div style='font-size:11px;font-weight:800;color:#e2e8f0;'>"+_sesLabel+"</div>";
-    if (_cardSesDisplay.cdefSel) h += "<div style='font-size:9px;color:#475569;margin-top:1px;'>CDEF: "+_cardSesDisplay.cdefSel+(_cardSesDisplay.duracion?' · '+_cardSesDisplay.duracion+' min':'')+"</div>";
     h += "</div>";
     h += "<button onclick=\"event.stopPropagation();dashVerSesionHoy('"+_cardFecha+"')\" style='flex-shrink:0;background:rgba(255,255,255,.08);border:1.5px solid rgba(255,255,255,.18);color:#e2e8f0;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:4px;'>👁 Ver</button>";
     h += "</div>";
