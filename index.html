@@ -939,16 +939,32 @@ function fbEscucharJornadaSesionActiva(){
       // Buscar la sesión en BIEN_SESIONES local
       var ses = safeArr(BIEN_SESIONES).find(function(s){ return s.id===d.sesId; });
       if(ses){
-        // Si ya tenemos esta misma sesión activa, no hacer nada
-        if(window._jornadaSesionActiva && window._jornadaSesionActiva.id===ses.id) return;
-        // Enriquecer con cdefSel desde Firebase si el objeto local no lo tiene
-        if(!ses.cdefSel && d.cdefSel) ses.cdefSel = d.cdefSel;
+        // Siempre actualizar campos desde Firebase (nombre, cdefSel pueden haber cambiado)
+        // — NO retornar aunque ya tengamos esta sesión activa: el contenido puede haber cambiado
+        var _mismaId = window._jornadaSesionActiva && window._jornadaSesionActiva.id===ses.id;
+        // Enriquecer con campos que vienen del payload de Firebase (siempre, no solo si faltan)
+        if(d.cdefSel) ses.cdefSel = d.cdefSel;
+        if(d.nombre)  ses.nombre  = d.nombre;
         window._jornadaSesionActiva = ses;
-        console.log('[BFC-SYNC] jornada_sesion_activa sincronizada: '+ses.nombre+' ('+ses.fecha+')');
-        // Refrescar pantalla si está en Jornada
+        if(_mismaId){
+          // Misma sesión — solo refrescar si el payload trae un ts más reciente (evita loops)
+          var _tsLocal = window._jornadaSesActiTs || 0;
+          var _tsRemoto = d.ts || 0;
+          if(_tsRemoto <= _tsLocal) return;
+          window._jornadaSesActiTs = _tsRemoto;
+          console.log('[BFC-SYNC] jornada_sesion_activa actualizada (mismo id, nuevo ts): '+ses.nombre+' cdef='+ses.cdefSel);
+        } else {
+          window._jornadaSesActiTs = d.ts || 0;
+          console.log('[BFC-SYNC] jornada_sesion_activa sincronizada: '+ses.nombre+' ('+ses.fecha+')');
+        }
+        // Refrescar pantalla si está en Jornada o Inicio
         var pgJ = document.getElementById('page-jornada');
         if(pgJ && pgJ.classList.contains('on') && typeof renderJornada==='function'){
           setTimeout(renderJornada, 150);
+        }
+        var pgI = document.getElementById('page-inicio');
+        if(pgI && pgI.classList.contains('on') && typeof renderInicio==='function'){
+          setTimeout(renderInicio, 150);
         }
       }
     }
@@ -1044,7 +1060,16 @@ function fbEscuchar() {
         _bsArr.push(_bsActiva);
         _bsArr.sort(function(a,b){ var df=(b.fecha||'').localeCompare(a.fecha||''); if(df!==0)return df; return (b.creadaEn||'').localeCompare(a.creadaEn||''); });
       }
-      if(JSON.stringify(_bsArr) !== JSON.stringify(BIEN_SESIONES)){ BIEN_SESIONES = _bsArr; try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){} rerender = true; }
+      if(JSON.stringify(_bsArr) !== JSON.stringify(BIEN_SESIONES)){
+        BIEN_SESIONES = _bsArr;
+        try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){}
+        // Fix sync: actualizar _jornadaSesionActiva al objeto nuevo del array
+        if(window._jornadaSesionActiva && window._jornadaSesionActiva.id){
+          var _saf = BIEN_SESIONES.find(function(s){ return s.id===window._jornadaSesionActiva.id; });
+          if(_saf) window._jornadaSesionActiva = _saf;
+        }
+        rerender = true;
+      }
     }
     if (d.pruebas && JSON.stringify(d.pruebas) !== JSON.stringify(PRUEBAS))     { PRUEBAS   = d.pruebas;   rerender = true; }
     if (d.ci_db   && JSON.stringify(d.ci_db)   !== JSON.stringify(CI_DB))       { CI_DB     = d.ci_db;     try{ localStorage.setItem('BFC_CI', JSON.stringify(CI_DB)); }catch(e){} rerender = true; }
@@ -1477,6 +1502,17 @@ function fbEscucharSubnodos(){
     if(JSON.stringify(arr)===JSON.stringify(BIEN_SESIONES)) return;
     BIEN_SESIONES = arr;
     try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){}
+    // ── Fix sync: actualizar _jornadaSesionActiva para que apunte al objeto nuevo del array ──
+    // Cuando Firebase devuelve bien_sesiones, crea nuevos objetos JS. La referencia antigua
+    // en _jornadaSesionActiva queda "colgada" sin los cambios recientes del otro dispositivo.
+    if(window._jornadaSesionActiva && window._jornadaSesionActiva.id){
+      var _sesActualizadaFb = BIEN_SESIONES.find(function(s){ return s.id===window._jornadaSesionActiva.id; });
+      if(_sesActualizadaFb){
+        // Preservar campos locales que Firebase no almacena (como grupos, tiempos locales)
+        window._jornadaSesionActiva = _sesActualizadaFb;
+        console.log('[BFC-SYNC] bien_sesiones: _jornadaSesionActiva actualizada al objeto nuevo de Firebase:', _sesActualizadaFb.nombre, 'cdef='+(_sesActualizadaFb.cdefSel||'—'));
+      }
+    }
     console.log('[BFC-SYNC] bien_sesiones actualizado:', BIEN_SESIONES.length);
     var pgJ = document.getElementById('page-jornada');
     if(pgJ && pgJ.classList.contains('on') && typeof renderJornada==='function') renderJornada();
@@ -7586,6 +7622,10 @@ function jornadaRenombrar(sesId){
   try{ localStorage.setItem('bfc_bien_sesiones', JSON.stringify(BIEN_SESIONES)); }catch(e){}
   if(window.fbDB){
     window.fbDB.ref('bfc/bien_sesiones/'+sesId+'/nombre').set(nuevoNombre).catch(function(){});
+  }
+  // Re-publicar sesión activa para notificar a todos los dispositivos del nuevo nombre
+  if(window._jornadaSesionActiva && window._jornadaSesionActiva.id===sesId){
+    jornadaPublicarActiva(window._jornadaSesionActiva);
   }
   guardar(); fbGuardar();
   fbAuditLog('jornada','Sesión renombrada: '+nuevoNombre+' ('+sesId+')');
@@ -20923,7 +20963,8 @@ function sesSave(){
   sesData.cdefSel  = cdefSelEl ? cdefSelEl.value : (sesData.cdefSel||"");
   sesData.cdefNota = document.getElementById("ses-cdef-nota") ? gEl("ses-cdef-nota") : (sesData.cdefNota||"");
   // Propagar cdefSel a _jornadaSesionActiva para que todos los dispositivos lo reciban
-  if(sesData.cdefSel && window._jornadaSesionActiva && !window._jornadaSesionActiva.cdefSel){
+  // Siempre actualizar (no solo cuando no lo tenía) — el CDEF puede haber cambiado
+  if(sesData.cdefSel && window._jornadaSesionActiva){
     window._jornadaSesionActiva.cdefSel = sesData.cdefSel;
   }
   // Tareas — fallback al valor actual de sesData si el DOM no está visible
