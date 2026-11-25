@@ -29284,12 +29284,22 @@ function dispGuardarEstado(){
   dispSave();
   // NOTA: NO se modifica _plantillaDisp — Disponibilidad (médica) y Plantilla (táctica) son completamente independientes
   // Auto-crear expediente clínico si el estado lo requiere
+  expLoad();
   if(EXP_ESTADOS_ACTIVOS.indexOf(_dispEstadoSel)!==-1){
     var _retEst = document.getElementById('disp-retorno') ? document.getElementById('disp-retorno').value : '';
     var _resp   = document.getElementById('disp-responsable') ? document.getElementById('disp-responsable').value : '';
     var _regBy  = document.getElementById('disp-registradopor') ? document.getElementById('disp-registradopor').value : 'Médico';
     var _notas  = document.getElementById('disp-notas') ? document.getElementById('disp-notas').value : '';
     expCrearOReabrir(jid, _dispEstadoSel, _notas, _retEst, _resp, _regBy);
+  } else {
+    // Si el jugador vuelve a disponible/restriccion/recuperacion → cerrar expediente activo
+    var _expActivo = EXPEDIENTES_DB.find(function(e){ return e.jugadorId===jid && e.activo; });
+    if(_expActivo){
+      _expActivo.activo = false;
+      _expActivo.fechaCierre = fecha;
+      _expActivo.motivoCierre = 'Alta médica — retorno a '+_dispEstadoSel+' (Control Diario)';
+      expSave();
+    }
   }
   dispCerrarModal();
   // Si la plantilla está visible, actualizar para reflejar el nuevo estado
@@ -29803,20 +29813,47 @@ function dispTabAreaMedica(plantel, hoy){
   var rol = window._userRol || '';
   var esMedico = (rol==='medico'||rol==='fisio'||rol==='pf'||rol==='readaptador');
 
-  // ── Asegurar que jugadores marcados en DISP_DB tengan expediente ─
-  // Si hoy hay registros de baja/rehabilitacion/readaptacion en DISP_DB
-  // sin expediente activo correspondiente, créalo automáticamente
-  var dispHoy = safeArr(DISP_DB).filter(function(r){
-    return r.fecha===hoy && EXP_ESTADOS_ACTIVOS.indexOf(r.estado)>=0;
+  // ── Escaneo retroactivo: sincronizar TODO DISP_DB con Área Médica ─
+  // Para cada jugador, encontrar su registro más reciente en DISP_DB.
+  // Si ese registro tiene estado activo (baja/rehabilitacion/readaptacion)
+  // y no tiene expediente abierto → crear expediente con la fecha del primer registro.
+  // Si ese registro tiene estado disponible y tiene expediente abierto → cerrar expediente.
+  var jugadoresConHistorial = {};
+  safeArr(DISP_DB).forEach(function(r){
+    if(!jugadoresConHistorial[r.jugadorId]) jugadoresConHistorial[r.jugadorId] = [];
+    jugadoresConHistorial[r.jugadorId].push(r);
   });
-  dispHoy.forEach(function(r){
-    var tieneExp = EXPEDIENTES_DB.find(function(e){ return e.jugadorId===r.jugadorId && e.activo; });
-    if(!tieneExp){
-      var jug = plantel.find(function(j){ return j.id===r.jugadorId; });
-      var nom = jug ? ((jug.nombre||jug.name||'')+' '+(jug.apellido||jug.lastname||'')).trim() : r.jugadorId;
-      expCrearOReabrir(r.jugadorId, r.estado, r.notas||'', r.retornoEstimado||'', r.responsable||'Médico', r.registradoPor||'Médico');
+  Object.keys(jugadoresConHistorial).forEach(function(jid){
+    var registros = jugadoresConHistorial[jid].sort(function(a,b){ return (a.fecha||'').localeCompare(b.fecha||''); });
+    var ultimo = registros[registros.length-1];
+    var tieneExpActivo = EXPEDIENTES_DB.find(function(e){ return e.jugadorId===jid && e.activo; });
+    if(EXP_ESTADOS_ACTIVOS.indexOf(ultimo.estado)>=0 && !tieneExpActivo){
+      // Usar la fecha del primer registro activo como fecha de apertura
+      var primerActivo = registros.find(function(r){ return EXP_ESTADOS_ACTIVOS.indexOf(r.estado)>=0; });
+      var fechaAp = primerActivo ? primerActivo.fecha : ultimo.fecha;
+      var exp = {
+        id: 'exp_retro_'+jid,
+        jugadorId: jid,
+        faseActual: ultimo.estado,
+        notas: ultimo.notas||'',
+        retornoEstimado: ultimo.retornoEstimado||'',
+        responsableApertura: ultimo.responsable||ultimo.registradoPor||'Médico',
+        registradoPor: ultimo.registradoPor||'Médico',
+        activo: true,
+        fechaApertura: fechaAp,
+        fechaCierre: null,
+        motivoCierre: '',
+        historial: [{fecha:fechaAp, estado:ultimo.estado, notas:ultimo.notas||'', responsable:ultimo.responsable||'Médico'}]
+      };
+      EXPEDIENTES_DB.push(exp);
+    } else if(EXP_ESTADOS_ACTIVOS.indexOf(ultimo.estado)===-1 && tieneExpActivo){
+      // Jugador regresó a disponible → cerrar expediente automáticamente
+      tieneExpActivo.activo = false;
+      tieneExpActivo.fechaCierre = ultimo.fecha;
+      tieneExpActivo.motivoCierre = 'Alta médica automática — retorno a '+ultimo.estado;
     }
   });
+  expSave();
 
   var activos  = EXPEDIENTES_DB.filter(function(e){ return e.activo; });
   var cerrados = EXPEDIENTES_DB.filter(function(e){ return !e.activo; });
