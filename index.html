@@ -913,7 +913,7 @@ function jornadaPublicarActiva(ses){
     sesId: ses.id,
     fecha: ses.fecha,
     nombre: ses.nombre||'',
-    cdefSel: ses.cdefSel || (typeof sesData!=='undefined'?sesData.cdefSel||'':''),
+    cdefSel: ses.cdefSel || '',
     ts: Date.now()
   }).catch(function(e){ console.warn('[BFC] jornadaPublicarActiva err:', e.message); });
 }
