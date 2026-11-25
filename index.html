@@ -26601,9 +26601,9 @@ function ciRecalcularUA(fecha, silencioso){
         if(grp === 'no_entrena'){
           tiempoSalaGrupo[j.id] = 0;
         } else {
-          var tGrp = parseInt(tObj['gym_'+grp])||0;
-          var tInd = parseInt(tObj['ind_'+j.id])||0; // tiempo manual individual (sin GPS)
-          tiempoSalaGrupo[j.id] = tInd > 0 ? tInd : tGrp;
+          // tiempoSalaGrupo = tiempo de sala del grupo (gym_campo, gym_rehab, etc.)
+          // El tiempo ind_<pid> es el tiempo de CAMPO manual (reemplaza GPS), NO tiempo de sala
+          tiempoSalaGrupo[j.id] = parseInt(tObj['gym_'+grp])||0;
         }
       });
     }
@@ -26618,6 +26618,12 @@ function ciRecalcularUA(fecha, silencioso){
 
     var gpsR = gpsHoy.find(function(r){ return r.pid===j.id||r.jugadorId===j.id; });
     var tiempoGPS = gpsR ? (parseInt(gpsR.duracion||gpsR.tiempo)||0) : 0;
+    // Si no tiene GPS, usar tiempo manual individual (ind_<pid>) como tiempo de campo
+    if(tiempoGPS === 0 && sesIdRec){
+      var tObjInd = {}; try{ var _tI=localStorage.getItem('BFC_TIEMPOS_'+sesIdRec); if(_tI) tObjInd=JSON.parse(_tI)||{}; }catch(e){}
+      var tInd = parseInt(tObjInd['ind_'+j.id])||0;
+      if(tInd > 0) tiempoGPS = tInd; // reemplaza GPS con tiempo manual de campo
+    }
     var sala = tiempoSalaGrupo[j.id] !== undefined ? tiempoSalaGrupo[j.id] : 0;
     var tiempoTotal = tiempoGPS + sala;
 
@@ -26955,9 +26961,8 @@ function ciTabHoy(plantel){
       plantel.forEach(function(j){
         var grp=grpObj2[j.id]||'campo';
         if(grp==='no_entrena'){ tiempoSalaJug[j.id]=0; return; }
-        var tInd=parseInt(tObj2['ind_'+j.id])||0;
-        var tGrp=parseInt(tObj2['gym_'+grp])||0;
-        tiempoSalaJug[j.id] = tInd>0 ? tInd : tGrp;
+        // tiempoSalaJug = solo sala (gym_grp). ind_ es tiempo de CAMPO manual, va en tGPS
+        tiempoSalaJug[j.id] = parseInt(tObj2['gym_'+grp])||0;
       });
     }
   }catch(e){}
@@ -26967,6 +26972,12 @@ function ciTabHoy(plantel){
     var rpe2 = bJ2 ? (bJ2.rpe_post||0) : 0;
     var gpsR2 = gpsFecha2.find(function(r){ return r.pid===j.id||r.jugadorId===j.id; });
     var tGPS2 = gpsR2 ? (parseInt(gpsR2.duracion||gpsR2.tiempo)||0) : 0;
+    // Si no tiene GPS y es campo, usar ind_<pid> como tiempo de campo manual
+    if(tGPS2===0 && sesIdDeb){
+      var _tObj2ind={}; try{ var _l2=localStorage.getItem('BFC_TIEMPOS_'+sesIdDeb); if(_l2) _tObj2ind=JSON.parse(_l2)||{}; }catch(e){}
+      var _tInd2=parseInt(_tObj2ind['ind_'+j.id])||0;
+      if(_tInd2>0) tGPS2=_tInd2;
+    }
     var tSala2 = tiempoSalaJug[j.id]!==undefined ? tiempoSalaJug[j.id] : 0;
     var tTotal2 = tGPS2 + tSala2;
     var ua2 = (rpe2>0 && tTotal2>0) ? rpe2*tTotal2 : null;
