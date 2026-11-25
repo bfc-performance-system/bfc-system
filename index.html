@@ -27249,12 +27249,48 @@ function ciTabTendencia(plantel){
       if(!base.length) base = regsD;
       var rpes  = base.filter(function(b){return b.rpe_post>0;}).map(function(b){return b.rpe_post;});
       var wells = base.map(function(b){return bienScore6(b);}).filter(function(x){return x!==null;});
-      // UA: leer de CI_DB por fecha, filtrando por el mismo grupo que RPE/Wellness
-      var ciDia = safeArr(CI_DB).filter(function(r){ return r.fecha===fecha; });
-      // Filtrar por grupo si hay grupos definidos para esa fecha
-      if(_hgD) ciDia = ciDia.filter(function(r){ return esGrupoEnFecha(r.pid||r.jugadorId, fecha, _ciGrpTend); });
-      var uaVals = ciDia.map(function(r){ return r.ua||0; }).filter(function(v){ return v>0; });
-      var uaProm = uaVals.length ? Math.round(uaVals.reduce(function(a,v){return a+v;},0)/uaVals.length) : null;
+      // UA: para hoy recalcular en tiempo real (RPE × GPS + sala); para días pasados usar CI_DB
+      var uaProm = null;
+      if(fecha === TODAY){
+        // Recálculo en tiempo real igual que el Desglose
+        var _gpsCatHoy = []; try{ var _gd=localStorage.getItem('BFC_GPS_CAT'); if(_gd) _gpsCatHoy=JSON.parse(_gd)||[]; }catch(e){}
+        _gpsCatHoy = _gpsCatHoy.filter(function(r){ return r.fecha===TODAY; });
+        // Tiempo de sala por jugador desde grupos de la sesión de hoy
+        var _salaHoy = {};
+        try{
+          var _fidxH = JSON.parse(localStorage.getItem('BFC_GRUPOS_FECHA_IDX')||'{}') || {};
+          var _sesIdH = _fidxH[TODAY];
+          if(!_sesIdH && window._jornadaSesionActiva && (window._jornadaSesionActiva.fecha||'').startsWith(TODAY))
+            _sesIdH = window._jornadaSesionActiva.id;
+          if(!_sesIdH){ var _bsH=safeArr(BIEN_SESIONES).find(function(s){return (s.fecha||'').startsWith(TODAY);}); if(_bsH) _sesIdH=_bsH.id; }
+          if(_sesIdH){
+            var _tObjH = JSON.parse(localStorage.getItem('BFC_TIEMPOS_'+_sesIdH)||'{}') || {};
+            var _gObjH = JSON.parse(localStorage.getItem('BFC_GRUPOS_'+_sesIdH)||'{}') || {};
+            var _planH = JDB.length>0?JDB:PL;
+            _planH.forEach(function(j){
+              var grp = _gObjH[j.id] || 'campo';
+              _salaHoy[j.id] = (grp==='no_entrena') ? 0 : (parseInt(_tObjH['gym_'+grp])||0);
+            });
+          }
+        }catch(e){}
+        // Calcular UA por jugador que tiene RPE
+        var _uaValsHoy = [];
+        base.filter(function(b){ return b.rpe_post>0; }).forEach(function(b){
+          var pid = b.pid||b.jugadorId;
+          var gpsR = _gpsCatHoy.find(function(r){ return r.pid===pid||r.jugadorId===pid; });
+          var tGPS = gpsR ? (parseInt(gpsR.duracion||gpsR.tiempo)||0) : 0;
+          var tSala = _salaHoy[pid] !== undefined ? _salaHoy[pid] : 0;
+          var tTotal = tGPS + tSala;
+          if(tTotal>0) _uaValsHoy.push(b.rpe_post * tTotal);
+        });
+        uaProm = _uaValsHoy.length ? Math.round(_uaValsHoy.reduce(function(a,v){return a+v;},0)/_uaValsHoy.length) : null;
+      } else {
+        // Días pasados: leer de CI_DB (registro histórico ya cerrado)
+        var ciDia = safeArr(CI_DB).filter(function(r){ return r.fecha===fecha; });
+        if(_hgD) ciDia = ciDia.filter(function(r){ return esGrupoEnFecha(r.pid||r.jugadorId, fecha, _ciGrpTend); });
+        var uaVals = ciDia.map(function(r){ return r.ua||0; }).filter(function(v){ return v>0; });
+        uaProm = uaVals.length ? Math.round(uaVals.reduce(function(a,v){return a+v;},0)/uaVals.length) : null;
+      }
       return {
         fecha: fecha,
         ua:   uaProm,
