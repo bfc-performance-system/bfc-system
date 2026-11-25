@@ -2861,11 +2861,15 @@ function plantillaGrupo(linea){
 // Solo si el área médica marcó 'disponible', el cuerpo técnico puede
 // marcar al jugador como no_disponible (por motivos tácticos/logísticos).
 function plantillaEstado(j){
-  // Jugadores manuales (sub-20, a prueba) siempre son 'ok' — fueron agregados intencionalmente
-  // Detectar por flag, por id prefijo 'manual_', o por estar en _plantillaManual
+  // Jugadores manuales (sub-20, a prueba, invitados): médicamente siempre disponibles,
+  // pero el cuerpo técnico SÍ puede marcarlos 'no_disponible' desde _plantillaDisp.
   var _esMan = j._esManual || (j.id && j.id.toString().indexOf('manual_')===0)
     || safeArr(_plantillaManual).some(function(m){ return m.id===j.id; });
-  if(_esMan) return 'ok';
+  if(_esMan){
+    var _ovMan = _plantillaDisp[j.id]||null;
+    if(_ovMan && _ovMan.estado==='no_disponible') return 'danger'; // técnico los marcó no disponible
+    return 'ok';
+  }
   // 1. Leer estado clínico de Disponibilidad
   var dispEst = dispGetEstado(j.id, TODAY);
   var dispKey = (dispEst && dispEst.estado) ? dispEst.estado : 'disponible';
@@ -2984,8 +2988,8 @@ function renderPlantilla(){
     var esManual = j._esManual || _manualIds[j.id] || (j.id && j.id.toString().indexOf('manual_')===0);
     var estF = plantillaEstado(j);
     if(_plantillaFiltro==='lesion') return estF==='lesion';
-    // Jugadores manuales (sub-20, a prueba, etc.) son siempre "aptos" en el filtro
-    if(esManual) return _plantillaFiltro==='ok';
+    // Jugadores manuales: usar plantillaEstado que ya respeta _plantillaDisp técnico
+    if(esManual) return _plantillaFiltro==='ok' ? (estF==='ok') : (estF==='danger'||estF==='danger');
     var bHoyF = safeArr(BIEN).some(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===hoy; });
     var dispEstF = dispGetEstado(j.id, hoy);
     var tieneDispF = dispEstF && dispEstF.estado && dispEstF.estado !== 'disponible';
@@ -3147,7 +3151,8 @@ function renderPlantilla(){
       var ovCancha = _plantillaDisp[j.id]||null;
       // Dot cancha: lesión (clínica) > danger > warn > sin datos > ok
       var dot;
-      if(j._esManual){                                                  dot='#a5b4fc'; }
+      if(j._esManual && est==='danger'){                                dot='#ef4444'; } // no disponible técnico
+      else if(j._esManual){                                             dot='#a5b4fc'; }
       else if(est==='lesion'){                                          dot='#7c3aed'; }
       else if(est==='danger'){                                          dot='#ef4444'; }
       else if(est==='warn'){                                            dot='#f59e0b'; }
@@ -3234,8 +3239,8 @@ function renderPlantilla(){
       var esManualP2 = j._esManual || _manualIds[j.id] || (j.id && j.id.toString().indexOf('manual_')===0);
       var estP2 = plantillaEstado(j);
       if(_plantillaFiltro==='lesion') return estP2==='lesion';
-      // Jugadores manuales (sub-20, a prueba, etc.) son siempre "aptos"
-      if(esManualP2) return _plantillaFiltro==='ok';
+      // Jugadores manuales: respetar estado técnico desde _plantillaDisp
+      if(esManualP2) return _plantillaFiltro==='ok' ? (estP2==='ok') : (estP2==='danger');
       var bHoyP2 = safeArr(BIEN).some(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===hoy; });
       var dispEstP2 = dispGetEstado(j.id, hoy);
       var tieneDispP2 = dispEstP2 && dispEstP2.estado && dispEstP2.estado !== 'disponible';
@@ -3272,7 +3277,8 @@ function renderPlantilla(){
       var bloqP = (dispKeyP==='rehabilitacion'||dispKeyP==='baja'||dispKeyP==='readaptacion'||dispKeyP==='recuperacion'||dispKeyP==='restriccion');
       // Color del dot
       var dotColor;
-      if(j._esManual){                                                           dotColor='#a5b4fc'; }
+      if(j._esManual && est2==='danger'){                                        dotColor='#ef4444'; } // manual marcado no disponible técnico
+      else if(j._esManual){                                                      dotColor='#a5b4fc'; }
       else if(est2==='lesion'){                                                  dotColor='#7c3aed'; }
       else if(est2==='danger'){                                                  dotColor='#ef4444'; }
       else if(est2==='warn'){                                                    dotColor='#f59e0b'; }
@@ -3785,7 +3791,10 @@ function plantillaMostrarJugador(jid){
   var ovModal = _plantillaDisp[j.id]||null;
   var tieneOvModal = ovModal && (ovModal.estado==='disponible'||ovModal.estado==='no_disponible');
   var semDot = est==='lesion'?'#7c3aed':est==='ok'?'#22c55e':est==='warn'?'#f59e0b':'#ef4444';
-  if(!bHoy.length && !tieneOvModal) semDot='#475569';
+  // Para manuales con no_disponible técnico: mantener rojo; sin datos: lila
+  var _esManModal = j._esManual || (j.id && j.id.toString().indexOf('manual_')===0);
+  if(_esManModal && est==='ok' && !tieneOvModal) semDot='#a5b4fc'; // lila si no hay override
+  else if(!_esManModal && !bHoy.length && !tieneOvModal) semDot='#475569';
   var semLbl = est==='lesion'?'Lesionado / Rehab.':est==='ok'?'Disponible':est==='warn'?'Restricción (médica)':'No disponible';
   var acwrCol = !acwr?'#64748b':acwr>1.5?'#ef4444':acwr>1.3?'#f97316':acwr>=0.8?'#22c55e':'#3b82f6';
 
@@ -26554,29 +26563,37 @@ function ciRecalcularUA(fecha, silencioso){
       var tObj = JSON.parse(localStorage.getItem(tKey)||'{}') || {};
       gruposObj = JSON.parse(localStorage.getItem(gKey)||'{}') || {};
       // Mapear tiempo sala por jugador según su grupo
+      // no_entrena → tiempo 0; otros → tiempo del grupo + tiempo individual si lo hay
       plantel.forEach(function(j){
         var grp = gruposObj[j.id] || 'campo';
-        tiempoSalaGrupo[j.id] = parseInt(tObj['gym_'+grp])||0;
+        if(grp === 'no_entrena'){
+          tiempoSalaGrupo[j.id] = 0;
+        } else {
+          var tGrp = parseInt(tObj['gym_'+grp])||0;
+          var tInd = parseInt(tObj['ind_'+j.id])||0; // tiempo manual individual (sin GPS)
+          tiempoSalaGrupo[j.id] = tInd > 0 ? tInd : tGrp;
+        }
       });
     }
   }catch(e){}
 
-  // Tiempo extra manual (_ciTiempoExtra) como fallback si no hay sesión histórica
-  var tiempoExtraGlobal = parseInt(window._ciTiempoExtra)||0;
-
-  var recalculados = [], sinGPS = [], sinRpe = [];
+  var recalculados = [], sinGPS = [], sinRpe = [], noEntrena = [];
   plantel.forEach(function(j){
+    var grpJ = gruposObj[j.id] || 'campo';
+
+    // No entrena: saltar completamente, no generar UA
+    if(grpJ === 'no_entrena'){ noEntrena.push(j.apellido||j.nombre||j.id); return; }
+
     var gpsR = gpsHoy.find(function(r){ return r.pid===j.id||r.jugadorId===j.id; });
     var tiempoGPS = gpsR ? (parseInt(gpsR.duracion||gpsR.tiempo)||0) : 0;
-    var sala = tiempoSalaGrupo[j.id] !== undefined ? tiempoSalaGrupo[j.id] : tiempoExtraGlobal;
+    var sala = tiempoSalaGrupo[j.id] !== undefined ? tiempoSalaGrupo[j.id] : 0;
     var tiempoTotal = tiempoGPS + sala;
 
     var bienR = safeArr(BIEN).find(function(b){ return (b.pid===j.id||b.jugadorId===j.id) && b.fecha===fecha && b.rpe_post>0; });
     var rpe = bienR ? bienR.rpe_post : 0;
 
-    if(!gpsR && !sala) { sinGPS.push(j.apellido||j.nombre||j.id); return; }
-    if(!rpe)           { sinRpe.push(j.apellido||j.nombre||j.id); return; }
     if(tiempoTotal<=0) { sinGPS.push(j.apellido||j.nombre||j.id); return; }
+    if(!rpe)           { sinRpe.push(j.apellido||j.nombre||j.id); return; }
 
     var ua = ciUA(rpe, tiempoTotal);
 
@@ -26601,8 +26618,9 @@ function ciRecalcularUA(fecha, silencioso){
 
   if(!silencioso){
     var msg = '✅ UA recalculada: '+recalculados.length+' jugadores';
-    if(sinGPS.length) msg += ' · '+sinGPS.length+' sin GPS/tiempo';
+    if(sinGPS.length) msg += ' · '+sinGPS.length+' sin tiempo';
     if(sinRpe.length) msg += ' · '+sinRpe.length+' sin RPE';
+    if(noEntrena.length) msg += ' · '+noEntrena.length+' no entrenaron';
     if(typeof toast==='function') toast(msg);
     renderCargaInterna();
   }
@@ -26902,7 +26920,13 @@ function ciTabHoy(plantel){
       var tKey2='BFC_TIEMPOS_'+sesIdDeb, gKey2='BFC_GRUPOS_'+sesIdDeb;
       var tObj2=JSON.parse(localStorage.getItem(tKey2)||'{}')||{};
       grpObj2=JSON.parse(localStorage.getItem(gKey2)||'{}')||{};
-      plantel.forEach(function(j){ var grp=grpObj2[j.id]||'campo'; tiempoSalaJug[j.id]=parseInt(tObj2['gym_'+grp])||0; });
+      plantel.forEach(function(j){
+        var grp=grpObj2[j.id]||'campo';
+        if(grp==='no_entrena'){ tiempoSalaJug[j.id]=0; return; }
+        var tInd=parseInt(tObj2['ind_'+j.id])||0;
+        var tGrp=parseInt(tObj2['gym_'+grp])||0;
+        tiempoSalaJug[j.id] = tInd>0 ? tInd : tGrp;
+      });
     }
   }catch(e){}
 
@@ -26918,7 +26942,7 @@ function ciTabHoy(plantel){
     var uaGuard = ciRec2 ? ciRec2.ua : null;
     var grp2 = grpObj2[j.id] || 'campo';
     return { j:j, rpe:rpe2, tGPS:tGPS2, tSala:tSala2, tTotal:tTotal2, ua:ua2, uaGuard:uaGuard, grp:grp2 };
-  }).filter(function(x){ return x.rpe>0 || x.tGPS>0 || x.tSala>0; }).sort(function(a,b){ return (b.ua||0)-(a.ua||0); });
+  }).filter(function(x){ return x.grp!=='no_entrena' && (x.rpe>0 || x.tGPS>0 || x.tSala>0); }).sort(function(a,b){ return (b.ua||0)-(a.ua||0); });
 
   var mostrarDebug = window._ciShowDebug || false;
   h += "<div style='margin-top:16px;border:1px solid rgba(239,68,68,.2);border-radius:14px;overflow:hidden;'>";
