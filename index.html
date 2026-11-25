@@ -7759,6 +7759,8 @@ function jornadaCerrarConfirmado(){
   // Detener listener de monitor en vivo
   jornadaDetenerListener();
   fbAuditLog('jornada','Jornada cerrada manualmente: '+(sesActiva?sesActiva.nombre+' ('+sesActiva.fecha+')':'sin sesión activa'));
+  // Recalcular UA automáticamente al cerrar jornada (silencioso)
+  if(typeof ciRecalcularUA==='function' && sesActiva && sesActiva.fecha) ciRecalcularUA(sesActiva.fecha, true);
   toast('✅ Jornada cerrada');
   renderJornada();
 }
@@ -12047,7 +12049,7 @@ var GPS_VARS = [
 // Variables que se muestran por defecto en la tabla de Actividad (las más usadas)
 var GPS_VARS_DEFAULT = ['duracion','distancia','playerLoad','acc','dcc','hsr','vmax'];
 // Variables para gráfica de barras por posición
-var GPS_VARS_GRAFICA = ['distancia','hsr','playerLoad','vmax','acc'];
+var GPS_VARS_GRAFICA = GPS_VARS.map(function(v){ return v.k; }); // todas las variables GPS
 
 var POSICIONES_GPS = ['Portero','Defensa Central','Lateral','Volante','Extremo','Delantero'];
 // ════════════════════════════════════════════════════════════════════════════
@@ -12717,15 +12719,15 @@ function renderGPSActividad(){
   h += "<div style='background:"+DS.card+";border:1px solid "+DS.border+";border-radius:14px;padding:14px 16px;margin-bottom:14px;'>";
   h += "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;'>";
   h += gpsSectionHeader('📊','Ranking por Atleta','Sesión '+fechaSel+' · mayor → menor');
-  h += "<div style='display:flex;gap:4px;flex-wrap:wrap;'>";
+  h += "<div style='display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;'>";
   GPS_VARS_GRAFICA.forEach(function(k){
     var vCfg = GPS_VARS.find(function(v){ return v.k===k; });
     if(!vCfg) return;
     var isSel = k===rankVarKey;
     h += "<button onclick='window._gpsActRankVar=\""+k+"\";renderTabActividad()' "
-       + "style='padding:4px 10px;border-radius:99px;border:1px solid "+(isSel?vCfg.color:DS.border)+";"
-       + "background:"+(isSel?vCfg.color:'transparent')+";color:"+(isSel?'#fff':DS.text2)+";"
-       + "font-size:10px;font-weight:700;cursor:pointer;transition:all .2s;'>"+vCfg.label+"</button>";
+       + "style='padding:4px 11px;border-radius:99px;border:1px solid "+(isSel?'#00D4FF':DS.border)+";"
+       + "background:"+(isSel?'rgba(0,212,255,.18)':'transparent')+";color:"+(isSel?'#00D4FF':DS.text2)+";"
+       + "font-size:10px;font-weight:"+(isSel?'800':'600')+";cursor:pointer;transition:all .2s;'>"+vCfg.label+"</button>";
   });
   h += "</div></div>";
 
@@ -12784,9 +12786,9 @@ function renderGPSActividad(){
     if(!vCfg) return;
     var isSel = k==='distancia';
     h += "<button onclick='cambiarVarGraficaAct(\""+k+"\")' id='btn-act-"+k+"'"
-      + " style='padding:4px 10px;border-radius:99px;border:1px solid "+(isSel?vCfg.color:DS.border)+";"
-      + "background:"+(isSel?vCfg.color:'transparent')+";color:"+(isSel?'#fff':DS.text2)+";"
-      + "font-size:10px;font-weight:700;cursor:pointer;'>"+vCfg.label+"</button>";
+      + " style='padding:4px 11px;border-radius:99px;border:1px solid "+(isSel?'#00D4FF':DS.border)+";"
+      + "background:"+(isSel?'rgba(0,212,255,.18)':'transparent')+";color:"+(isSel?'#00D4FF':DS.text2)+";"
+      + "font-size:10px;font-weight:"+(isSel?'800':'600')+";cursor:pointer;'>"+vCfg.label+"</button>";
   });
   h += "</div></div>";
 
@@ -26524,6 +26526,84 @@ function ciColorMono(v){
   return '#e53e3e';
 }
 
+// Recalcular UA para todos los jugadores de una fecha (usando GPS importado + tiempo sala)
+// silencioso=true: no muestra toast ni re-renderiza (para llamadas automáticas)
+function ciRecalcularUA(fecha, silencioso){
+  ciLoad();
+  if(!fecha) fecha = TODAY;
+  var plantel = JDB.length>0?JDB:PL;
+
+  // GPS importados de Catapult
+  var gpsDB = [];
+  try{ var gd=localStorage.getItem('BFC_GPS_CAT'); if(gd) gpsDB=JSON.parse(gd)||[]; }catch(e){}
+  var gpsHoy = gpsDB.filter(function(r){ return r.fecha===fecha; });
+
+  // Tiempo de sala por grupo (desde BFC_TIEMPOS_<sesId> de la sesión de esa fecha)
+  var tiempoSalaGrupo = {};
+  var gruposObj = {};
+  try{
+    var sesHist = JSON.parse(localStorage.getItem('BFC_SESIONES_HIST')||'[]')||[];
+    var sesFecha = sesHist.find(function(s){ return (s.fecha||'').startsWith(fecha); });
+    if(sesFecha && sesFecha.id){
+      var tKey = 'BFC_TIEMPOS_'+sesFecha.id;
+      var gKey = 'BFC_GRUPOS_'+sesFecha.id;
+      var tObj = JSON.parse(localStorage.getItem(tKey)||'{}') || {};
+      gruposObj = JSON.parse(localStorage.getItem(gKey)||'{}') || {};
+      // Mapear tiempo sala por jugador según su grupo
+      plantel.forEach(function(j){
+        var grp = gruposObj[j.id] || 'campo';
+        tiempoSalaGrupo[j.id] = parseInt(tObj['gym_'+grp])||0;
+      });
+    }
+  }catch(e){}
+
+  // Tiempo extra manual (_ciTiempoExtra) como fallback si no hay sesión histórica
+  var tiempoExtraGlobal = parseInt(window._ciTiempoExtra)||0;
+
+  var recalculados = [], sinGPS = [], sinRpe = [];
+  plantel.forEach(function(j){
+    var gpsR = gpsHoy.find(function(r){ return r.pid===j.id||r.jugadorId===j.id; });
+    var tiempoGPS = gpsR ? (parseInt(gpsR.duracion||gpsR.tiempo)||0) : 0;
+    var sala = tiempoSalaGrupo[j.id] !== undefined ? tiempoSalaGrupo[j.id] : tiempoExtraGlobal;
+    var tiempoTotal = tiempoGPS + sala;
+
+    var bienR = safeArr(BIEN).find(function(b){ return (b.pid===j.id||b.jugadorId===j.id) && b.fecha===fecha && b.rpe_post>0; });
+    var rpe = bienR ? bienR.rpe_post : 0;
+
+    if(!gpsR && !sala) { sinGPS.push(j.apellido||j.nombre||j.id); return; }
+    if(!rpe)           { sinRpe.push(j.apellido||j.nombre||j.id); return; }
+    if(tiempoTotal<=0) { sinGPS.push(j.apellido||j.nombre||j.id); return; }
+
+    var ua = ciUA(rpe, tiempoTotal);
+
+    // Eliminar registro previo de CI_DB para ese jugador/fecha
+    CI_DB = safeArr(CI_DB).filter(function(r){
+      return !((r.pid===j.id||r.jugadorId===j.id) && r.fecha===fecha);
+    });
+    CI_DB.push({
+      id: 'ci_recalc_'+Date.now()+'_'+j.id,
+      pid: j.id, jugadorId: j.id, fecha: fecha,
+      tipo: 'MD', tipoEvt: 'Sesión',
+      rpe: rpe, tiempo: tiempoGPS, tiempoExtra: sala, ua: ua,
+      notas: 'Recalculado: RPE×('+(tiempoGPS>0?tiempoGPS+'min GPS':'')+(sala>0?(tiempoGPS>0?'+':'')+sala+'min sala':'')+')',
+      fuente: 'recalculo_manual'
+    });
+    recalculados.push(j.apellido||j.nombre||'');
+  });
+
+  ciSave();
+  fbGuardar();
+  fbAuditLog('carga-interna','Recálculo UA manual: '+fecha+' — '+recalculados.length+' jugadores');
+
+  if(!silencioso){
+    var msg = '✅ UA recalculada: '+recalculados.length+' jugadores';
+    if(sinGPS.length) msg += ' · '+sinGPS.length+' sin GPS/tiempo';
+    if(sinRpe.length) msg += ' · '+sinRpe.length+' sin RPE';
+    if(typeof toast==='function') toast(msg);
+    renderCargaInterna();
+  }
+}
+
 // Guardar sesión de RPE
 function ciGuardarSesion(){
   ciLoad();
@@ -26952,8 +27032,10 @@ function ciTabTendencia(plantel){
       if(!base.length) base = regsD;
       var rpes  = base.filter(function(b){return b.rpe_post>0;}).map(function(b){return b.rpe_post;});
       var wells = base.map(function(b){return bienScore6(b);}).filter(function(x){return x!==null;});
-      // UA: leer de CI_DB por fecha
+      // UA: leer de CI_DB por fecha, filtrando por el mismo grupo que RPE/Wellness
       var ciDia = safeArr(CI_DB).filter(function(r){ return r.fecha===fecha; });
+      // Filtrar por grupo si hay grupos definidos para esa fecha
+      if(_hgD) ciDia = ciDia.filter(function(r){ return esGrupoEnFecha(r.pid||r.jugadorId, fecha, _ciGrpTend); });
       var uaVals = ciDia.map(function(r){ return r.ua||0; }).filter(function(v){ return v>0; });
       var uaProm = uaVals.length ? Math.round(uaVals.reduce(function(a,v){return a+v;},0)/uaVals.length) : null;
       return {
@@ -26972,13 +27054,13 @@ function ciTabTendencia(plantel){
     maxUA = Math.max(maxUA, 100); // mínimo 100 para que haya escala
     var maxUAR = Math.ceil(maxUA/100)*100; // redondear al 100 más cercano
 
-    var svgW=640,svgH=175,pL=42,pR=36,pT=14,pB=28;
+    var svgW=900,svgH=175,pL=42,pR=36,pT=14,pB=28;
     var cW=svgW-pL-pR,cH=svgH-pT-pB;
-    var nD=dataDias.length, bGapD=cW/nD, bWD=Math.max(5,Math.floor(bGapD*0.5));
+    var nD=dataDias.length, bGapD=cW/nD, bWD=Math.max(4,Math.min(32,Math.floor(bGapD*0.55)));
 
     h += "<div style='background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:14px;'>";
     h += "<div style='font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;'>📈 Evolución diaria del equipo</div>";
-    h += "<div style='overflow-x:auto;'><svg viewBox='0 0 "+svgW+" "+svgH+"' style='width:100%;max-width:"+svgW+"px;'>";
+    h += "<div style='overflow-x:auto;'><svg viewBox='0 0 "+svgW+" "+svgH+"' style='width:100%;display:block;'>";
 
     // Líneas de cuadrícula UA (eje izquierdo)
     [0.25,0.5,0.75,1].forEach(function(f){
@@ -28258,6 +28340,8 @@ function catapultProcesarCSV(){
     try{ localStorage.setItem('BFC_GPS_CAT', JSON.stringify(gpsDB)); }catch(ex){ toast('❌ Error guardando'); return; }
     fbGuardar();
     fbAuditLog('gps','CSV Catapult importado: fecha='+fecha+', importados='+importados+', no_encontrados='+noEncontrados.length);
+    // Recalcular UA automáticamente al importar GPS (silencioso — sin toast propio)
+    if(typeof ciRecalcularUA==='function') ciRecalcularUA(fecha, true);
 
     // Mostrar resultado
     var resEl = document.getElementById('cat-import-result');
