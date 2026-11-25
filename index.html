@@ -21172,10 +21172,11 @@ var _sesImgPending  = 0;         // contador de compresiones de imagen en curso
 function sesSyncFb(){
   if(!window.fbDB) return;
   if(!sesData) return;
-  // ⚠️ Si estamos editando una sesión histórica de otra fecha, NO sincronizar.
-  // Subir una sesión de otro día como "activa" afecta a todos los dispositivos conectados.
-  if(sesData._editandoHistId && sesData.fecha && sesData.fecha !== TODAY){
-    console.log('[BFC] sesSyncFb bloqueado: editando historial ('+sesData.fecha+'), no es hoy.');
+  // ⚠️ Si estamos editando una sesión histórica de fecha PASADA, NO sincronizar.
+  // Subir una sesión de día pasado como "activa" afecta a todos los dispositivos.
+  // Las sesiones de fecha futura (planificadas) SÍ se sincronizan normalmente.
+  if(sesData._editandoHistId && sesData.fecha && sesData.fecha < TODAY){
+    console.log('[BFC] sesSyncFb bloqueado: editando historial de día pasado ('+sesData.fecha+').');
     return;
   }
   clearTimeout(_sesSyncTimeout);
@@ -21277,8 +21278,17 @@ function sesEscucharFb(){
     // Protege contra el caso en que un dispositivo (ej: iPad) no cerró bien la sesión
     // anterior y sube datos viejos a bfc/sesion_activa con un timestamp alto.
     var fechaRemota = d._fecha || d.fecha || '';
-    if(fechaRemota && fechaRemota !== TODAY){
-      console.warn('[BFC] sesEscucharFb — ignorando update remoto de otro día ('+fechaRemota+' vs hoy '+TODAY+'). Eliminando nodo huérfano.');
+    if(fechaRemota && fechaRemota < TODAY){
+      console.warn('[BFC] sesEscucharFb — nodo de día pasado ('+fechaRemota+' < hoy '+TODAY+'). Guardando en historial antes de limpiar.');
+      // ✅ FIX: guardar en historial antes de eliminar el nodo
+      var _sesDataVieja = Object.assign({}, d);
+      delete _sesDataVieja._ts; delete _sesDataVieja._fecha;
+      var _sesDataActual = sesData; // preservar sesión actual
+      sesData = _sesDataVieja;
+      if(typeof guardarEnHistorial === 'function'){
+        try{ guardarEnHistorial(); }catch(eH){ console.warn('[BFC] sesEscucharFb — error guardarEnHistorial:', eH && eH.message); }
+      }
+      sesData = _sesDataActual; // restaurar sesión actual
       window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
       return;
     }
@@ -21414,12 +21424,13 @@ function sesCargarActivaFb(cb){
       if(cb) cb(false);
       return;
     }
-    // ⚠️ GUARD DE FECHA: si el nodo tiene fecha de otro día, es una sesión de ayer
-    // que nunca fue finalizada manualmente (el entrenador cerró la app sin hacer "Finalizar").
+    // ⚠️ GUARD DE FECHA: si el nodo tiene fecha de un día PASADO, es una sesión que
+    // nunca fue finalizada manualmente (el entrenador cerró la app sin hacer "Finalizar").
     // ✅ FIX: GUARDAR EN HISTORIAL antes de limpiar — así no se pierden las tareas.
+    // ⚠️ IMPORTANTE: sesiones con fecha FUTURA (planificadas para mañana) se cargan normalmente.
     var fechaRemota = d._fecha || d.fecha || '';
-    if(fechaRemota && fechaRemota !== TODAY){
-      console.warn('[BFC] sesCargarActivaFb — nodo sesion_activa es de otro día ('+fechaRemota+' vs hoy '+TODAY+'). Guardando en historial antes de limpiar...');
+    if(fechaRemota && fechaRemota < TODAY){
+      console.warn('[BFC] sesCargarActivaFb — nodo sesion_activa es de día pasado ('+fechaRemota+' < hoy '+TODAY+'). Guardando en historial antes de limpiar...');
       // Cargar los datos en sesData temporalmente para guardarlos en historial
       var _sesDataAnterior = Object.assign({}, d);
       delete _sesDataAnterior._ts; delete _sesDataAnterior._fecha;
