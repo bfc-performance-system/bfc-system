@@ -946,6 +946,12 @@ function fbEscucharJornadaSesionActiva(){
         if(d.cdefSel) ses.cdefSel = d.cdefSel;
         if(d.nombre)  ses.nombre  = d.nombre;
         window._jornadaSesionActiva = ses;
+        // Actualizar índice fecha→sesId al recibir sesión activa de Firebase
+        try{
+          var _fidxFB = {}; try{ var _fFB=localStorage.getItem('BFC_GRUPOS_FECHA_IDX'); if(_fFB) _fidxFB=JSON.parse(_fFB)||{}; }catch(e){}
+          _fidxFB[ses.fecha] = ses.id;
+          localStorage.setItem('BFC_GRUPOS_FECHA_IDX', JSON.stringify(_fidxFB));
+        }catch(e){}
         if(_mismaId){
           // Misma sesión — solo refrescar si el payload trae un ts más reciente (evita loops)
           var _tsLocal = window._jornadaSesActiTs || 0;
@@ -7559,6 +7565,12 @@ function jornadaCrearSesionForzar(nombre, fecha){
   if(window.fbDB){
     window.fbDB.ref('bfc/jornada_cerrada/'+nuevaSes.fecha).remove().catch(function(){});
   }
+  // Actualizar índice fecha→sesId al crear sesión
+  try{
+    var _fidxC = {}; try{ var _fC=localStorage.getItem('BFC_GRUPOS_FECHA_IDX'); if(_fC) _fidxC=JSON.parse(_fC)||{}; }catch(e){}
+    _fidxC[nuevaSes.fecha] = nuevaSes.id;
+    localStorage.setItem('BFC_GRUPOS_FECHA_IDX', JSON.stringify(_fidxC));
+  }catch(e){}
   // Publicar sesión activa a Firebase para sincronizar con todos los dispositivos
   jornadaPublicarActiva(nuevaSes);
   // Escritura directa al sub-nodo para garantizar persistencia inmediata
@@ -7627,6 +7639,12 @@ function jornadaActivarSesion(sesId){
   if(!ses) return;
   window._jornadaSesionActiva = ses;
   window._jornadaCerradaFlag = false; // el usuario decidió activar → limpiar bandera de cierre
+  // Actualizar índice fecha→sesId al activar sesión (sin esperar "Guardar grupos")
+  try{
+    var _fidxA = {}; try{ var _fA=localStorage.getItem('BFC_GRUPOS_FECHA_IDX'); if(_fA) _fidxA=JSON.parse(_fA)||{}; }catch(e){}
+    _fidxA[ses.fecha] = sesId;
+    localStorage.setItem('BFC_GRUPOS_FECHA_IDX', JSON.stringify(_fidxA));
+  }catch(e){}
   // Limpiar flag de cerrada para esta fecha (por si se reabre una sesión anterior)
   try{ localStorage.removeItem('BFC_JORNADA_CERRADA_'+ses.fecha); }catch(e){}
   if(window.fbDB) window.fbDB.ref('bfc/jornada_cerrada/'+ses.fecha).remove().catch(function(){});
@@ -8095,6 +8113,18 @@ function jornadaGruposPanel(plantelAll, fechaEf, sesActiva){
 
 // nuevoGrp: 'campo'|'diferenciado'|'rehab'|'no_entrena'
 // Cada botón del chip pasa el grupo destino directamente
+function _jornadaActualizarFechaIdx(sesId){
+  // Actualiza BFC_GRUPOS_FECHA_IDX cada vez que se cambia un grupo o tiempo,
+  // sin esperar el botón "Guardar grupos". Usa la fecha de la sesión activa.
+  try{
+    var fechaSes = (window._jornadaSesionActiva && window._jornadaSesionActiva.fecha)
+      ? window._jornadaSesionActiva.fecha : TODAY;
+    var idx = {}; try{ var _fi=localStorage.getItem('BFC_GRUPOS_FECHA_IDX'); if(_fi) idx=JSON.parse(_fi)||{}; }catch(e){}
+    idx[fechaSes] = sesId;
+    localStorage.setItem('BFC_GRUPOS_FECHA_IDX', JSON.stringify(idx));
+  }catch(e){}
+}
+
 function jornadaCambiarGrupo(sesId, pid, nuevoGrp){
   var gruposKey = 'BFC_GRUPOS_' + sesId;
   var grupos = {}; try{ var _g=localStorage.getItem(gruposKey); if(_g) grupos=JSON.parse(_g)||{}; }catch(e){}
@@ -8102,6 +8132,7 @@ function jornadaCambiarGrupo(sesId, pid, nuevoGrp){
   if(validos.indexOf(nuevoGrp) < 0) return; // valor inválido, ignorar
   grupos[pid] = nuevoGrp;
   try{ localStorage.setItem(gruposKey, JSON.stringify(grupos)); }catch(e){}
+  _jornadaActualizarFechaIdx(sesId); // actualizar índice inmediatamente
   if(typeof renderJornada==='function') renderJornada();
 }
 
@@ -8110,6 +8141,7 @@ function jornadaGuardarTiempo(sesId, key, val){
   var tiempos = {}; try{ var _t=localStorage.getItem(tiemposKey); if(_t) tiempos=JSON.parse(_t)||{}; }catch(e){}
   tiempos[key] = parseInt(val)||0;
   try{ localStorage.setItem(tiemposKey, JSON.stringify(tiempos)); }catch(e){}
+  _jornadaActualizarFechaIdx(sesId); // actualizar índice inmediatamente
 }
 
 function jornadaGuardarGruposFirebase(sesId){
