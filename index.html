@@ -8149,8 +8149,29 @@ function jornadaGuardarGruposFirebase(sesId){
   var tiemposKey = 'BFC_TIEMPOS_' + sesId;
   var grupos  = {}; try{ var _g=localStorage.getItem(gruposKey);  if(_g) grupos =JSON.parse(_g)||{}; }catch(e){}
   var tiempos = {}; try{ var _t=localStorage.getItem(tiemposKey); if(_t) tiempos=JSON.parse(_t)||{}; }catch(e){}
-  // Guardar índice fecha → sesId para que otros módulos puedan filtrar por fecha
   var sesActFecha = (window._jornadaSesionActiva && window._jornadaSesionActiva.fecha) ? window._jornadaSesionActiva.fecha : TODAY;
+  // Completar grupos: jugadores cuyo grupo viene de disponibilidad médica/táctica
+  // no fueron escritos por jornadaCambiarGrupo — calcularlos ahora y guardarlos
+  try{
+    var plantelG = (typeof JDB!=='undefined'&&JDB.length>0)?JDB:(typeof PL!=='undefined'?PL:[]);
+    var gpsDB3=[]; try{ var _gd3=localStorage.getItem('BFC_GPS_CAT'); if(_gd3) gpsDB3=JSON.parse(_gd3)||[]; }catch(e){}
+    plantelG.forEach(function(j){
+      if(grupos[j.id]) return; // ya fue cambiado manualmente → respetar
+      // Calcular grupo desde disponibilidad médica (mismo criterio que grupoInicial)
+      var dispEst = (typeof dispGetEstado==='function') ? dispGetEstado(j.id, sesActFecha) : null;
+      var dispKey = (dispEst && dispEst.estado) ? dispEst.estado : 'disponible';
+      var grpCalc = 'campo';
+      if(dispKey==='rehabilitacion'||dispKey==='readaptacion'||dispKey==='baja') grpCalc='rehab';
+      else if(dispKey==='restriccion'||dispKey==='recuperacion') grpCalc='diferenciado';
+      else {
+        var ov = (_plantillaDisp||{})[j.id]||null;
+        if(ov && ov.estado==='no_disponible') grpCalc='no_entrena';
+      }
+      if(grpCalc !== 'campo') grupos[j.id] = grpCalc; // solo guardar los no-campo para ahorrar espacio
+    });
+    localStorage.setItem(gruposKey, JSON.stringify(grupos));
+  }catch(e){}
+  // Guardar índice fecha → sesId para que otros módulos puedan filtrar por fecha
   try{
     var fechaIdx = {}; try{ var _fi=localStorage.getItem('BFC_GRUPOS_FECHA_IDX'); if(_fi) fechaIdx=JSON.parse(_fi)||{}; }catch(e){}
     fechaIdx[sesActFecha] = sesId;
