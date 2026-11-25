@@ -26585,9 +26585,19 @@ function ciRecalcularUA(fecha, silencioso){
   try{
     var fechaIdx = JSON.parse(localStorage.getItem('BFC_GRUPOS_FECHA_IDX')||'{}')||{};
     var sesIdRec = fechaIdx[fecha];
-    // Fallback: sesión activa si es la fecha de hoy
+    // Fallback 1: sesión activa si es la fecha de hoy
     if(!sesIdRec && window._jornadaSesionActiva && (window._jornadaSesionActiva.fecha||'').startsWith(fecha)){
       sesIdRec = window._jornadaSesionActiva.id;
+    }
+    // Fallback 2: buscar en BIEN_SESIONES la sesión de esa fecha (robusto ante índice vacío)
+    if(!sesIdRec){
+      var _sesiones = safeArr(BIEN_SESIONES);
+      var _sesFecha = _sesiones.find(function(s){ return (s.fecha||'').startsWith(fecha); });
+      if(_sesFecha){
+        sesIdRec = _sesFecha.id;
+        // Actualizar el índice para que no vuelva a fallar
+        try{ fechaIdx[fecha]=sesIdRec; localStorage.setItem('BFC_GRUPOS_FECHA_IDX',JSON.stringify(fechaIdx)); }catch(e){}
+      }
     }
     if(sesIdRec){
       var tKey = 'BFC_TIEMPOS_'+sesIdRec;
@@ -26953,6 +26963,14 @@ function ciTabHoy(plantel){
     var sesIdDeb = fechaIdx2[hoy];
     if(!sesIdDeb && window._jornadaSesionActiva && (window._jornadaSesionActiva.fecha||'').startsWith(hoy)){
       sesIdDeb = window._jornadaSesionActiva.id;
+    }
+    // Fallback: buscar en BIEN_SESIONES la sesión de hoy
+    if(!sesIdDeb){
+      var _sesDeb = safeArr(BIEN_SESIONES).find(function(s){ return (s.fecha||'').startsWith(hoy); });
+      if(_sesDeb){
+        sesIdDeb = _sesDeb.id;
+        try{ fechaIdx2[hoy]=sesIdDeb; localStorage.setItem('BFC_GRUPOS_FECHA_IDX',JSON.stringify(fechaIdx2)); }catch(e){}
+      }
     }
     if(sesIdDeb){
       var tKey2='BFC_TIEMPOS_'+sesIdDeb, gKey2='BFC_GRUPOS_'+sesIdDeb;
