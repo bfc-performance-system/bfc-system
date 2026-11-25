@@ -26538,15 +26538,19 @@ function ciRecalcularUA(fecha, silencioso){
   try{ var gd=localStorage.getItem('BFC_GPS_CAT'); if(gd) gpsDB=JSON.parse(gd)||[]; }catch(e){}
   var gpsHoy = gpsDB.filter(function(r){ return r.fecha===fecha; });
 
-  // Tiempo de sala por grupo (desde BFC_TIEMPOS_<sesId> de la sesión de esa fecha)
+  // Tiempo de sala por grupo (desde BFC_TIEMPOS_<sesId> usando índice BFC_GRUPOS_FECHA_IDX)
   var tiempoSalaGrupo = {};
   var gruposObj = {};
   try{
-    var sesHist = JSON.parse(localStorage.getItem('BFC_SESIONES_HIST')||'[]')||[];
-    var sesFecha = sesHist.find(function(s){ return (s.fecha||'').startsWith(fecha); });
-    if(sesFecha && sesFecha.id){
-      var tKey = 'BFC_TIEMPOS_'+sesFecha.id;
-      var gKey = 'BFC_GRUPOS_'+sesFecha.id;
+    var fechaIdx = JSON.parse(localStorage.getItem('BFC_GRUPOS_FECHA_IDX')||'{}')||{};
+    var sesIdRec = fechaIdx[fecha];
+    // Fallback: sesión activa si es la fecha de hoy
+    if(!sesIdRec && window._jornadaSesionActiva && (window._jornadaSesionActiva.fecha||'').startsWith(fecha)){
+      sesIdRec = window._jornadaSesionActiva.id;
+    }
+    if(sesIdRec){
+      var tKey = 'BFC_TIEMPOS_'+sesIdRec;
+      var gKey = 'BFC_GRUPOS_'+sesIdRec;
       var tObj = JSON.parse(localStorage.getItem(tKey)||'{}') || {};
       gruposObj = JSON.parse(localStorage.getItem(gKey)||'{}') || {};
       // Mapear tiempo sala por jugador según su grupo
@@ -26889,10 +26893,13 @@ function ciTabHoy(plantel){
   var gpsFecha2 = gpsDBci.filter(function(r){ return r.fecha===hoy; });
   var tiempoSalaJug = {}, grpObj2 = {};
   try{
-    var sesHist2 = JSON.parse(localStorage.getItem('BFC_SESIONES_HIST')||'[]')||[];
-    var sesFecha2 = sesHist2.find(function(s){ return (s.fecha||'').startsWith(hoy); });
-    if(sesFecha2 && sesFecha2.id){
-      var tKey2='BFC_TIEMPOS_'+sesFecha2.id, gKey2='BFC_GRUPOS_'+sesFecha2.id;
+    var fechaIdx2 = JSON.parse(localStorage.getItem('BFC_GRUPOS_FECHA_IDX')||'{}')||{};
+    var sesIdDeb = fechaIdx2[hoy];
+    if(!sesIdDeb && window._jornadaSesionActiva && (window._jornadaSesionActiva.fecha||'').startsWith(hoy)){
+      sesIdDeb = window._jornadaSesionActiva.id;
+    }
+    if(sesIdDeb){
+      var tKey2='BFC_TIEMPOS_'+sesIdDeb, gKey2='BFC_GRUPOS_'+sesIdDeb;
       var tObj2=JSON.parse(localStorage.getItem(tKey2)||'{}')||{};
       grpObj2=JSON.parse(localStorage.getItem(gKey2)||'{}')||{};
       plantel.forEach(function(j){ var grp=grpObj2[j.id]||'campo'; tiempoSalaJug[j.id]=parseInt(tObj2['gym_'+grp])||0; });
