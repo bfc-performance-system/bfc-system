@@ -26706,12 +26706,15 @@ function renderCargaInterna(){
   if(window._ciTab==='semanas')    window._ciTab='tendencia';
   var tabAct = window._ciTab||'hoy';
 
-  var h = "<div style='padding:20px;max-width:1100px;'>";
+  var h = "<div style='padding:24px;max-width:1200px;'>";
 
-  // ── HEADER ──────────────────────────────────────────────────
-  h += "<div class='ph' style='margin-bottom:0;'>"
-    + "<div><div class='ph-title'>⚡ Carga Interna</div>"
-    + "<div class='ph-sub'>RPE · Wellness · CMJ — Percepción subjetiva y estado neuromuscular</div></div></div>";
+  // ── HEADER Dark Pro ──────────────────────────────────────────
+  h += "<div style='display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;'>";
+  h += "<div>";
+  h += "<div style='font-size:11px;font-weight:800;color:#ef4444;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;'>⚡ CARGA INTERNA</div>";
+  h += "<div style='font-size:26px;font-weight:900;color:#f1f5f9;line-height:1;margin-bottom:4px;'>RPE · Wellness · CMJ</div>";
+  h += "<div style='font-size:12px;color:#64748b;'>Percepción subjetiva y estado neuromuscular del equipo</div>";
+  h += "</div></div>";
 
   // ── TABS (4 tabs, activa = blanco) ──────────────────────────
   var ciTabs = [
@@ -26720,13 +26723,13 @@ function renderCargaInterna(){
     {k:'jugador',      l:'👤 Jugador'},
     {k:'evaluaciones', l:'🦵 Evaluaciones'}
   ];
-  h += "<div style='display:flex;gap:2px;background:rgba(255,255,255,.06);border-radius:14px;padding:4px;margin-bottom:18px;flex-wrap:wrap;'>";
+  h += "<div style='display:flex;gap:0;border-bottom:2px solid rgba(255,255,255,.08);margin-bottom:22px;overflow-x:auto;'>";
   ciTabs.forEach(function(t){
     var a = tabAct===t.k;
     h += '<button onclick="window._ciTab=\''+t.k+'\';renderCargaInterna()" style="'
-      + 'flex:1;min-width:80px;padding:9px 6px;border:'+(a?'1px solid rgba(255,255,255,.25)':'none')+';border-radius:10px;cursor:pointer;font-size:11px;'
-      + 'font-weight:'+(a?'800':'500')+';background:'+(a?'rgba(255,255,255,.12)':'transparent')
-      + ';color:'+(a?'#fff':'#64748b')+';transition:all .15s;">'+t.l+'</button>';
+      + 'padding:10px 20px;border:none;border-bottom:'+(a?'2px solid #ef4444':'2px solid transparent')+';margin-bottom:-2px;'
+      + 'cursor:pointer;font-size:12px;font-weight:'+(a?'800':'600')+';background:transparent;white-space:nowrap;'
+      + 'color:'+(a?'#f1f5f9':'#64748b')+';transition:all .15s;letter-spacing:.01em;">'+t.l+'</button>';
   });
   h += "</div>";
 
@@ -26880,6 +26883,81 @@ function ciTabHoy(plantel){
     h += "</div>";
   }
   h += "<div style='font-size:9px;color:#475569;text-align:center;margin-top:8px;'>👆 Toca un jugador para ver su detalle</div>";
+
+  // ── DESGLOSE UA (diagnóstico) ─────────────────────────────────────
+  var gpsDBci = []; try{ var gd2=localStorage.getItem('BFC_GPS_CAT'); if(gd2) gpsDBci=JSON.parse(gd2)||[]; }catch(e){}
+  var gpsFecha2 = gpsDBci.filter(function(r){ return r.fecha===hoy; });
+  var tiempoSalaJug = {}, grpObj2 = {};
+  try{
+    var sesHist2 = JSON.parse(localStorage.getItem('BFC_SESIONES_HIST')||'[]')||[];
+    var sesFecha2 = sesHist2.find(function(s){ return (s.fecha||'').startsWith(hoy); });
+    if(sesFecha2 && sesFecha2.id){
+      var tKey2='BFC_TIEMPOS_'+sesFecha2.id, gKey2='BFC_GRUPOS_'+sesFecha2.id;
+      var tObj2=JSON.parse(localStorage.getItem(tKey2)||'{}')||{};
+      grpObj2=JSON.parse(localStorage.getItem(gKey2)||'{}')||{};
+      plantel.forEach(function(j){ var grp=grpObj2[j.id]||'campo'; tiempoSalaJug[j.id]=parseInt(tObj2['gym_'+grp])||0; });
+    }
+  }catch(e){}
+
+  var filas = plantel.map(function(j){
+    var bJ2 = safeArr(BIEN).filter(function(b){ return (b.pid===j.id||b.jugadorId===j.id)&&b.fecha===hoy; }).slice(-1)[0];
+    var rpe2 = bJ2 ? (bJ2.rpe_post||0) : 0;
+    var gpsR2 = gpsFecha2.find(function(r){ return r.pid===j.id||r.jugadorId===j.id; });
+    var tGPS2 = gpsR2 ? (parseInt(gpsR2.duracion||gpsR2.tiempo)||0) : 0;
+    var tSala2 = tiempoSalaJug[j.id]!==undefined ? tiempoSalaJug[j.id] : 0;
+    var tTotal2 = tGPS2 + tSala2;
+    var ua2 = (rpe2>0 && tTotal2>0) ? rpe2*tTotal2 : null;
+    var ciRec2 = safeArr(CI_DB).filter(function(r){ return (r.pid===j.id||r.jugadorId===j.id)&&r.fecha===hoy; }).slice(-1)[0];
+    var uaGuard = ciRec2 ? ciRec2.ua : null;
+    var grp2 = grpObj2[j.id] || 'campo';
+    return { j:j, rpe:rpe2, tGPS:tGPS2, tSala:tSala2, tTotal:tTotal2, ua:ua2, uaGuard:uaGuard, grp:grp2 };
+  }).filter(function(x){ return x.rpe>0 || x.tGPS>0 || x.tSala>0; }).sort(function(a,b){ return (b.ua||0)-(a.ua||0); });
+
+  var mostrarDebug = window._ciShowDebug || false;
+  h += "<div style='margin-top:16px;border:1px solid rgba(239,68,68,.2);border-radius:14px;overflow:hidden;'>";
+  h += "<div onclick='window._ciShowDebug=!window._ciShowDebug;renderCargaInterna()' style='padding:12px 16px;background:rgba(239,68,68,.06);cursor:pointer;display:flex;align-items:center;justify-content:space-between;'>";
+  h += "<div style='font-size:11px;font-weight:800;color:#ef4444;text-transform:uppercase;letter-spacing:.07em;'>⚡ Desglose UA — RPE × (GPS + Sala)</div>";
+  h += "<span style='font-size:12px;color:#64748b;font-weight:700;'>"+(mostrarDebug?'▲ ocultar':'▼ ver desglose')+"</span>";
+  h += "</div>";
+  if(mostrarDebug){
+    h += "<div style='overflow-x:auto;'><table style='width:100%;border-collapse:collapse;font-size:11px;'>";
+    h += "<thead><tr style='background:rgba(255,255,255,.04);'>";
+    ['Jugador','Grupo','RPE','GPS (min)','Sala (min)','Total (min)','UA calculada','UA guardada','Estado'].forEach(function(col){
+      h += "<th style='padding:8px 12px;text-align:left;font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;border-bottom:1px solid rgba(255,255,255,.06);'>"+col+"</th>";
+    });
+    h += "</tr></thead><tbody>";
+    var _grpCfg = {
+      campo:        {lbl:'Campo',        bg:'rgba(0,212,255,.12)', c:'#00D4FF'},
+      diferenciado: {lbl:'Diferenciado', bg:'rgba(255,183,77,.12)',c:'#FFB74D'},
+      rehab:        {lbl:'Rehab',        bg:'rgba(255,71,87,.12)', c:'#FF4757'},
+      noentrena:    {lbl:'No entrena',   bg:'rgba(100,116,139,.12)',c:'#64748b'}
+    };
+    filas.forEach(function(x){
+      var nom2 = ((x.j.apellido||x.j.nombre||'')).toUpperCase();
+      var uaOk = x.ua!==null && x.uaGuard!==null && Math.abs(x.ua-x.uaGuard)<5;
+      var uaDiff = x.ua!==null && x.uaGuard!==null && Math.abs(x.ua-x.uaGuard)>=5;
+      var stCol = x.ua===null ? '#64748b' : (uaOk ? '#22c55e' : (uaDiff ? '#f59e0b' : '#ef4444'));
+      var stTxt = x.ua===null ? (x.rpe>0?'Sin tiempo':'Sin RPE') : (uaOk ? '✓ OK' : (uaDiff ? '⚠ Dif.' : (x.uaGuard===null?'No guardada':'')));
+      var grpCfg = _grpCfg[x.grp] || _grpCfg['campo'];
+      var grpBadge = "<span style='display:inline-block;padding:2px 7px;border-radius:99px;background:"+grpCfg.bg+";color:"+grpCfg.c+";font-size:9px;font-weight:800;white-space:nowrap;'>"+grpCfg.lbl+"</span>";
+      h += "<tr style='border-bottom:1px solid rgba(255,255,255,.04);'>";
+      h += "<td style='padding:8px 12px;font-weight:700;color:#e2e8f0;white-space:nowrap;'>"+nom2+"</td>";
+      h += "<td style='padding:8px 12px;'>"+grpBadge+"</td>";
+      h += "<td style='padding:8px 12px;color:"+(x.rpe>0?'#fca5a5':'#475569')+";font-weight:700;'>"+(x.rpe>0?x.rpe+'/10':'—')+"</td>";
+      h += "<td style='padding:8px 12px;color:"+(x.tGPS>0?'#67e8f9':'#475569')+";font-weight:700;'>"+(x.tGPS>0?x.tGPS:'—')+"</td>";
+      h += "<td style='padding:8px 12px;color:"+(x.tSala>0?'#86efac':'#475569')+";font-weight:700;'>"+(x.tSala>0?x.tSala:'—')+"</td>";
+      h += "<td style='padding:8px 12px;color:#94a3b8;font-weight:800;'>"+(x.tTotal>0?x.tTotal:'—')+"</td>";
+      h += "<td style='padding:8px 12px;color:#fbbf24;font-weight:900;'>"+(x.ua!==null?x.ua:'—')+"</td>";
+      h += "<td style='padding:8px 12px;color:#818cf8;font-weight:900;'>"+(x.uaGuard!==null?x.uaGuard:'—')+"</td>";
+      h += "<td style='padding:8px 12px;color:"+stCol+";font-weight:800;'>"+stTxt+"</td>";
+      h += "</tr>";
+    });
+    if(!filas.length) h += "<tr><td colspan='9' style='padding:16px;text-align:center;color:#475569;'>Sin datos para esta fecha</td></tr>";
+    h += "</tbody></table></div>";
+    h += "<div style='padding:10px 16px;background:rgba(255,255,255,.02);font-size:9px;color:#475569;'>UA = RPE × (min GPS + min Sala) · GPS: <span style='color:#67e8f9;'>cian</span> · Sala: <span style='color:#86efac;'>verde</span> · Grupo tomado de la jornada del día · UA calculada ahora vs. guardada en CI_DB</div>";
+  }
+  h += "</div>";
+
   return h;
 }
 
