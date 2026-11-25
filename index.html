@@ -21414,14 +21414,29 @@ function sesCargarActivaFb(cb){
       if(cb) cb(false);
       return;
     }
-    // ⚠️ GUARD DE FECHA: si el nodo tiene fecha de otro día, es una sesión huérfana
-    // (el remove() de sesFinalizar() falló silenciosamente por error de red).
-    // Limpiar el nodo y no aplicar sus datos para no contaminar la sesión de hoy.
+    // ⚠️ GUARD DE FECHA: si el nodo tiene fecha de otro día, es una sesión de ayer
+    // que nunca fue finalizada manualmente (el entrenador cerró la app sin hacer "Finalizar").
+    // ✅ FIX: GUARDAR EN HISTORIAL antes de limpiar — así no se pierden las tareas.
     var fechaRemota = d._fecha || d.fecha || '';
     if(fechaRemota && fechaRemota !== TODAY){
-      console.warn('[BFC] sesCargarActivaFb — nodo sesion_activa es de otro día ('+fechaRemota+' vs hoy '+TODAY+'). Eliminando nodo huérfano.');
+      console.warn('[BFC] sesCargarActivaFb — nodo sesion_activa es de otro día ('+fechaRemota+' vs hoy '+TODAY+'). Guardando en historial antes de limpiar...');
+      // Cargar los datos en sesData temporalmente para guardarlos en historial
+      var _sesDataAnterior = Object.assign({}, d);
+      delete _sesDataAnterior._ts; delete _sesDataAnterior._fecha;
+      sesData = _sesDataAnterior;
+      _sesLocalTs = d._ts || Date.now();
+      // Guardar la sesión de ayer en historial (incluye tareas, objetivos, jugadores...)
+      if(typeof guardarEnHistorial === 'function'){
+        try{ guardarEnHistorial(); }catch(eH){ console.warn('[BFC] sesCargarActivaFb — error al guardar en historial:', eH && eH.message); }
+      }
+      // Limpiar estado local: el nuevo día empieza en blanco
+      sesData = null;
+      _sesLocalTs = 0; _sesLastSyncTs = 0; _sesLastRemoteTs = 0;
+      try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
+      // Eliminar el nodo de Firebase del día anterior
       window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
-      if(cb) cb(!!localGuardado);
+      console.log('[BFC] sesCargarActivaFb — sesión de '+fechaRemota+' guardada en historial. Abriendo en blanco para hoy ('+TODAY+').');
+      if(cb) cb(false); // abrir en blanco para el nuevo día
       return;
     }
     var tsRemoto = d._ts || 0;
