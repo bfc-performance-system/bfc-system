@@ -12855,7 +12855,6 @@ function renderGPSActividad(){
   h += "</div></div>";
 
   var grupos = {};
-  POSICIONES_GPS.forEach(function(pos){ grupos[pos] = []; });
   sesionFiltrada.forEach(function(c){
     var jug = plantel.find(function(p){ return p.id===c.pid; });
     var pos = jug ? (jug.pos||jug.posicion||'') : '';
@@ -12863,7 +12862,12 @@ function renderGPSActividad(){
     if(!grupos[pos]) grupos[pos] = [];
     grupos[pos].push(c);
   });
-  var posConDatos = POSICIONES_GPS.filter(function(pos){ return grupos[pos]&&grupos[pos].length>0; });
+  // Ordenar posiciones: primero las conocidas en orden estándar, luego el resto
+  var posOrden = ['Portero','Defensa Central','Lateral','Volante','Extremo','Delantero'];
+  var posConDatos = posOrden.filter(function(pos){ return grupos[pos]&&grupos[pos].length>0; });
+  Object.keys(grupos).forEach(function(pos){
+    if(grupos[pos].length>0 && posConDatos.indexOf(pos)<0) posConDatos.push(pos);
+  });
   var maxGraf = Math.max.apply(null, sesionFiltrada.map(function(c){ return parseFloat(c.distancia)||0; }))||1;
 
   h += "<div id='grafica-actividad' style='overflow-x:auto;'>";
@@ -13077,7 +13081,9 @@ function renderGraficaAtletas(datos, varKey, plantel, posiciones, maxVal){
   posiciones.forEach(function(pos){
     var jugsPos = datos.filter(function(c){
       var jug = plantel.find(function(p){ return p.id===c.pid; });
-      return jug && (jug.pos||jug.posicion)===pos;
+      var jPos = jug ? (jug.pos||jug.posicion||'') : '';
+      if(!jPos) jPos = 'Sin pos';
+      return jPos === pos;
     }).sort(function(a,b){ return (parseFloat(b[varKey])||0)-(parseFloat(a[varKey])||0); });
     if(!jugsPos.length) return;
 
@@ -13135,11 +13141,18 @@ function cambiarVarGraficaAct(varKey){
   if(!fechaSel) return;
   var sesion = gpsCargoFiltrado().filter(function(c){ return c.fecha===fechaSel; });
   if(!sesion.length) return;
-  var posConDatos = POSICIONES_GPS.filter(function(pos){
-    return sesion.some(function(c){
-      var jug = plantel.find(function(p){ return p.id===c.pid; });
-      return jug && (jug.pos||jug.posicion)===pos;
-    });
+  var _gruposAct = {};
+  sesion.forEach(function(c){
+    var jug = plantel.find(function(p){ return p.id===c.pid; });
+    var pos = jug ? (jug.pos||jug.posicion||'') : '';
+    if(!pos) pos = 'Sin pos';
+    if(!_gruposAct[pos]) _gruposAct[pos] = [];
+    _gruposAct[pos].push(c);
+  });
+  var _posOrdenAct = ['Portero','Defensa Central','Lateral','Volante','Extremo','Delantero'];
+  var posConDatos = _posOrdenAct.filter(function(pos){ return _gruposAct[pos]&&_gruposAct[pos].length>0; });
+  Object.keys(_gruposAct).forEach(function(pos){
+    if(_gruposAct[pos].length>0 && posConDatos.indexOf(pos)<0) posConDatos.push(pos);
   });
   var maxVal = Math.max.apply(null, sesion.map(function(c){ return parseFloat(c[varKey])||0; }))||1;
   var el = document.getElementById('grafica-actividad');
@@ -28460,18 +28473,18 @@ function catapultProcesarCSV(){
     }
     var colName    = findCol(['jugador','athlete','player name','player','nombre','atleta','name']);
     var colDist    = findCol(['tot dist','total distance','total dist','distance (m)','distancia total','dist total','distancia']);
-    var colDur     = findCol(['tot dur','duration','time (min)','tiempo total','tiempo','duracion','duración','minutes','mins']);
+    var colDur     = findCol(['tot dur','dur total','duration','time (min)','tiempo total','tiempo','duracion','duración','minutes','mins']);
     // HSR = High Speed Running/Distance — NO confundir con Vel B4
     var colHSR     = findCol(['high speed dist','high speed running','high speed distance','hsr','hir','alta velocidad','dist alta','high spe']);
     // Vel B4 = distancia a velocidad media (zona 4 Catapult) — columna separada
     var colDistB4  = findCol(['vel b4 tot','vel b4','velb4','zone 4','zona 4','dist b4']);
     var colSpr     = findCol(['mts sprint (+25','mts sprint','sprint distance (+25','sprint dist (+25','sprint (+25']);
-    var colVmax    = findCol(['max vel (km','max velocity','max speed','maximum velocity','velocidad max']);
-    var colVmaxPct = findCol(['max vel (% max)','% max','vel (% max)','pct max','percent max']);
+    var colVmax    = findCol(['max vel (km','vel max (km','max velocity','max speed','maximum velocity','velocidad max']);
+    var colVmaxPct = findCol(['max vel (% max)','vel max (% max)','% max','vel (% max)','pct max','percent max']);
     var colAcc     = findCol(['# acel >3','# acel','accel >3','acel >','acceleration >3','accelerations >3','aceleraciones']);
     var colDeac    = findCol(['# d >3','# desacel','decel >3','desacel >','deceleration >3','desaceleraciones']);
-    var colPL      = findCol(['tot pl','player load','playerload']);
-    var colMpm     = findCol(['meterage per minute','metraje por minuto','metros/min','m/min','met por min','distance per min']);
+    var colPL      = findCol(['tot pl','pl total','player load','playerload']);
+    var colMpm     = findCol(['meterage per minute','metraje por minuto','metros por minuto','metros/min','m/min','met por min','distance per min']);
     var colNSpr    = findCol(['# sprint +25','# sprint +','num sprint','sprint count','nsprints']);
     var colEffs95  = findCol(['effs +95','effs+95','eff +95','esfuerzos +95']);
     var colDEffs95 = findCol(['dist +95','distance +95','dist+95']);
