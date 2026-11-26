@@ -861,6 +861,7 @@ function fbEscucharHistorial() {
         return ses;
       });
     }
+    _histFirebaseLoaded = true; // Firebase entregó historial completo — histSave() ya puede escribir con seguridad
     _histGuardarLocalSinImgs(); // sin base64 para no saturar localStorage
     // Si el historial está abierto, re-renderizar
     var pgH = document.getElementById('page-historial');
@@ -2093,6 +2094,7 @@ function fbSincronizarTodasLasFotos() {
 var EJERCICIOS_DB = [];
 var HISTORIAL_DB = [];
 var _histSaveTs = 0; // timestamp del último guardado local del historial (para evitar sobreescritura por Firebase listener)
+var _histFirebaseLoaded = false; // true cuando Firebase entregó el historial completo al menos una vez
 var NOTIF_DB = []; // Centro de notificaciones
 var CI_DB = [];    // Carga Interna (RPE × Tiempo)
 var PP_DB = [];    // Post Partido (informes de partido)
@@ -24166,7 +24168,7 @@ function _histGuardarLocalSinImgs(){
       }
       return sc;
     });
-    localStorage.setItem('BFC_HISTORIAL', JSON.stringify(_hsi.slice(0,15))); // caché local: últimas 15 sesiones (Firebase tiene el historial completo)
+    localStorage.setItem('BFC_HISTORIAL', JSON.stringify(_hsi)); // caché local completa (Firebase es el respaldo principal)
     // Sincronizar bfc_ses_hist desde HISTORIAL_DB para que sesHoy/sesManana estén disponibles
     // incluso si la sesión fue planificada desde otro dispositivo (antes del fix de fallback a HISTORIAL_DB)
     try{
@@ -24200,7 +24202,7 @@ function histSave(){
       }
       return sc;
     });
-    localStorage.setItem('BFC_HISTORIAL', JSON.stringify(_histSinImgs.slice(0,15))); // 15 sesiones: Firebase tiene el historial completo
+    localStorage.setItem('BFC_HISTORIAL', JSON.stringify(_histSinImgs)); // historial completo en localStorage (Firebase es el respaldo principal)
     // BFC_HIST_IMGS ya no se escribe — las fotos viven en Firebase bfc/fotos_sesion
   }catch(e){
     console.warn('[BFC] histSave localStorage error:', e.message);
@@ -24211,6 +24213,15 @@ function histSave(){
   // Subir historial DIRECTAMENTE a Firebase sin debounce — garantiza que no se pierda
   // aunque otro update llegue antes de que fbGuardar() ejecute su debounce de 800ms
   if(window.fbDB){
+    // PROTECCIÓN RACE CONDITION: no escribir a Firebase hasta que el listener haya cargado
+    // el historial completo al menos una vez. Sin esto, histSave() podría sobreescribir
+    // Firebase con un HISTORIAL_DB incompleto (ej: solo la sesión de hoy) borrando sesiones anteriores.
+    if(!_histFirebaseLoaded){
+      console.warn('[BFC] histSave: Firebase historial aún no cargado — omitiendo .set() para proteger datos remotos');
+      fbGuardar();
+      fbAuditLog('historial','Guardado historial de sesiones (solo local — Firebase aún no listo)');
+      return;
+    }
     // Subir historial a Firebase sin las imágenes base64 (pueden superar el límite de 10MB)
     // Las imágenes quedan guardadas en localStorage y se preservan al leer
     var _snapHist = HISTORIAL_DB.map(function(ses){
