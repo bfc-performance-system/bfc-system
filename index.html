@@ -791,11 +791,12 @@ function _fbEstimarTamanoPayload(payload) {
 function fbEscucharHistorial() {
   if (!fbDB) return;
   fbDB.ref('bfc/historial').on('value', function(snap) {
+    // ⚠️ CRÍTICO: activar flag ANTES de cualquier return, incluyendo historial vacío o null.
+    // Si Firebase responde (aunque sea null/vacío), el historial está "cargado" — histSave() puede escribir.
+    // Sin esto, si el historial está vacío en Firebase, fbArrNorm retorna null y el flag nunca se activa.
+    _histFirebaseLoaded = true;
     var remoto = snap.val();
     remoto = fbArrNorm(remoto); if (!remoto) return;
-    // Firebase respondió con datos válidos — marcar como cargado SIEMPRE, antes de cualquier return
-    // Esto es crítico: sin este flag, histSave() nunca puede escribir a Firebase
-    _histFirebaseLoaded = true;
     // Ignorar el eco de nuestro propio guardado reciente (ventana de 5s)
     var ahoraMs = Date.now();
     if (_histSaveTs > 0 && (ahoraMs - _histSaveTs) < 5000) return;
