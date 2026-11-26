@@ -21529,8 +21529,8 @@ function sesCargarActivaFb(cb){
       if(tsRemoto > 0) _sesLastRemoteTs = tsRemoto;
     }
     // Si local es más reciente, ya tenemos sesData del localStorage arriba
-    delete sesData._ts; delete sesData._fecha;
-    if(cb) cb(true);
+    if(sesData){ delete sesData._ts; delete sesData._fecha; }
+    if(cb) cb(!!(sesData));
   }, function(){ if(cb) cb(!!localGuardado); });
 }
 
