@@ -792,7 +792,7 @@ function fbEscucharHistorial() {
   if (!fbDB) return;
   fbDB.ref('bfc/historial').on('value', function(snap) {
     var remoto = snap.val();
-    if (!remoto || !Array.isArray(remoto)) return;
+    remoto = fbArrNorm(remoto); if (!remoto) return;
     // Ignorar el eco de nuestro propio guardado reciente (ventana de 5s)
     var ahoraMs = Date.now();
     if (_histSaveTs > 0 && (ahoraMs - _histSaveTs) < 5000) return;
@@ -1091,7 +1091,8 @@ function fbEscuchar() {
     }
     if (d.pruebas && JSON.stringify(d.pruebas) !== JSON.stringify(PRUEBAS))     { PRUEBAS   = d.pruebas;   rerender = true; }
     if (d.ci_db   && JSON.stringify(d.ci_db)   !== JSON.stringify(CI_DB))       { CI_DB     = d.ci_db;     try{ localStorage.setItem('BFC_CI', JSON.stringify(CI_DB)); }catch(e){} rerender = true; }
-    if (d.historial && Array.isArray(d.historial)) {
+    var _dHistArr = fbArrNorm(d.historial);
+    if (_dHistArr) {
       // Ignorar si acabamos de guardar el historial en los últimos 5s
       // (el listener de bfc/historial ya lo manejó correctamente)
       var _ahoraHist = Date.now();
@@ -1100,7 +1101,7 @@ function fbEscuchar() {
         // Merge preservando imágenes locales (Firebase no almacena img base64)
         var _lmH = {};
         safeArr(HISTORIAL_DB).forEach(function(s){ if(s.id) _lmH[s.id] = s; });
-        HISTORIAL_DB = d.historial.map(function(sR){
+        HISTORIAL_DB = _dHistArr.map(function(sR){
           var sL = _lmH[sR.id];
           if(!sL || !sL.tareas) return sR;
           var tCI = (sR.tareas||[]).map(function(tR, i){
@@ -1981,6 +1982,9 @@ function fbForzarSync() {
 var PL=[], CARGA=[], BIEN=[], NEURO=[], EVS=[], JDB=[], SDB=[];
 // Helper: always returns an array, never null/undefined
 function safeArr(v){ return Array.isArray(v) ? v : []; }
+// Firebase a veces devuelve historial como objeto {0:{...},1:{...},...} en lugar de array.
+// Esta función lo normaliza siempre a array válido.
+function fbArrNorm(v){ if(!v) return null; if(Array.isArray(v)) return v; if(typeof v==='object') return Object.values(v); return null; }
 // Extrae siempre un string de imagen — maneja tanto string directo como objeto {img,real}
 function _imgStr(val){ if(!val) return null; if(typeof val==='string') return val; if(typeof val==='object' && val.img) return val.img; return null; }
 
@@ -2571,7 +2575,8 @@ function irA(id) {
     window.fbDB.ref('bfc/historial').once('value', function(snap){
       var remoto = snap.val();
       // Actualizar siempre con el dato remoto si es un array válido
-      if(remoto && Array.isArray(remoto)){
+      remoto = fbArrNorm(remoto);
+      if(remoto){
         // Merge: preservar imágenes locales que Firebase no almacena (base64 excluido del sync)
         var localMap = {};
         safeArr(HISTORIAL_DB).forEach(function(s){ if(s.id) localMap[s.id] = s; });
