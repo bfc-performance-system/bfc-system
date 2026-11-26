@@ -29831,11 +29831,17 @@ function dispTabAreaMedica(plantel, hoy){
       // Usar la fecha del primer registro activo como fecha de apertura
       var primerActivo = registros.find(function(r){ return EXP_ESTADOS_ACTIVOS.indexOf(r.estado)>=0; });
       var fechaAp = primerActivo ? primerActivo.fecha : ultimo.fecha;
+      var jugR = plantel.find(function(j){ return j.id===jid; });
+      var nomR = jugR ? ((jugR.nombre||jugR.name||'')+' '+(jugR.apellido||jugR.lastname||'')).trim() : jid;
       var exp = {
         id: 'exp_retro_'+jid,
         jugadorId: jid,
+        nombreJugador: nomR,
+        posicion: jugR ? (jugR.posicion||jugR.position||'') : '',
+        dorsal: jugR ? (jugR.dorsal||jugR.number||'') : '',
         faseActual: ultimo.estado,
-        notas: ultimo.notas||'',
+        estadoInicial: ultimo.estado,
+        diagnosticoInicial: ultimo.notas||'',
         retornoEstimado: ultimo.retornoEstimado||'',
         responsableApertura: ultimo.responsable||ultimo.registradoPor||'Médico',
         registradoPor: ultimo.registradoPor||'Médico',
@@ -29843,7 +29849,7 @@ function dispTabAreaMedica(plantel, hoy){
         fechaApertura: fechaAp,
         fechaCierre: null,
         motivoCierre: '',
-        historial: [{fecha:fechaAp, estado:ultimo.estado, notas:ultimo.notas||'', responsable:ultimo.responsable||'Médico'}]
+        bitacora: []
       };
       EXPEDIENTES_DB.push(exp);
     } else if(EXP_ESTADOS_ACTIVOS.indexOf(ultimo.estado)===-1 && tieneExpActivo){
@@ -29912,21 +29918,41 @@ function dispTabAreaMedica(plantel, hoy){
       }
       if(!exp.bitacora) exp.bitacora=[];
       var ultEnt = exp.bitacora.length>0?exp.bitacora[exp.bitacora.length-1]:null;
-      h += "<div style='background:"+col.bg+";border:1px solid "+col.border+";border-radius:12px;padding:14px 16px;margin-bottom:10px;'>";
-      h += "<div style='display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;'>";
+      // Buscar datos del jugador en plantel para posición y dorsal
+      var jugExp = plantel.find(function(j){ return j.id===exp.jugadorId; });
+      var posExp = exp.posicion||(jugExp?(jugExp.posicion||jugExp.position||''):'');
+      var dorsalExp = exp.dorsal||(jugExp?(jugExp.dorsal||jugExp.number||''):'');
+      var nomExp = exp.nombreJugador||(jugExp?((jugExp.nombre||jugExp.name||'')+' '+(jugExp.apellido||jugExp.lastname||'')).trim():exp.jugadorId);
+      var faseLabel = {baja:'Baja médica',rehabilitacion:'Rehabilitación',readaptacion:'Readaptación'}[exp.faseActual]||exp.faseActual;
+      h += "<div style='background:"+col.bg+";border:2px solid "+col.border+";border-radius:14px;padding:16px 18px;margin-bottom:12px;'>";
+      h += "<div style='display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;'>";
       h += "<div style='flex:1;min-width:0;'>";
-      h += "<div style='font-weight:800;font-size:14px;color:"+col.text+";'>"+col.icon+" "+escHtml(exp.nombreJugador)+"</div>";
-      h += "<div style='font-size:10px;color:"+col.text+";opacity:.8;margin-top:2px;'>Apertura: "+exp.fechaApertura+" · "+diasAp+" día(s) en seguimiento</div>";
-      if(exp.diagnosticoInicial) h+="<div style='font-size:11px;color:"+col.text+";margin-top:4px;opacity:.9;'>📝 "+escHtml(exp.diagnosticoInicial.substring(0,80))+(exp.diagnosticoInicial.length>80?'…':'')+"</div>";
-      if(retLbl) h+="<div style='font-size:10px;font-weight:700;color:"+(retAlert?'#b45309':col.text)+";margin-top:4px;'>"+(retAlert?'⚠️':'📅')+' '+retLbl+"</div>";
-      if(ultEnt) h+="<div style='font-size:10px;color:"+col.text+";opacity:.7;margin-top:4px;'>Última entrada: "+ultEnt.fecha+" · "+escHtml(ultEnt.profesional)+"</div>";
-      else h+="<div style='font-size:10px;color:"+col.text+";opacity:.7;margin-top:4px;'>Sin entradas en bitácora aún</div>";
+      // Fila 1: nombre + dorsal + posición
+      h += "<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;'>";
+      h += "<span style='font-weight:900;font-size:15px;color:"+col.text+";'>"+col.icon+" "+escHtml(nomExp)+"</span>";
+      if(dorsalExp) h += "<span style='background:"+col.text+";color:"+col.bg+";font-size:11px;font-weight:800;border-radius:6px;padding:1px 7px;'>#"+escHtml(String(dorsalExp))+"</span>";
+      if(posExp) h += "<span style='font-size:10px;color:"+col.text+";opacity:.75;font-weight:600;text-transform:uppercase;letter-spacing:.04em;'>"+escHtml(posExp)+"</span>";
+      h += "<span style='margin-left:auto;font-size:10px;font-weight:800;background:"+col.border+";color:"+col.text+";border-radius:20px;padding:2px 10px;white-space:nowrap;'>"+faseLabel+"</span>";
       h += "</div>";
-      h += "<div style='display:flex;flex-direction:column;gap:6px;min-width:120px;'>";
-      h += "<button onclick='expVerExpediente(\""+exp.id+"\")' style='background:"+col.text+";color:#fff;border:none;border-radius:8px;padding:7px 10px;font-size:11px;font-weight:700;cursor:pointer;'>📋 Ver expediente</button>";
+      // Fila 2: apertura + días
+      h += "<div style='font-size:11px;color:"+col.text+";opacity:.8;margin-bottom:4px;'>📅 Ingreso: <strong>"+exp.fechaApertura+"</strong> &nbsp;·&nbsp; <strong>"+diasAp+"</strong> día"+(diasAp===1?'':'s')+" en seguimiento</div>";
+      // Fila 3: diagnóstico / notas
+      if(exp.diagnosticoInicial) h+="<div style='font-size:11px;color:"+col.text+";opacity:.9;margin-bottom:4px;background:rgba(0,0,0,.06);border-radius:8px;padding:5px 9px;'>📝 "+escHtml(exp.diagnosticoInicial.substring(0,120))+(exp.diagnosticoInicial.length>120?'…':'')+"</div>";
+      // Fila 4: retorno estimado
+      if(retLbl) h+="<div style='font-size:11px;font-weight:700;color:"+(retAlert?'#b45309':col.text)+";margin-bottom:4px;'>"+(retAlert?'⚠️':'📅')+' '+retLbl+"</div>";
+      // Fila 5: responsable + última sesión
+      h += "<div style='display:flex;gap:14px;flex-wrap:wrap;margin-top:2px;'>";
+      if(exp.responsableApertura) h+="<span style='font-size:10px;color:"+col.text+";opacity:.7;'>👤 "+escHtml(exp.responsableApertura)+"</span>";
+      if(ultEnt) h+="<span style='font-size:10px;color:"+col.text+";opacity:.7;'>🕐 Última sesión: "+ultEnt.fecha+" · "+escHtml(ultEnt.profesional)+"</span>";
+      else h+="<span style='font-size:10px;color:"+col.text+";opacity:.6;font-style:italic;'>Sin sesiones registradas en bitácora</span>";
+      h += "</div>";
+      h += "</div>";
+      // Botones
+      h += "<div style='display:flex;flex-direction:column;gap:6px;min-width:130px;align-items:stretch;'>";
+      h += "<button onclick='expVerExpediente(\""+exp.id+"\")' style='background:"+col.text+";color:#fff;border:none;border-radius:9px;padding:8px 12px;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;'>📋 Ver expediente</button>";
       if(esMedico){
-        h += "<button onclick='expAgregarEntrada(\""+exp.id+"\")' style='background:rgba(0,0,0,.08);color:"+col.text+";border:1px solid "+col.border+";border-radius:8px;padding:7px 10px;font-size:11px;font-weight:600;cursor:pointer;'>➕ Nueva entrada</button>";
-        h += "<button onclick='expCerrarModal(\""+exp.id+"\")' style='background:rgba(0,0,0,.05);color:#6b7280;border:1px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:10px;cursor:pointer;'>✅ Dar de alta</button>";
+        h += "<button onclick='expAgregarEntrada(\""+exp.id+"\")' style='background:rgba(0,0,0,.09);color:"+col.text+";border:1px solid "+col.border+";border-radius:9px;padding:8px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;'>➕ Nueva sesión</button>";
+        h += "<button onclick='expCerrarModal(\""+exp.id+"\")' style='background:rgba(0,0,0,.04);color:#6b7280;border:1px solid #d1d5db;border-radius:9px;padding:7px 12px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;'>✅ Dar de alta</button>";
       }
       h += "</div></div></div>";
     });
