@@ -21448,6 +21448,21 @@ function sesCargarActivaFb(cb){
     if(cb) cb(!!sesData);
     return;
   }
+  // Verificar primero si la sesión de hoy ya fue finalizada — evita re-cargar sesión finalizada
+  window.fbDB.ref('bfc/sesion_finalizada_fecha').once('value', function(snapFin){
+    var fechaFinalizada = snapFin.val();
+    if(fechaFinalizada === TODAY){
+      // La sesión de hoy ya fue finalizada — no cargar nada, abrir en blanco
+      console.log('[BFC] sesCargarActivaFb — sesión de hoy ya finalizada (sesion_finalizada_fecha='+TODAY+'). Abriendo en blanco.');
+      try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
+      sesData = null;
+      if(cb) cb(false);
+      return;
+    }
+    _sesCargarActivaFbInterno(cb);
+  }, function(){ _sesCargarActivaFbInterno(cb); }); // si falla la lectura, continuar normalmente
+}
+function _sesCargarActivaFbInterno(cb){
   window.fbDB.ref('bfc/sesion_activa').once('value', function(snap){
     var d = snap.val();
     if(!d){
@@ -21562,6 +21577,10 @@ function sesFinalizar(){
     sesData = null;
     _sesLocalTs = 0; _sesLastSyncTs = 0; _sesLastRemoteTs = 0;
     _sesEscuchando = false; window._sesInitFbPendiente = false;
+    // ⚠️ INDEPENDIZACIÓN HISTORIAL: limpiar BFC_SES_LOCAL para que la sesión
+    // histórica editada no persista en localStorage y no confunda a otros dispositivos
+    // ni a la próxima recarga como si fuera una sesión activa pendiente.
+    try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
     sesInit();
     if(typeof renderSesion==='function') renderSesion();
     if(typeof irA==='function') irA('historial');
@@ -21825,7 +21844,12 @@ function sesSave(){
   // sepa que tenemos cambios locales más recientes que cualquier snapshot remoto
   _sesLocalTs = Date.now();
   sesData._localTs = _sesLocalTs;
-  try{ localStorage.setItem('BFC_SES_LOCAL', JSON.stringify(sesData)); }catch(e){}
+  // ⚠️ INDEPENDIZACIÓN HISTORIAL: si estamos editando una sesión histórica,
+  // NO escribir en BFC_SES_LOCAL — evita que otros dispositivos o una recarga
+  // detecten la sesión histórica como "sesión activa" y generen sesiones fantasma.
+  if(!sesData._editandoHistId){
+    try{ localStorage.setItem('BFC_SES_LOCAL', JSON.stringify(sesData)); }catch(e){}
+  }
   // Auto-sync a Firebase (debounce 3s) — colaboración multi-dispositivo
   if(typeof sesSyncFb==='function') sesSyncFb();
 }
@@ -24627,7 +24651,11 @@ function _histEditarOkCargar(id, snap){
   // Si se sube al nodo sesion_activa, todos los dispositivos conectados cambiarán
   // automáticamente a esta sesión histórica, pisando lo que el staff está viendo.
   // La sesión histórica solo se sube a Firebase cuando el usuario finaliza/guarda.
-  try{ localStorage.setItem('BFC_SES_LOCAL', JSON.stringify(sesData)); }catch(e){}
+  //
+  // ⚠️ INDEPENDIZACIÓN HISTORIAL: NO escribir en BFC_SES_LOCAL durante edición histórica.
+  // Si se escribe, otros dispositivos o una recarga detectan la sesión histórica como
+  // "sesión activa", la re-guardan en el historial y crean sesiones fantasma (S.—).
+  // La edición histórica vive solo en memoria (sesData) hasta que el usuario guarda.
   // Detener listener de Firebase para que cambios remotos no pisen esta edición local
   if(typeof jornadaDetenerListener==='function') jornadaDetenerListener();
   _sesEscuchando = false;
