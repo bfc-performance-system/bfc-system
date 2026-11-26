@@ -793,6 +793,9 @@ function fbEscucharHistorial() {
   fbDB.ref('bfc/historial').on('value', function(snap) {
     var remoto = snap.val();
     remoto = fbArrNorm(remoto); if (!remoto) return;
+    // Firebase respondió con datos válidos — marcar como cargado SIEMPRE, antes de cualquier return
+    // Esto es crítico: sin este flag, histSave() nunca puede escribir a Firebase
+    _histFirebaseLoaded = true;
     // Ignorar el eco de nuestro propio guardado reciente (ventana de 5s)
     var ahoraMs = Date.now();
     if (_histSaveTs > 0 && (ahoraMs - _histSaveTs) < 5000) return;
@@ -21300,16 +21303,30 @@ function sesEscucharFb(){
     var fechaRemota = d._fecha || d.fecha || '';
     if(fechaRemota && fechaRemota < TODAY){
       console.warn('[BFC] sesEscucharFb — nodo de día pasado ('+fechaRemota+' < hoy '+TODAY+'). Guardando en historial antes de limpiar.');
-      // ✅ FIX: guardar en historial antes de eliminar el nodo
-      var _sesDataVieja = Object.assign({}, d);
-      delete _sesDataVieja._ts; delete _sesDataVieja._fecha;
-      var _sesDataActual = sesData; // preservar sesión actual
-      sesData = _sesDataVieja;
-      if(typeof guardarEnHistorial === 'function'){
-        try{ guardarEnHistorial(); }catch(eH){ console.warn('[BFC] sesEscucharFb — error guardarEnHistorial:', eH && eH.message); }
+      var _sesDataVieja2 = Object.assign({}, d);
+      delete _sesDataVieja2._ts; delete _sesDataVieja2._fecha;
+      var _sesDataActual2 = sesData;
+      var _guardarSesVieja = function(){
+        sesData = _sesDataVieja2;
+        if(typeof guardarEnHistorial === 'function'){
+          try{ guardarEnHistorial(); }catch(eH){ console.warn('[BFC] sesEscucharFb — error guardarEnHistorial:', eH && eH.message); }
+        }
+        sesData = _sesDataActual2;
+        window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
+      };
+      if(_histFirebaseLoaded){
+        _guardarSesVieja();
+      } else {
+        var _intentos2 = 0;
+        var _espera2 = setInterval(function(){
+          _intentos2++;
+          if(_histFirebaseLoaded || _intentos2 >= 16){
+            clearInterval(_espera2);
+            if(!_histFirebaseLoaded) _histFirebaseLoaded = true;
+            _guardarSesVieja();
+          }
+        }, 500);
       }
-      sesData = _sesDataActual; // restaurar sesión actual
-      window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
       return;
     }
 
@@ -21454,20 +21471,41 @@ function sesCargarActivaFb(cb){
       // Cargar los datos en sesData temporalmente para guardarlos en historial
       var _sesDataAnterior = Object.assign({}, d);
       delete _sesDataAnterior._ts; delete _sesDataAnterior._fecha;
-      sesData = _sesDataAnterior;
       _sesLocalTs = d._ts || Date.now();
-      // Guardar la sesión de ayer en historial (incluye tareas, objetivos, jugadores...)
-      if(typeof guardarEnHistorial === 'function'){
-        try{ guardarEnHistorial(); }catch(eH){ console.warn('[BFC] sesCargarActivaFb — error al guardar en historial:', eH && eH.message); }
+      // CRÍTICO: esperar a que Firebase historial esté cargado antes de guardar,
+      // para que histSave() no quede bloqueado por _histFirebaseLoaded=false
+      // y la sesión de ayer no se pierda al cambiar de día.
+      var _guardarSesionAnterior = function(){
+        sesData = _sesDataAnterior;
+        if(typeof guardarEnHistorial === 'function'){
+          try{ guardarEnHistorial(); }catch(eH){ console.warn('[BFC] sesCargarActivaFb — error al guardar en historial:', eH && eH.message); }
+        }
+        sesData = null;
+        _sesLocalTs = 0; _sesLastSyncTs = 0; _sesLastRemoteTs = 0;
+        try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
+        window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
+        console.log('[BFC] sesCargarActivaFb — sesión de '+fechaRemota+' guardada en historial. Abriendo en blanco para hoy ('+TODAY+').');
+        if(cb) cb(false);
+      };
+      if(_histFirebaseLoaded){
+        // Firebase historial ya está listo — guardar de inmediato
+        _guardarSesionAnterior();
+      } else {
+        // Esperar hasta 8 segundos a que Firebase cargue el historial, luego guardar
+        console.warn('[BFC] sesCargarActivaFb — esperando a que Firebase historial cargue antes de guardar sesión anterior...');
+        var _intentos = 0;
+        var _espera = setInterval(function(){
+          _intentos++;
+          if(_histFirebaseLoaded || _intentos >= 16){
+            clearInterval(_espera);
+            if(!_histFirebaseLoaded){
+              console.warn('[BFC] sesCargarActivaFb — Firebase historial no cargó en 8s, guardando de todas formas (historial podría estar incompleto)');
+              _histFirebaseLoaded = true; // forzar para que histSave() pueda correr
+            }
+            _guardarSesionAnterior();
+          }
+        }, 500);
       }
-      // Limpiar estado local: el nuevo día empieza en blanco
-      sesData = null;
-      _sesLocalTs = 0; _sesLastSyncTs = 0; _sesLastRemoteTs = 0;
-      try{ localStorage.removeItem('BFC_SES_LOCAL'); }catch(e){}
-      // Eliminar el nodo de Firebase del día anterior
-      window.fbDB.ref('bfc/sesion_activa').remove().catch(function(){});
-      console.log('[BFC] sesCargarActivaFb — sesión de '+fechaRemota+' guardada en historial. Abriendo en blanco para hoy ('+TODAY+').');
-      if(cb) cb(false); // abrir en blanco para el nuevo día
       return;
     }
     var tsRemoto = d._ts || 0;
